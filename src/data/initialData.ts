@@ -1,0 +1,414 @@
+import { Student, CashMutation, Invoice, Attendance, SkillIndicator, StudentReport } from '../types';
+
+export const CURRENT_SYSTEM_YEAR = 2026;
+
+export const INITIAL_STUDENTS: Student[] = [
+  { 
+    id: 'BFA-001', 
+    name: 'Andra', 
+    avatar: 'https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Karawang', 
+    birthDate: '2015-05-21', // 2026 - 2015 = 11 -> U11
+    gender: 'L', 
+    parentName: 'Bpk. Bambang Supardi', 
+    phone: '089634753330', 
+    classGroupId: 'U11', 
+    status: 'Aktif', 
+    joinedDate: '2024-01-10', 
+    position: 'Flank', 
+    jerseyNumber: 10,
+    documents: { kk: 'KK_Andra.pdf', akte: 'Akte_Andra.jpg', kia: 'KIA_Andra.jpg', ijazah: 'Ijazah_TK_Andra.pdf' }
+  },
+  { 
+    id: 'BFA-002', 
+    name: 'Bima', 
+    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Sidoarjo', 
+    birthDate: '2016-08-22', // 2026 - 2016 = 10 -> U10
+    gender: 'L', 
+    parentName: 'Bpk. Gunawan', 
+    phone: '081398765432', 
+    classGroupId: 'U10', 
+    status: 'Aktif', 
+    joinedDate: '2024-02-12', 
+    position: 'Pivot', 
+    jerseyNumber: 9,
+    documents: { kk: 'KK_Bima.pdf', akte: 'Akte_Bima.jpg', kia: 'KIA_Bima.jpg', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-003', 
+    name: 'Raka', 
+    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Jakarta', 
+    birthDate: '2014-07-08', // 2026 - 2014 = 12 -> U12
+    gender: 'L', 
+    parentName: 'Ibu Ratna Dewi', 
+    phone: '082155443322', 
+    classGroupId: 'U12', 
+    status: 'Aktif', 
+    joinedDate: '2023-03-05', 
+    position: 'Anchor', 
+    jerseyNumber: 4,
+    documents: { kk: 'KK_Raka.pdf', akte: 'Akte_Raka.jpg', kia: '-', ijazah: 'Ijazah_SD_Raka.pdf' }
+  },
+  { 
+    id: 'BFA-004', 
+    name: 'Fahmi', 
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Karawang', 
+    birthDate: '2018-11-19', // 2026 - 2018 = 8 -> U8
+    gender: 'L', 
+    parentName: 'Bpk. Rudi Salam', 
+    phone: '081299887766', 
+    classGroupId: 'U8', 
+    status: 'Aktif', 
+    joinedDate: '2025-04-14', 
+    position: 'Flank', 
+    jerseyNumber: 7,
+    documents: { kk: 'KK_Fahmi.pdf', akte: 'Akte_Fahmi.jpg', kia: 'KIA_Fahmi.jpg', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-005', 
+    name: 'Rizky', 
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Surabaya', 
+    birthDate: '2016-03-03', // 2026 - 2016 = 10 -> U10
+    gender: 'L', 
+    parentName: 'Bpk. Hendra Kurniawan', 
+    phone: '081211223344', 
+    classGroupId: 'U10', 
+    status: 'Aktif', 
+    joinedDate: '2024-01-01', 
+    position: 'Goalkeeper', 
+    jerseyNumber: 1,
+    documents: { kk: 'KK_Rizky.pdf', akte: 'Akte_Rizky.jpg', kia: 'KIA_Rizky.jpg', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-006', 
+    name: 'Daffa', 
+    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Bekasi', 
+    birthDate: '2014-10-11', // 2026 - 2014 = 12 -> U12
+    gender: 'L', 
+    parentName: 'Ibu Maya Lestari', 
+    phone: '087811992288', 
+    classGroupId: 'U12', 
+    status: 'Aktif', 
+    joinedDate: '2023-05-15', 
+    position: 'Anchor', 
+    jerseyNumber: 6,
+    documents: { kk: 'KK_Daffa.pdf', akte: 'Akte_Daffa.jpg', kia: 'KIA_Daffa.jpg', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-007', 
+    name: 'Fajar', 
+    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Karawang', 
+    birthDate: '2020-01-25', // 2026 - 2020 = 6 -> U6
+    gender: 'L', 
+    parentName: 'Bpk. Ilham Ramli', 
+    phone: '089677334455', 
+    classGroupId: 'U6', 
+    status: 'Aktif', 
+    joinedDate: '2025-06-10', 
+    position: 'Flank', 
+    jerseyNumber: 11,
+    documents: { kk: 'KK_Fajar.pdf', akte: 'Akte_Fajar.jpg', kia: '-', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-008', 
+    name: 'Rafi', 
+    avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Bandung', 
+    birthDate: '2016-12-02', // 2026 - 2016 = 10 -> U10
+    gender: 'L', 
+    parentName: 'Bpk. Dani Setiawan', 
+    phone: '081366554422', 
+    classGroupId: 'U10', 
+    status: 'Aktif', 
+    joinedDate: '2024-02-20', 
+    position: 'Pivot', 
+    jerseyNumber: 19,
+    documents: { kk: 'KK_Rafi.pdf', akte: 'Akte_Rafi.jpg', kia: 'KIA_Rafi.jpg', ijazah: '-' }
+  },
+  { 
+    id: 'BFA-009', 
+    name: 'Ilham', 
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Karawang', 
+    birthDate: '2011-06-16', // 2026 - 2011 = 15 -> U15
+    gender: 'L', 
+    parentName: 'Bpk. Ahmad Fauzi', 
+    phone: '085233445566', 
+    classGroupId: 'U15', 
+    status: 'Aktif', 
+    joinedDate: '2022-08-19', 
+    position: 'Anchor', 
+    jerseyNumber: 8,
+    documents: { kk: 'KK_Ilham.pdf', akte: 'Akte_Ilham.jpg', kia: 'KIA_Ilham.jpg', ijazah: 'Ijazah_SD_Ilham.pdf' }
+  },
+  { 
+    id: 'BFA-010', 
+    name: 'Bagas', 
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=240&auto=format&fit=crop&q=80', 
+    birthPlace: 'Purwakarta', 
+    birthDate: '2009-02-04', // 2026 - 2009 = 17 -> U17
+    gender: 'L', 
+    parentName: 'Ibu Sri Wahyuni', 
+    phone: '081244556677', 
+    classGroupId: 'U17', 
+    status: 'Aktif', 
+    joinedDate: '2021-02-10', 
+    position: 'Pivot', 
+    jerseyNumber: 14,
+    documents: { kk: 'KK_Bagas.pdf', akte: 'Akte_Bagas.jpg', kia: 'KIA_Bagas.jpg', ijazah: 'Ijazah_SMP_Bagas.pdf' }
+  }
+];
+
+export const INITIAL_CASH_MUTATIONS: CashMutation[] = [
+  { id: 'MUT-001', date: '2026-09-26', type: 'Pemasukan', category: 'SPP Bulanan', note: 'Pembayaran SPP September - 35 Siswa', method: 'Transfer Bank BFA', amount: 1750000, staff: 'Admin Sari' },
+  { id: 'MUT-002', date: '2026-09-26', type: 'Pemasukan', category: 'Iuran Sesi Lapangan', note: 'Iuran kehadiran Sabtu 26 Sep (24 Siswa)', method: 'Tunai Lapangan', amount: 360000, staff: 'Coach Hendra' },
+  { id: 'MUT-003', date: '2026-09-26', type: 'Pengeluaran', category: 'Sewa Lapangan', note: 'Sewa 4 Jam Lapangan Vinyl FlaminGO Center', method: 'Transfer Bank BFA', amount: 900000, staff: 'Coach Hendra' },
+  { id: 'MUT-004', date: '2026-09-25', type: 'Pengeluaran', category: 'Honor Pelatih', note: 'Honor Sesi Latihan Reguler & Kiper (3 Pelatih)', method: 'Transfer Bank BFA', amount: 650000, staff: 'Admin Sari' },
+  { id: 'MUT-005', date: '2026-09-24', type: 'Pemasukan', category: 'Pendaftaran Anggota Baru', note: 'Registrasi 2 Siswa Baru U11 (Farhan & Rizky)', method: 'QRIS Kasir', amount: 500000, staff: 'Admin Sari' },
+  { id: 'MUT-006', date: '2026-09-22', type: 'Pengeluaran', category: 'Alat & Bola Futsal', note: 'Pembelian 4 Bola Futsal Molten Vantaggio & Cone', method: 'Tunai Lapangan', amount: 1100000, staff: 'Coach Hendra' },
+  { id: 'MUT-007', date: '2026-09-20', type: 'Pengeluaran', category: 'Operasional Lainnya', note: 'Pengisian Kotak P3K, Es Batu, & Air Mineral Sesi', method: 'Tunai Lapangan', amount: 250000, staff: 'Official Dani' },
+  { id: 'MUT-008', date: '2026-09-18', type: 'Pemasukan', category: 'SPP Bulanan', note: 'Pelunasan SPP Bulanan - 40 Siswa', method: 'Virtual Account', amount: 2000000, staff: 'Admin Sari' },
+  { id: 'MUT-009', date: '2026-09-15', type: 'Pengeluaran', category: 'Sewa Lapangan', note: 'Sewa Lapangan Pertandingan Internal Sparing', method: 'Transfer Bank BFA', amount: 600000, staff: 'Coach Hendra' },
+  { id: 'MUT-010', date: '2026-09-12', type: 'Pemasukan', category: 'Iuran Sesi Lapangan', note: 'Iuran sesi latihan Sabtu 12 Sep', method: 'QRIS Kasir', amount: 480000, staff: 'Admin Sari' }
+];
+
+export const INITIAL_INVOICES: Invoice[] = [
+  { id: 'INV-20260901-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-01 09:12:00', transactionId: 'BFA-TRX-20260901-001', paymentMethod: 'QRIS' },
+  { id: 'INV-20260905-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-05', period: 'Latihan 5 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-08', createdAt: '05/09/2026', paidAt: '2026-09-05 16:30:00', transactionId: 'BFA-TRX-20260905-014', paymentMethod: 'Virtual Account' },
+  { id: 'INV-20260912-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-15', createdAt: '12/09/2026', paidAt: '2026-09-12 17:10:00', transactionId: 'BFA-TRX-20260912-021', paymentMethod: 'QRIS' },
+  { id: 'INV-20260926-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-26', period: 'Latihan 26 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-29', createdAt: '26/09/2026', paidAt: '2026-09-26 16:30:00', transactionId: 'BFA-TRX-20260926-055', paymentMethod: 'QRIS' },
+
+  { id: 'INV-20260901-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-03 14:10:00', transactionId: 'BFA-TRX-20260903-088', paymentMethod: 'Transfer Bank' },
+  { id: 'INV-20260905-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-05', period: 'Latihan 5 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-08', createdAt: '05/09/2026', paidAt: '2026-09-05 17:15:00', transactionId: 'BFA-TRX-20260905-032', paymentMethod: 'QRIS' },
+  { id: 'INV-20260912-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-15', createdAt: '12/09/2026', paidAt: '2026-09-12 17:25:00', transactionId: 'BFA-TRX-20260912-064', paymentMethod: 'QRIS' },
+  { id: 'INV-20260926-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-26', period: 'Latihan 26 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-29', createdAt: '26/09/2026', paidAt: '2026-09-26 16:50:00', transactionId: 'BFA-TRX-20260926-091', paymentMethod: 'QRIS' },
+
+  { id: 'INV-20260912-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'BELUM BAYAR', dueDate: '2026-09-15', createdAt: '12/09/2026' },
+  { id: 'INV-20260901-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-02 11:20:00', transactionId: 'BFA-TRX-20260902-019', paymentMethod: 'QRIS' },
+  { id: 'INV-20260901-004', studentId: 'BFA-004', studentName: 'Fahmi', classGroupId: 'U8', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'BELUM BAYAR', dueDate: '2026-09-10', createdAt: '01/09/2026' }
+];
+
+export const INITIAL_ATTENDANCES: Attendance[] = [
+  // 5 Sep 2026
+  { id: 'ATT-20260905-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-05', checkInTime: '14:04:10', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260905-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-05', checkInTime: '14:05:30', status: 'HADIR', feeGenerated: true },
+  
+  // 12 Sep 2026
+  { id: 'ATT-20260912-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-12', checkInTime: '14:02:15', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260912-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-12', checkInTime: '14:03:45', status: 'HADIR', feeGenerated: true },
+  
+  // 19 Sep 2026 (Tidak hadir)
+  { id: 'ATT-20260919-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-19', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
+  { id: 'ATT-20260919-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-19', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
+
+  // 26 Sep 2026
+  { id: 'ATT-20260926-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-26', checkInTime: '14:02:15', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260926-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-26', checkInTime: '14:05:00', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260926-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', date: '2026-09-26', checkInTime: '14:08:44', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260926-004', studentId: 'BFA-004', studentName: 'Fahmi', classGroupId: 'U8', date: '2026-09-26', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
+  { id: 'ATT-20260926-005', studentId: 'BFA-005', studentName: 'Rizky', classGroupId: 'U10', date: '2026-09-26', checkInTime: '13:58:30', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260926-006', studentId: 'BFA-006', studentName: 'Daffa', classGroupId: 'U12', date: '2026-09-26', checkInTime: '14:10:12', status: 'HADIR', feeGenerated: true },
+  { id: 'ATT-20260926-007', studentId: 'BFA-007', studentName: 'Fajar', classGroupId: 'U6', date: '2026-09-26', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
+  { id: 'ATT-20260926-008', studentId: 'BFA-008', studentName: 'Rafi', classGroupId: 'U10', date: '2026-09-26', checkInTime: '14:12:00', status: 'HADIR', feeGenerated: true }
+];
+
+export const INITIAL_SKILL_INDICATORS: SkillIndicator[] = [
+  // 1. TEKNIK (SKILLS)
+  { key: 'pass', name: 'Passing', shortName: 'Passing', score: 83, category: 'Teknik' },
+  { key: 'ctrl', name: 'Ball Control', shortName: 'Ball Control', score: 81, category: 'Teknik' },
+  { key: 'drib', name: 'Dribbling', shortName: 'Dribbling', score: 84, category: 'Teknik' },
+  { key: 'shoot', name: 'Shooting', shortName: 'Shooting', score: 80, category: 'Teknik' },
+
+  // 2. FISIK & MOTORIK
+  { key: 'stamina', name: 'Stamina', shortName: 'Stamina', score: 80, category: 'Fisik' },
+  { key: 'kelincahan', name: 'Kelincahan', shortName: 'Kelincahan', score: 88, category: 'Fisik' },
+  { key: 'koordinasi', name: 'Koordinasi', shortName: 'Koordinasi', score: 88, category: 'Fisik' },
+  { key: 'keseimbangan', name: 'Keseimbangan', shortName: 'Keseimbangan', score: 84, category: 'Fisik' },
+
+  // 3. MENTAL & SIKAP
+  { key: 'p_diri', name: 'Percaya Diri', shortName: 'Percaya Diri', score: 85, category: 'Mental' },
+  { key: 'fokus', name: 'Fokus', shortName: 'Fokus', score: 82, category: 'Mental' },
+  { key: 'disiplin', name: 'Disiplin', shortName: 'Disiplin', score: 85, category: 'Mental' },
+  { key: 'k_sama', name: 'Kerja Sama', shortName: 'Kerja Sama', score: 82, category: 'Mental' },
+  { key: 'sportif', name: 'Sportivitas', shortName: 'Sportivitas', score: 85, category: 'Mental' },
+];
+
+export const INITIAL_COACH_NOTES = 
+  'Tingkatkan lagi konsistensi first touch dan komunikasi saat transisi permainan.';
+
+export function createDefaultReport(studentId: string, studentName?: string, position?: string): StudentReport {
+  const isGK = position === 'Goalkeeper';
+  const isAnchor = position === 'Anchor';
+  const isPivot = position === 'Pivot';
+
+  let indicators = INITIAL_SKILL_INDICATORS.map((item) => ({ ...item }));
+  let notes = 'Terus tingkatkan performa latihan dan pertahankan kedisiplinan di setiap sesi akademi.';
+
+  if (isGK) {
+    indicators = indicators.map((ind) => {
+      if (ind.key === 'kelincahan') return { ...ind, score: 90 };
+      if (ind.key === 'koordinasi') return { ...ind, score: 91 };
+      if (ind.key === 'fokus') return { ...ind, score: 92 };
+      if (ind.key === 'keseimbangan') return { ...ind, score: 88 };
+      if (ind.key === 'shoot') return { ...ind, score: 72 };
+      return ind;
+    });
+    notes = 'Refleks penjagaan gawang sangat baik. Terus asah distribusi bola dan komando lini belakang.';
+  } else if (isAnchor) {
+    indicators = indicators.map((ind) => {
+      if (ind.key === 'pass') return { ...ind, score: 87 };
+      if (ind.key === 'disiplin') return { ...ind, score: 89 };
+      if (ind.key === 'fokus') return { ...ind, score: 88 };
+      if (ind.key === 'k_sama') return { ...ind, score: 88 };
+      return ind;
+    });
+    notes = 'Pertahanan kokoh dan pembacaan arah serangan lawan sangat matang. Bagus dalam distribusi bola.';
+  } else if (isPivot) {
+    indicators = indicators.map((ind) => {
+      if (ind.key === 'shoot') return { ...ind, score: 88 };
+      if (ind.key === 'ctrl') return { ...ind, score: 85 };
+      if (ind.key === 'p_diri') return { ...ind, score: 87 };
+      return ind;
+    });
+    notes = 'Naluri penyelesaian akhir tajam. Asah lagi kemampuan menahan bola dengan punggung menghadap gawang.';
+  }
+
+  return {
+    studentId,
+    skillIndicators: indicators,
+    coachNotes: notes,
+    evaluationDate: '2026-09-25',
+    attendancePercent: 100,
+    totalSessions: 17,
+  };
+}
+
+export const INITIAL_STUDENT_REPORTS: Record<string, StudentReport> = {
+  'BFA-001': {
+    studentId: 'BFA-001',
+    skillIndicators: INITIAL_SKILL_INDICATORS,
+    coachNotes: INITIAL_COACH_NOTES,
+    evaluationDate: '2026-09-25',
+    attendancePercent: 100,
+    totalSessions: 17,
+  },
+  'BFA-002': createDefaultReport('BFA-002', 'Bima', 'Pivot'),
+  'BFA-003': createDefaultReport('BFA-003', 'Raka', 'Anchor'),
+  'BFA-004': createDefaultReport('BFA-004', 'Fahmi', 'Flank'),
+  'BFA-005': createDefaultReport('BFA-005', 'Rizky', 'Goalkeeper'),
+  'BFA-006': createDefaultReport('BFA-006', 'Daffa', 'Anchor'),
+  'BFA-007': createDefaultReport('BFA-007', 'Fajar', 'Flank'),
+  'BFA-008': createDefaultReport('BFA-008', 'Rafi', 'Pivot'),
+  'BFA-009': createDefaultReport('BFA-009', 'Ilham', 'Anchor'),
+  'BFA-010': createDefaultReport('BFA-010', 'Bagas', 'Pivot'),
+};
+
+export const ALL_KU_CATEGORIES: string[] = Array.from({ length: 28 }, (_, i) => `U${i + 3}`); // U3 to U30
+
+export interface KUCategoryInfo {
+  code: string;
+  age: number;
+  birthYear: number;
+  bracket: 'Usia Dini' | 'Grassroots' | 'Remaja' | 'Senior';
+}
+
+export function getKUCategoryInfo(code: string, currentYear = CURRENT_SYSTEM_YEAR): KUCategoryInfo | null {
+  const ageNum = parseInt(code.replace('U', ''), 10);
+  if (isNaN(ageNum)) return null;
+  let bracket: 'Usia Dini' | 'Grassroots' | 'Remaja' | 'Senior' = 'Grassroots';
+  if (ageNum <= 7) bracket = 'Usia Dini';
+  else if (ageNum <= 12) bracket = 'Grassroots';
+  else if (ageNum <= 17) bracket = 'Remaja';
+  else bracket = 'Senior';
+
+  return {
+    code: `U${ageNum}`,
+    age: ageNum,
+    birthYear: currentYear - ageNum,
+    bracket,
+  };
+}
+
+export function calculateAgeAndGroup(birthDateStr: string, currentYear = CURRENT_SYSTEM_YEAR): { age: number; group: string } {
+  if (!birthDateStr) return { age: 0, group: 'U10' };
+  const birthYear = new Date(birthDateStr).getFullYear();
+  if (isNaN(birthYear)) return { age: 0, group: 'U10' };
+  
+  const calculatedAge = currentYear - birthYear;
+  const clampedAge = Math.max(3, Math.min(30, calculatedAge));
+  const groupKey = 'U' + clampedAge;
+  return { age: calculatedAge, group: groupKey };
+}
+
+export function formatDateIndo(dateStr: string): string {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const year = parts[0];
+  const monthIndex = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (monthIndex < 0 || monthIndex >= 12) return dateStr;
+  return `${day} ${months[monthIndex]} ${year}`;
+}
+
+/**
+ * Automatically calculates the next student ID by finding the maximum numerical suffix
+ * among all existing IDs and adding 1 (e.g. if BFA-001 ... BFA-010 exist, returns BFA-011).
+ */
+export function getNextStudentId(existingStudents: { id?: string }[]): string {
+  let maxNum = 0;
+  for (const s of existingStudents) {
+    if (!s || !s.id || typeof s.id !== 'string') continue;
+    const match = s.id.match(/\d+/g);
+    if (match && match.length > 0) {
+      const num = parseInt(match[match.length - 1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  }
+  const nextNum = maxNum + 1;
+  return `BFA-${String(nextNum).padStart(3, '0')}`;
+}
+
+/**
+ * Sanitizes students list ensuring every student has a valid non-empty ID.
+ * If any student has an empty or missing ID, sequentially generates one.
+ */
+export function sanitizeStudentsList(studentsList: Student[]): { list: Student[]; changed: boolean } {
+  let maxNum = 0;
+  for (const s of studentsList) {
+    if (s && s.id && typeof s.id === 'string' && s.id.trim() !== '') {
+      const match = s.id.match(/\d+/g);
+      if (match && match.length > 0) {
+        const num = parseInt(match[match.length - 1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+  }
+
+  let changed = false;
+  const list = studentsList.map((st) => {
+    if (!st.id || typeof st.id !== 'string' || st.id.trim() === '') {
+      changed = true;
+      maxNum += 1;
+      const assignedId = `BFA-${String(maxNum).padStart(3, '0')}`;
+      return {
+        ...st,
+        id: assignedId,
+      };
+    }
+    return st;
+  });
+
+  return { list, changed };
+}

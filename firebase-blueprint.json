@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Athlete/student profile in Bintang Futsal Academy Karawang",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "age": { "type": "number" },
+        "classGroupId": { "type": "string" },
+        "parentName": { "type": "string" },
+        "phone": { "type": "string" },
+        "position": { "type": "string" },
+        "jerseyNumber": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string" },
+        "joinDate": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "birthPlace": { "type": "string" },
+        "address": { "type": "string" },
+        "school": { "type": "string" }
+      },
+      "required": ["id", "name", "classGroupId"]
+    },
+    "StudentReport": {
+      "title": "StudentReport",
+      "description": "E-Rapport performance evaluation and radar data for an athlete",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "evaluationDate": { "type": "string" },
+        "coachNotes": { "type": "string" },
+        "attendancePercent": { "type": "number" },
+        "totalSessions": { "type": "number" }
+      },
+      "required": ["studentId", "evaluationDate"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Tuition or monthly SPP invoice record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "month": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "paidAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "month", "amount", "status"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of all students in BFA"
+    },
+    "/studentReports/{studentId}": {
+      "schema": "StudentReport",
+      "description": "Collection of athlete E-Rapport performance reports"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Collection of monthly student invoices and payment history"
+    }
+  }
+}

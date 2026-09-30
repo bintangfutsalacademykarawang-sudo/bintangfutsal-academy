@@ -1,0 +1,6 @@
+{
+  "name": "BFA HUB - Bintang Futsal Academy",
+  "description": "Sistem Informasi Manajemen Akademi Futsal BFA: Absensi Biometrik Fingerprint, E-Rapport 20 Indikator Keterampilan, Buku Kas & Keuangan, dan Portal Pembayaran SPP Orang Tua.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
