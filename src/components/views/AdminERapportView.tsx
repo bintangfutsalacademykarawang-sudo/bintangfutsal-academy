@@ -1,5 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
-import { Student, SkillIndicator, StudentReport } from '../../types';
+import { Student, SkillIndicator, StudentReport, Attendance } from '../../types';
 import { formatDateIndo, createDefaultReport } from '../../data/initialData';
 import { 
   Edit3, 
@@ -18,11 +18,13 @@ import html2canvas from 'html2canvas';
 import { toJpeg, toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { CreateReportModal } from '../modals/CreateReportModal';
+import { BFALogo } from '../common/BFALogo';
 
 interface AdminERapportViewProps {
   students: Student[];
   currentStudentId?: string;
   studentReports: Record<string, StudentReport>;
+  attendances?: Attendance[];
   onSaveReportForStudent: (studentId: string, indicators: SkillIndicator[], notes: string) => void;
   onSaveFullReportForStudent?: (
     studentId: string,
@@ -52,6 +54,7 @@ export const AdminERapportView: React.FC<AdminERapportViewProps> = ({
   students,
   currentStudentId,
   studentReports,
+  attendances = [],
   onSaveReportForStudent,
   onSaveFullReportForStudent,
   onAddNewStudentWithReport,
@@ -76,21 +79,50 @@ export const AdminERapportView: React.FC<AdminERapportViewProps> = ({
     return students.find((s) => s.id === selectedStudentId) || students[0];
   }, [students, selectedStudentId]);
 
-  // Active report for the selected student
+  // Active report for the selected student (Default 0 untuk semua indikator & kehadiran)
   const activeReport = useMemo(() => {
     if (!activeStudent) return createDefaultReport('BFA-001');
-    return (
-      studentReports[activeStudent.id] ||
-      createDefaultReport(activeStudent.id, activeStudent.name, activeStudent.position)
-    );
+    const rep = studentReports[activeStudent.id];
+    // Jika belum ada nilai atau berisi nilai demo bawaan, default semua angka menjadi 0
+    if (!rep || rep.evaluationDate === '2026-09-25' || rep.coachNotes?.includes('first touch')) {
+      return createDefaultReport(activeStudent.id, activeStudent.name, activeStudent.position);
+    }
+    return rep;
   }, [studentReports, activeStudent]);
+
+  // Kehadiran & Total Sesi - otomatis mengikuti kehadiran latihan siswa (default 0)
+  const studentAtts = useMemo(() => {
+    if (!activeStudent || !attendances) return [];
+    return attendances.filter(
+      (a) => a.studentId === activeStudent.id || a.studentName === activeStudent.name
+    );
+  }, [activeStudent, attendances]);
+
+  const realHadirSessions = studentAtts.filter((a) => a.status === 'HADIR').length;
+  const realTotalSessions = studentAtts.length;
+  const realAttendancePercent = realTotalSessions > 0 
+    ? Math.round((realHadirSessions / realTotalSessions) * 100) 
+    : 0;
+
+  // Nilai total sesi dan kehadiran:
+  // Default awal diisi 0 semua.
+  // Total sesi otomatis mengikuti jumlah kehadiran latihan siswa secara riil.
+  const isCustomAdminSessions = typeof activeReport.totalSessions === 'number' && activeReport.totalSessions !== 17 && activeReport.totalSessions > 0;
+  const displayTotalSessions: number = (isCustomAdminSessions && typeof activeReport.totalSessions === 'number')
+    ? activeReport.totalSessions
+    : realTotalSessions;
+
+  const isCustomAdminAttendance = typeof activeReport.attendancePercent === 'number' && activeReport.attendancePercent !== 100 && activeReport.attendancePercent > 0;
+  const displayAttendancePercent: number = (isCustomAdminAttendance && typeof activeReport.attendancePercent === 'number')
+    ? activeReport.attendancePercent 
+    : (displayTotalSessions > 0 ? realAttendancePercent : 0);
 
   const skillIndicators = activeReport.skillIndicators;
   const coachNotes = activeReport.coachNotes;
 
-  // Calculate OVR rating as average of the 13 indicators
+  // Calculate OVR rating as average of the 13 indicators (default 0 if all 0)
   const totalScore = skillIndicators.reduce((acc, curr) => acc + curr.score, 0);
-  const ovrRating = Math.round(totalScore / (skillIndicators.length || 1));
+  const ovrRating = totalScore > 0 ? Math.round(totalScore / (skillIndicators.length || 1)) : 0;
 
   // Categorize 13 indicators
   const teknikItems = skillIndicators.filter((item) => item.category === 'Teknik');
@@ -561,25 +593,26 @@ Official Performance Report • BFA Karawang
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Edit Nilai (Hanya untuk Admin - Primary Button Highlight) */}
+          {!isParentView && (
+            <button
+              onClick={() => onOpenEditReportForStudent(activeStudent, skillIndicators, coachNotes)}
+              className="px-4 py-2.5 bg-gradient-to-r from-orange-600 via-amber-600 to-orange-600 hover:from-orange-700 hover:to-amber-700 text-white font-black rounded-xl text-xs border border-amber-400/40 flex items-center space-x-2 shadow-lg shadow-orange-600/30 transition active:scale-95"
+              title="Edit Nilai 13 Indikator, Kehadiran, dan Catatan Rapor Atlet Ini"
+            >
+              <Edit3 className="w-4 h-4 text-amber-200" />
+              <span>✏️ Edit Nilai Rapor ({activeStudent.name})</span>
+            </button>
+          )}
+
           {/* Input Data Rapor Baru / Lainnya Button (Admin Only) */}
           {!isParentView && (
             <button
               onClick={() => setIsCreateReportModalOpen(true)}
-              className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-orange-600/25 transition active:scale-95 shrink-0"
+              className="px-3.5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 transition active:scale-95 shrink-0 border border-blue-800"
             >
-              <UserPlus className="w-4 h-4" />
+              <UserPlus className="w-4 h-4 text-amber-400" />
               <span>+ Input Rapor Siswa Baru / Lainnya</span>
-            </button>
-          )}
-
-          {/* Edit Nilai (Hanya untuk Admin, disembunyikan untuk Orang Tua) */}
-          {!isParentView && (
-            <button
-              onClick={() => onOpenEditReportForStudent(activeStudent, skillIndicators, coachNotes)}
-              className="px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold rounded-xl text-xs border border-slate-300 flex items-center space-x-1.5 transition shadow-xs active:scale-95"
-            >
-              <Edit3 className="w-4 h-4 text-orange-600" />
-              <span>Edit Nilai ({activeStudent.name})</span>
             </button>
           )}
 
@@ -638,8 +671,9 @@ Official Performance Report • BFA Karawang
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* Header Branding */}
+        {/* Header Branding with Authentic Logo */}
         <div className="text-center pb-1 relative z-10">
+          <BFALogo className="w-12 h-14 mx-auto mb-1 drop-shadow-md" />
           <h2 className="text-lg sm:text-xl font-black tracking-wider text-amber-300 uppercase">
             BINTANG FUTSAL ACADEMY
           </h2>
@@ -666,7 +700,7 @@ Official Performance Report • BFA Karawang
           <div className="flex flex-col items-center">
             <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full border-4 border-cyan-400 bg-cyan-400/10 flex items-center justify-center shadow-lg shadow-cyan-500/20">
               <span className="text-lg sm:text-xl font-black text-cyan-300 font-mono tabular-nums">
-                {activeReport.attendancePercent || 100}%
+                {displayAttendancePercent}%
               </span>
             </div>
             <span className="text-[10px] font-black tracking-wider text-slate-300 uppercase mt-1.5">
@@ -678,7 +712,7 @@ Official Performance Report • BFA Karawang
           <div className="flex flex-col items-center">
             <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full border-4 border-emerald-400 bg-emerald-400/10 flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <span className="text-2xl sm:text-3xl font-black text-emerald-300 font-mono tabular-nums">
-                {activeReport.totalSessions || 17}
+                {displayTotalSessions}
               </span>
             </div>
             <span className="text-[10px] font-black tracking-wider text-slate-300 uppercase mt-1.5">
@@ -722,11 +756,25 @@ Official Performance Report • BFA Karawang
                 TANGGAL EVALUASI
               </span>
               <span className="text-xs font-mono font-bold text-cyan-300 block">
-                {activeReport.evaluationDate || '2026-09-25'}
+                {activeReport.evaluationDate && activeReport.evaluationDate !== '2026-09-25' ? activeReport.evaluationDate : 'Belum Dievaluasi'}
               </span>
               <span className="text-[10px] text-slate-400 block">
                 Wali: <strong className="text-slate-200">{activeStudent.parentName}</strong>
               </span>
+
+              {!isParentView && (
+                <div className="pt-2 no-print">
+                  <button
+                    type="button"
+                    onClick={() => onOpenEditReportForStudent(activeStudent, skillIndicators, coachNotes)}
+                    className="px-3 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-[11px] rounded-lg shadow-sm flex items-center gap-1 sm:ml-auto transition active:scale-95 border border-amber-300/40"
+                    title="Edit nilai atlet ini sekarang"
+                  >
+                    <Edit3 className="w-3 h-3 text-amber-100" />
+                    <span>✏️ Edit Nilai Rapor</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

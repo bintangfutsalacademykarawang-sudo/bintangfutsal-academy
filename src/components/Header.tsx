@@ -1,6 +1,7 @@
 import React from 'react';
 import { Role, AuthUser } from '../types';
 import { Shield, LogOut, User, Lock } from 'lucide-react';
+import { BFALogo } from './common/BFALogo';
 
 interface HeaderProps {
   role: Role;
@@ -25,23 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center space-x-3 cursor-pointer group"
             onClick={onLogoClick}
           >
-            {/* BFA Shield Crest SVG Logo */}
-            <div className="w-10 h-12 sm:w-11 sm:h-13 shrink-0 drop-shadow-md transition-transform group-hover:scale-105">
-              <svg viewBox="0 0 500 600" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M250 15 L475 90 V270 C475 425 250 580 250 580 C250 580 25 425 25 270 V90 L250 15 Z" fill="#060C18" stroke="#FFFFFF" strokeWidth="18"/>
-                <path d="M250 35 L455 105 V270 C455 410 250 550 250 550 C250 550 45 410 45 270 V105 L250 35 Z" fill="#0A1428"/>
-                <polygon points="250,55 272,125 345,125 286,168 308,235 250,192 192,235 214,168 155,125 228,125" fill="#D4FF00"/>
-                <polygon points="175,235 250,290 325,235 345,260 250,335 155,260" fill="#D4FF00"/>
-                <polygon points="110,185 118,208 142,208 122,222 130,245 110,230 90,245 98,222 78,208 102,208" fill="#FFFFFF"/>
-                <polygon points="390,185 398,208 422,208 402,222 410,245 390,230 370,245 378,222 358,208 382,208" fill="#FFFFFF"/>
-                <text x="250" y="375" textAnchor="middle" fill="#FFFFFF" fontFamily="'Plus Jakarta Sans', sans-serif" fontWeight="900" fontSize="52" letterSpacing="4">FUTSAL</text>
-                <g transform="rotate(-6 250 440)">
-                  <rect x="5" y="415" width="490" height="68" fill="#D4FF00"/>
-                  <text x="250" y="466" textAnchor="middle" fill="#0A1428" fontFamily="'Plus Jakarta Sans', sans-serif" fontWeight="900" fontSize="44" letterSpacing="3">ACADEMY</text>
-                </g>
-                <text x="250" y="530" textAnchor="middle" fill="#94A3B8" fontFamily="'Plus Jakarta Sans', sans-serif" fontWeight="700" fontSize="28">2018</text>
-              </svg>
-            </div>
+            {/* 100% Authentic BFA Shield Crest Logo */}
+            <BFALogo className="w-10 h-12 sm:w-12 sm:h-14 shrink-0 drop-shadow-md transition-transform group-hover:scale-105" />
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xl sm:text-2xl font-black tracking-tight text-white">BFA HUB</span>

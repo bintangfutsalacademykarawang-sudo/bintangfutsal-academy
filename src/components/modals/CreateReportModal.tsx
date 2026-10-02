@@ -69,16 +69,16 @@ export const CreateReportModal: React.FC<CreateReportModalProps> = ({
   const [jerseyNumber, setJerseyNumber] = useState<number>(10);
 
   // Report metadata state
-  const [evaluationDate, setEvaluationDate] = useState('2026-09-25');
-  const [attendancePercent, setAttendancePercent] = useState<number>(100);
-  const [totalSessions, setTotalSessions] = useState<number>(17);
+  const [evaluationDate, setEvaluationDate] = useState('2026-10-01');
+  const [attendancePercent, setAttendancePercent] = useState<number>(0);
+  const [totalSessions, setTotalSessions] = useState<number>(0);
 
   // 13 Indicators state (Skala 0 - 100)
   const [indicators, setIndicators] = useState<SkillIndicator[]>(() =>
     INITIAL_SKILL_INDICATORS.map((i) => ({ ...i }))
   );
   const [coachNotes, setCoachNotes] = useState(
-    'Tingkatkan lagi konsistensi first touch dan komunikasi saat transisi permainan.'
+    'Belum ada evaluasi nilai untuk periode ini. Silakan sesuaikan penilaian riil atlet.'
   );
 
   // Reset or initialize on open
@@ -100,17 +100,17 @@ export const CreateReportModal: React.FC<CreateReportModalProps> = ({
     if (existing) {
       setIndicators(existing.skillIndicators.map((i) => ({ ...i })));
       setCoachNotes(existing.coachNotes);
-      setEvaluationDate(existing.evaluationDate || '2026-09-25');
-      setAttendancePercent(existing.attendancePercent || 100);
-      setTotalSessions(existing.totalSessions || 17);
+      setEvaluationDate(existing.evaluationDate || '2026-10-01');
+      setAttendancePercent(typeof existing.attendancePercent === 'number' ? existing.attendancePercent : 0);
+      setTotalSessions(typeof existing.totalSessions === 'number' ? existing.totalSessions : 0);
     } else {
       const st = students.find((s) => s.id === stId);
       const def = createDefaultReport(stId, st?.name, st?.position);
       setIndicators(def.skillIndicators.map((i) => ({ ...i })));
       setCoachNotes(def.coachNotes);
       setEvaluationDate(def.evaluationDate);
-      setAttendancePercent(def.attendancePercent || 100);
-      setTotalSessions(def.totalSessions || 17);
+      setAttendancePercent(def.attendancePercent ?? 0);
+      setTotalSessions(def.totalSessions ?? 0);
     }
   };
 

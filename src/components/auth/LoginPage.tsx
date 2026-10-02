@@ -4,55 +4,56 @@ import {
   Shield, 
   User, 
   Lock, 
-  Phone, 
   Eye, 
   EyeOff, 
   ArrowRight, 
   CheckCircle2, 
-  HelpCircle
+  HelpCircle,
+  UserPlus
 } from 'lucide-react';
+import { BFALogo } from '../common/BFALogo';
+import { ForgotPasswordModal } from '../modals/ForgotPasswordModal';
 
 interface LoginPageProps {
   students: Student[];
   onLogin: (user: AuthUser) => void;
   onShowToast: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
+  onOpenRegister?: () => void;
+  prefilledIdentifier?: string;
+  onResetStudentPassword?: (studentId: string, newPassword: string) => void;
+  onResetAdminPassword?: (newPassword: string) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   students,
   onLogin,
   onShowToast,
+  onOpenRegister,
+  prefilledIdentifier = '',
+  onResetStudentPassword,
+  onResetAdminPassword,
 }) => {
-  const [activeTab, setActiveTab] = useState<Role>('parent');
-
-  // Parent form state
-  const [parentIdentifier, setParentIdentifier] = useState(() => {
-    try {
-      return localStorage.getItem('bfa_remembered_parent_id') || '';
-    } catch {
-      return '';
-    }
-  });
-  const [parentPassword, setParentPassword] = useState('Bfa123');
+  const [activeTab, setActiveTab] = useState<'parent' | 'admin'>('parent');
+  
+  // Parent Form State
+  const [parentIdentifier, setParentIdentifier] = useState(prefilledIdentifier);
+  const [parentPassword, setParentPassword] = useState('');
   const [showParentPassword, setShowParentPassword] = useState(false);
 
-  // Admin form state
+  // Admin Form State
   const [adminUsername, setAdminUsername] = useState(() => {
-    try {
-      return localStorage.getItem('bfa_remembered_admin_user') || 'Admin';
-    } catch {
-      return 'Admin';
-    }
+    try { return localStorage.getItem('bfa_remembered_admin_user') || ''; } catch { return ''; }
   });
-  const [adminPassword, setAdminPassword] = useState('adminbfa');
+  const [adminPassword, setAdminPassword] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   const [rememberMe, setRememberMe] = useState(true);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   // Handle Parent Login Submission
   const handleParentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = parentIdentifier.trim().toLowerCase();
+    const cleanId = parentIdentifier.trim();
     const cleanPass = parentPassword.trim().toLowerCase();
 
     if (!cleanId) {
@@ -66,26 +67,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     // Match with student in database
     const matched = students.find((s) => {
-      const matchId = s.id.toLowerCase() === cleanId;
+      const matchId = s.id.toLowerCase() === cleanId.toLowerCase();
       const cleanPhoneInput = cleanId.replace(/\D/g, '');
       const cleanStudentPhone = s.phone.replace(/\D/g, '');
       const matchPhone = cleanPhoneInput.length >= 7 && (
         cleanStudentPhone.includes(cleanPhoneInput) || cleanPhoneInput.includes(cleanStudentPhone)
       );
-      const matchName = s.name.toLowerCase() === cleanId;
+      const matchName = s.name.toLowerCase() === cleanId.toLowerCase();
       return matchId || matchPhone || matchName;
     });
 
     if (matched) {
-      // Validate password (default Bfa123, case-insensitive)
+      // Check if custom password was set via Forgot Password
+      let savedCustomPasswords: Record<string, string> = {};
+      try {
+        const raw = localStorage.getItem('bfa_student_passwords');
+        if (raw) savedCustomPasswords = JSON.parse(raw);
+      } catch {}
+
+      const customPass = savedCustomPasswords[matched.id] || matched.customPassword;
+
       const isValidPassword = 
+        (customPass && cleanPass === customPass.toLowerCase()) ||
         cleanPass === 'bfa123' || 
         cleanPass === '123456' || 
         cleanPass === 'admin123' ||
         cleanPass === (matched.birthDate || '').replace(/\D/g, '');
 
       if (!isValidPassword) {
-        onShowToast('Password salah. Password default wali adalah Bfa123', 'error');
+        onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
         return;
       }
 
@@ -117,11 +127,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       try { localStorage.setItem('bfa_remembered_admin_user', adminUsername); } catch {}
     }
 
-    // Only 2 admin accounts allowed as requested:
-    // 1. ID: Admin, Pass: adminbfa
-    // 2. ID: EdySun, Pass: adminbfa
-    const isAccountAdmin = user.toLowerCase() === 'admin' && pass === 'adminbfa';
-    const isAccountEdySun = user.toLowerCase() === 'edysun' && pass === 'adminbfa';
+    let customAdminPass = '';
+    try {
+      customAdminPass = localStorage.getItem('bfa_custom_admin_password') || '';
+    } catch {}
+
+    const isPassCorrect = pass === 'adminbfa' || (customAdminPass && pass === customAdminPass);
+    const isAccountAdmin = user.toLowerCase() === 'admin' && isPassCorrect;
+    const isAccountEdySun = user.toLowerCase() === 'edysun' && isPassCorrect;
 
     if (isAccountAdmin || isAccountEdySun) {
       const staffName = isAccountEdySun ? 'EdySun (Management BFA)' : 'Admin BFA';
@@ -133,20 +146,48 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       });
       onShowToast(`Selamat datang, ${staffName}! Berhasil masuk ke portal manajemen BFA.`, 'success');
     } else {
-      onShowToast('Akses ditolak. Login Admin hanya untuk akun resmi (ID: Admin / EdySun, Pass: adminbfa)', 'error');
+      onShowToast('Username atau Password Admin salah. Silakan periksa kembali data login Anda atau klik "Lupa Password?".', 'error');
     }
+  };
+
+  const handleResetStudentPasswordInternal = (studentId: string, newPassword: string) => {
+    try {
+      const raw = localStorage.getItem('bfa_student_passwords');
+      const map = raw ? JSON.parse(raw) : {};
+      map[studentId] = newPassword;
+      localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
+    } catch {}
+
+    if (onResetStudentPassword) {
+      onResetStudentPassword(studentId, newPassword);
+    }
+
+    setParentIdentifier(studentId);
+    setParentPassword(newPassword);
+  };
+
+  const handleResetAdminPasswordInternal = (newPassword: string) => {
+    try {
+      localStorage.setItem('bfa_custom_admin_password', newPassword);
+    } catch {}
+
+    if (onResetAdminPassword) {
+      onResetAdminPassword(newPassword);
+    }
+
+    setAdminPassword(newPassword);
   };
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
       {/* Header Logo & Title */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <div className="w-10 h-10 rounded-2xl bg-blue-900 border border-amber-400 flex items-center justify-center shadow-md">
-            <span className="text-amber-400 font-black text-sm tracking-tighter">BFA</span>
+        <div className="flex flex-col items-center justify-center mb-2">
+          <BFALogo className="w-16 h-20 drop-shadow-lg mb-1.5 transition-transform hover:scale-105" />
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-black tracking-tight text-slate-900">BFA HUB</span>
+            <span className="text-xs bg-blue-900 text-white font-bold px-2 py-0.5 rounded-full">2026</span>
           </div>
-          <span className="text-2xl font-black tracking-tight text-slate-900">BFA HUB</span>
-          <span className="text-xs bg-blue-900 text-white font-bold px-2 py-0.5 rounded-full">2026</span>
         </div>
         <p className="text-xs text-slate-500 font-medium">
           Bintang Futsal Academy Karawang • Sistem Terintegrasi
@@ -218,13 +259,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
 
               <div>
-                <div className="flex justify-between items-center mb-1">
+                <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-bold text-slate-700">
                     Password Akses *
                   </label>
-                  <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Default: Bfa123
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotPasswordOpen(true)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition"
+                  >
+                    Lupa Password?
+                  </button>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -233,7 +278,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     required
                     value={parentPassword}
                     onChange={(e) => setParentPassword(e.target.value)}
-                    placeholder="Masukkan password (default: Bfa123)"
+                    placeholder="Masukkan password"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-10 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
                   />
                   <button
@@ -256,14 +301,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   />
                   <span>Ingat akun saya</span>
                 </label>
-                <a
-                  href="https://wa.me/6289634753330?text=Halo%20Admin%20BFA%20saya%20butuh%20bantuan%20login%20portal%20orang%20tua"
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(true)}
                   className="text-blue-700 hover:underline font-bold text-[11px]"
                 >
-                  Bantuan WhatsApp?
-                </a>
+                  Bantuan / Lupa Password?
+                </button>
               </div>
 
               <button
@@ -273,6 +317,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <span>MASUK SEBAGAI ORANG TUA</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
+
+              {onOpenRegister && (
+                <div className="pt-2 text-center border-t border-slate-100 mt-3">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <span className="text-[11px] text-slate-500 font-semibold">
+                      Belum memiliki akun siswa?
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onOpenRegister}
+                    className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md shadow-emerald-600/20 transition active:scale-95 flex items-center justify-center space-x-2 tracking-wide"
+                  >
+                    <UserPlus className="w-4 h-4 text-emerald-100" />
+                    <span>REGISTRASI NEW MEMBER</span>
+                  </button>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    Daftar siswa baru BFA Karawang secara online & otomatis terhubung ke sistem.
+                  </p>
+                </div>
+              )}
             </form>
           )}
 
@@ -299,21 +364,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     required
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
-                    placeholder="Contoh: Admin"
+                    placeholder="Contoh: Admin atau EdySun"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
                   />
                 </div>
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Akun resmi: <strong>Admin</strong> atau <strong>EdySun</strong>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Gunakan ID akun resmi manajemen BFA Karawang.
                 </span>
               </div>
 
               <div>
-                <div className="flex justify-between items-center mb-1">
+                <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-bold text-slate-700">Password Admin *</label>
-                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Password: adminbfa
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotPasswordOpen(true)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition"
+                  >
+                    Lupa Password?
+                  </button>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -322,7 +391,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     required
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="Masukkan password admin (adminbfa)"
+                    placeholder="Masukkan password admin"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-10 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
                   />
                   <button
@@ -364,15 +433,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* Footer Information */}
         <div className="mt-6 text-center text-xs text-slate-400 space-y-1">
           <p className="flex items-center justify-center gap-1.5 font-medium">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             <span>Sistem Absensi Biometrik & Keuangan Resmi BFA</span>
           </p>
           <p className="text-[11px]">
-            &copy; 2026 Bintang Futsal Academy Karawang. All rights reserved.
+            © {new Date().getFullYear()} Bintang Futsal Academy Karawang. All rights reserved.
           </p>
         </div>
-
       </div>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        students={students}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        onResetStudentPassword={handleResetStudentPasswordInternal}
+        onResetAdminPassword={handleResetAdminPasswordInternal}
+        onSuccess={(msg) => onShowToast(msg, 'success')}
+      />
     </div>
   );
 };

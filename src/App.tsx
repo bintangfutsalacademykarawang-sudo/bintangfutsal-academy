@@ -177,27 +177,35 @@ export default function App() {
     }
   });
 
-  // Per-student E-Rapport reports (Persisted in localStorage across page refreshes)
+  // Per-student E-Rapport reports (Semua default awal 0, tersimpan di localStorage & Firestore)
   const [studentReports, setStudentReports] = useState<Record<string, StudentReport>>(() => {
     try {
-      const resetKey = 'bfa_october_clean_reset_v5';
+      const resetKey = 'bfa_erapport_all_zero_v10';
       if (!localStorage.getItem(resetKey)) {
+        localStorage.setItem(resetKey, 'true');
+        localStorage.setItem('bfa_student_reports', JSON.stringify(INITIAL_STUDENT_REPORTS));
         return INITIAL_STUDENT_REPORTS;
       }
       const saved = localStorage.getItem('bfa_student_reports');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Reset if it contains old demo grade numbers
-        if (parsed['BFA-001']?.totalSessions > 0 || parsed['BFA-001']?.evaluationDate === '2026-09-25') {
-          return INITIAL_STUDENT_REPORTS;
+        const cleaned: Record<string, StudentReport> = {};
+        for (const [id, rep] of Object.entries(parsed as Record<string, StudentReport>)) {
+          if (rep.evaluationDate === '2026-09-25' || rep.coachNotes?.includes('first touch')) {
+            cleaned[id] = createDefaultReport(id);
+          } else {
+            cleaned[id] = rep;
+          }
         }
-        return parsed;
+        return cleaned;
       }
       return INITIAL_STUDENT_REPORTS;
     } catch {
       return INITIAL_STUDENT_REPORTS;
     }
   });
+
+  const [registeredStudentId, setRegisteredStudentId] = useState<string>('');
 
   // Automatically persist every update to localStorage so refreshing page keeps all data
   useEffect(() => {
@@ -256,7 +264,15 @@ export default function App() {
 
     const unsubReports = subscribeToReports((cloudReports) => {
       if (cloudReports && Object.keys(cloudReports).length > 0) {
-        setStudentReports((prev) => ({ ...prev, ...cloudReports }));
+        const sanitized: Record<string, StudentReport> = {};
+        for (const [id, rep] of Object.entries(cloudReports)) {
+          if (rep.evaluationDate === '2026-09-25' || rep.coachNotes?.includes('first touch')) {
+            sanitized[id] = createDefaultReport(id);
+          } else {
+            sanitized[id] = rep;
+          }
+        }
+        setStudentReports((prev) => ({ ...prev, ...sanitized }));
       }
     });
 
@@ -775,6 +791,44 @@ export default function App() {
     }
   };
 
+  // Register New Member from Login Page (Auto ID, Auto Save, Direct redirect to Admin Data Siswa)
+  const handleRegisterNewMemberFromLogin = (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
+    const nextId = (data.id && data.id.trim() !== '') ? data.id : getNextStudentId(students);
+    const { id: _ignore, ...studentPayload } = data;
+    const newStudent: Student = {
+      ...studentPayload,
+      id: nextId,
+      joinedDate: new Date().toISOString().split('T')[0],
+    } as Student;
+
+    setStudents((prev) => [newStudent, ...prev]);
+    try {
+      localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
+    } catch {}
+
+    // Initialize e-rapport for new athlete
+    const defaultRep = createDefaultReport(nextId, newStudent.name, newStudent.position);
+    setStudentReports((prev) => ({
+      ...prev,
+      [nextId]: defaultRep,
+    }));
+
+    saveStudentToFirestore(newStudent).catch((e) => console.warn('Firestore student sync:', e));
+    saveReportToFirestore(nextId, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
+
+    setIsStudentFormOpen(false);
+
+    // Tetap di menu login untuk melakukan login menggunakan ID yang sudah terdaftar
+    setNewlyRegisteredStudent(newStudent);
+    setIsNewStudentBarcodeOpen(true);
+    setRegisteredStudentId(nextId);
+
+    showToast(
+      `✓ Registrasi Siswa Baru Berhasil! ID Siswa Anda adalah ${nextId}. Silakan masuk menggunakan ID Siswa ini di form login.`,
+      'success'
+    );
+  };
+
   // E-Rapport Open Edit Modal for a specific student
   const handleOpenEditReportForStudent = (
     student: Student,
@@ -787,30 +841,35 @@ export default function App() {
     setIsEditReportOpen(true);
   };
 
-  // Save Report for a specific student
+  // Save Report for a specific student (dengan pembaruan tanggal, kehadiran, & sesi riil)
   const handleSaveReportForStudent = (
     studentId: string,
     indicators: SkillIndicator[],
-    notes: string
+    notes: string,
+    evaluationDate?: string,
+    attendancePercent?: number,
+    totalSessions?: number
   ) => {
+    const prevRep = studentReports[studentId];
     const updatedRep: StudentReport = {
       studentId,
       skillIndicators: indicators,
       coachNotes: notes,
-      evaluationDate: '2026-09-25',
-      attendancePercent: studentReports[studentId]?.attendancePercent || 100,
-      totalSessions: studentReports[studentId]?.totalSessions || 17,
+      evaluationDate: evaluationDate || new Date().toISOString().split('T')[0],
+      attendancePercent: typeof attendancePercent === 'number' ? attendancePercent : (prevRep?.attendancePercent ?? 0),
+      totalSessions: typeof totalSessions === 'number' ? totalSessions : (prevRep?.totalSessions ?? 0),
     };
 
-    setStudentReports((prev) => ({
-      ...prev,
-      [studentId]: updatedRep,
-    }));
+    setStudentReports((prev) => {
+      const nextMap = { ...prev, [studentId]: updatedRep };
+      try { localStorage.setItem('bfa_student_reports', JSON.stringify(nextMap)); } catch {}
+      return nextMap;
+    });
 
     saveReportToFirestore(studentId, updatedRep).catch((e) => console.warn('Firestore report sync:', e));
 
     const st = students.find((s) => s.id === studentId);
-    showToast(`✓ Nilai E-Rapport untuk ${st?.name || studentId} berhasil disimpan online!`, 'success');
+    showToast(`✓ Nilai E-Rapport untuk ${st?.name || studentId} berhasil disimpan!`, 'success');
   };
 
   // Save Full Report with evaluationDate, attendance, and sessions
@@ -822,24 +881,7 @@ export default function App() {
     attendancePercent?: number,
     totalSessions?: number
   ) => {
-    const updatedRep: StudentReport = {
-      studentId,
-      skillIndicators: indicators,
-      coachNotes: notes,
-      evaluationDate: evaluationDate || '2026-09-25',
-      attendancePercent: attendancePercent ?? (studentReports[studentId]?.attendancePercent || 100),
-      totalSessions: totalSessions ?? (studentReports[studentId]?.totalSessions || 17),
-    };
-
-    setStudentReports((prev) => ({
-      ...prev,
-      [studentId]: updatedRep,
-    }));
-
-    saveReportToFirestore(studentId, updatedRep).catch((e) => console.warn('Firestore report sync:', e));
-
-    const st = students.find((s) => s.id === studentId);
-    showToast(`✓ Nilai E-Rapport untuk ${st?.name || studentId} berhasil disimpan online!`, 'success');
+    handleSaveReportForStudent(studentId, indicators, notes, evaluationDate, attendancePercent, totalSessions);
   };
 
   // Add new student AND immediately create their E-Rapport
@@ -1018,6 +1060,32 @@ Official Performance Report • BFA Karawang
     setIsStudentFormOpen(true);
   };
 
+  const handleResetStudentPassword = (studentId: string, newPass: string) => {
+    try {
+      const raw = localStorage.getItem('bfa_student_passwords');
+      const map = raw ? JSON.parse(raw) : {};
+      map[studentId] = newPass;
+      localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
+    } catch {}
+
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id === studentId) {
+          const updated = { ...s, customPassword: newPass };
+          saveStudentToFirestore(updated).catch(() => {});
+          return updated;
+        }
+        return s;
+      })
+    );
+  };
+
+  const handleResetAdminPassword = (newPass: string) => {
+    try {
+      localStorage.setItem('bfa_custom_admin_password', newPass);
+    } catch {}
+  };
+
   // Find active student for current parent session
   const activeParentStudent = currentUser?.studentId
     ? (students.find((s) => s.id === currentUser.studentId) || students[0])
@@ -1031,7 +1099,43 @@ Official Performance Report • BFA Karawang
           students={students}
           onLogin={handleLogin}
           onShowToast={showToast}
+          onOpenRegister={() => {
+            setStudentToEdit(null);
+            setIsStudentFormOpen(true);
+          }}
+          prefilledIdentifier={registeredStudentId}
+          onResetStudentPassword={handleResetStudentPassword}
+          onResetAdminPassword={handleResetAdminPassword}
         />
+
+        <StudentFormModal
+          isOpen={isStudentFormOpen}
+          editStudent={null}
+          nextStudentId={getNextStudentId(students)}
+          onClose={() => setIsStudentFormOpen(false)}
+          onSubmit={handleRegisterNewMemberFromLogin}
+          onOpenLiveCamera={(target) => {
+            setCameraTarget(target);
+            setIsCameraOpen(true);
+          }}
+        />
+
+        <CameraModal
+          isOpen={isCameraOpen}
+          target={cameraTarget}
+          onClose={() => setIsCameraOpen(false)}
+          onCapture={handleCameraCapture}
+        />
+
+        <StudentBarcodeModal
+          isOpen={isNewStudentBarcodeOpen}
+          student={newlyRegisteredStudent}
+          isNewRegistration={true}
+          onClose={() => {
+            setIsNewStudentBarcodeOpen(false);
+          }}
+        />
+
         <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
       </>
     );
@@ -1118,6 +1222,7 @@ Official Performance Report • BFA Karawang
                 <AdminERapportView
                   students={students}
                   studentReports={studentReports}
+                  attendances={attendances}
                   onSaveReportForStudent={handleSaveReportForStudent}
                   onSaveFullReportForStudent={handleSaveFullReportForStudent}
                   onAddNewStudentWithReport={handleAddNewStudentWithReport}
@@ -1214,6 +1319,7 @@ Official Performance Report • BFA Karawang
                   students={students}
                   currentStudentId={activeParentStudent.id}
                   studentReports={studentReports}
+                  attendances={attendances}
                   onSaveReportForStudent={handleSaveReportForStudent}
                   onSendWhatsApp={handleSendWhatsAppForStudent}
                   onOpenEditReportForStudent={handleOpenEditReportForStudent}
@@ -1270,12 +1376,29 @@ Official Performance Report • BFA Karawang
       <EditReportModal
         isOpen={isEditReportOpen}
         studentName={editingReportStudent?.name}
+        studentId={editingReportStudent?.id}
         initialIndicators={editingReportIndicators}
         initialNotes={editingReportNotes}
+        initialEvaluationDate={
+          editingReportStudent ? studentReports[editingReportStudent.id]?.evaluationDate : undefined
+        }
+        initialAttendancePercent={
+          editingReportStudent ? studentReports[editingReportStudent.id]?.attendancePercent : 0
+        }
+        initialTotalSessions={
+          editingReportStudent ? studentReports[editingReportStudent.id]?.totalSessions : 0
+        }
         onClose={() => setIsEditReportOpen(false)}
-        onSubmit={(inds, nts) => {
+        onSubmit={(inds, nts, evalDate, attPercent, totSessions) => {
           if (editingReportStudent) {
-            handleSaveReportForStudent(editingReportStudent.id, inds, nts);
+            handleSaveReportForStudent(
+              editingReportStudent.id,
+              inds,
+              nts,
+              evalDate,
+              attPercent,
+              totSessions
+            );
           }
         }}
       />

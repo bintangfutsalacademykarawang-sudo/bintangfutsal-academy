@@ -36,6 +36,7 @@ export interface Student {
   position: 'Flank' | 'Anchor' | 'Pivot' | 'Goalkeeper';
   jerseyNumber: number;
   documents: StudentDocuments;
+  customPassword?: string;
 }
 
 export interface CashMutation {
