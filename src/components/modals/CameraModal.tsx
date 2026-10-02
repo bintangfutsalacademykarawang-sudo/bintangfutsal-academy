@@ -34,6 +34,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           setStream(s);
           if (videoRef.current) {
             videoRef.current.srcObject = s;
+            videoRef.current.setAttribute('playsinline', 'true');
+            videoRef.current.setAttribute('webkit-playsinline', 'true');
+            videoRef.current.muted = true;
+            videoRef.current.play().catch(() => {});
           }
           setStatusText('🟢 Kamera Aktif');
         })

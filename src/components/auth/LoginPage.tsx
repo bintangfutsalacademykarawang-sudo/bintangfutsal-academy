@@ -44,7 +44,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return 'Admin';
     }
   });
-  const [adminPassword, setAdminPassword] = useState('admin123');
+  const [adminPassword, setAdminPassword] = useState('adminbfa');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   const [rememberMe, setRememberMe] = useState(true);
@@ -105,11 +105,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   // Handle Admin Login Submission
   const handleAdminSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = adminUsername.trim().toLowerCase();
+    const user = adminUsername.trim();
     const pass = adminPassword.trim();
 
     if (!user) {
-      onShowToast('Silakan isi Username Admin.', 'warning');
+      onShowToast('Silakan isi ID / Username Admin.', 'warning');
       return;
     }
 
@@ -117,28 +117,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       try { localStorage.setItem('bfa_remembered_admin_user', adminUsername); } catch {}
     }
 
-    const isValidUser = 
-      user === 'admin' || 
-      user.includes('coach') || 
-      user.includes('hendra') || 
-      user.includes('sari');
+    // Only 2 admin accounts allowed as requested:
+    // 1. ID: Admin, Pass: adminbfa
+    // 2. ID: EdySun, Pass: adminbfa
+    const isAccountAdmin = user.toLowerCase() === 'admin' && pass === 'adminbfa';
+    const isAccountEdySun = user.toLowerCase() === 'edysun' && pass === 'adminbfa';
 
-    const isValidPass = 
-      pass === 'admin123' || 
-      pass === 'bfa2026' || 
-      pass === '123456';
-
-    if (isValidUser && isValidPass) {
-      const isSari = user.includes('sari');
-      const staffName = isSari ? 'Admin Sari (Finance)' : 'Coach Hendra (Head Coach)';
+    if (isAccountAdmin || isAccountEdySun) {
+      const staffName = isAccountEdySun ? 'EdySun (Management BFA)' : 'Admin BFA';
+      const staffEmail = isAccountEdySun ? 'edysun@bintangfutsal.com' : 'admin@bintangfutsal.com';
       onLogin({
         role: 'admin',
         name: staffName,
-        emailOrPhone: isSari ? 'sari.finance@bintangfutsal.com' : 'coach.hendra@bintangfutsal.com',
+        emailOrPhone: staffEmail,
       });
-      onShowToast(`Selamat datang, ${staffName}! Berhasil masuk ke sistem manajemen BFA.`, 'success');
+      onShowToast(`Selamat datang, ${staffName}! Berhasil masuk ke portal manajemen BFA.`, 'success');
     } else {
-      onShowToast('Username atau password admin tidak sesuai. Gunakan Username: Admin dan Password: admin123', 'error');
+      onShowToast('Akses ditolak. Login Admin hanya untuk akun resmi (ID: Admin / EdySun, Pass: adminbfa)', 'error');
     }
   };
 
@@ -308,16 +303,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  Username resmi manajemen: <strong>Admin</strong>
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Akun resmi: <strong>Admin</strong> atau <strong>EdySun</strong>
                 </span>
               </div>
 
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-xs font-bold text-slate-700">Password Admin *</label>
-                  <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Password: admin123
+                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    Password: adminbfa
                   </span>
                 </div>
                 <div className="relative">
@@ -327,7 +322,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     required
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="Masukkan password admin (admin123)"
+                    placeholder="Masukkan password admin (adminbfa)"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-10 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
                   />
                   <button

@@ -113,14 +113,30 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  const weeklyAttendance = [
-    { day: 'Senin', value: Math.min(totalStudents, 6), max: Math.max(totalStudents, 12) },
-    { day: 'Selasa', value: Math.min(totalStudents, 8), max: Math.max(totalStudents, 12) },
-    { day: 'Rabu', value: Math.min(totalStudents, 9), max: Math.max(totalStudents, 12) },
-    { day: 'Kamis', value: Math.min(totalStudents, 8), max: Math.max(totalStudents, 12) },
-    { day: 'Jumat', value: Math.min(totalStudents, 10), max: Math.max(totalStudents, 12) },
-    { day: 'Sabtu', value: todayAttendance, max: Math.max(totalStudents, 12), highlight: true }
-  ];
+  const dayNameMap: Record<number, string> = {
+    1: 'Senin',
+    2: 'Selasa',
+    3: 'Rabu',
+    4: 'Kamis',
+    5: 'Jumat',
+    6: 'Sabtu',
+    0: 'Minggu',
+  };
+
+  const weeklyAttendance = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'].map((day) => {
+    const count = attendances.filter((a) => {
+      if (a.status !== 'HADIR') return false;
+      const d = new Date(a.date);
+      return dayNameMap[d.getDay()] === day;
+    }).length;
+
+    return {
+      day,
+      value: count,
+      max: Math.max(totalStudents, 1),
+      highlight: day === 'Sabtu',
+    };
+  });
 
   return (
     <div className="space-y-6">

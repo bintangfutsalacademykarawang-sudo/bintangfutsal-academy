@@ -205,110 +205,47 @@ export const INITIAL_SCHEDULES: TrainingSchedule[] = [
 
 export const INITIAL_INVOICES: Invoice[] = [];
 
-export const INITIAL_ATTENDANCES: Attendance[] = [
-  // 5 Sep 2026
-  { id: 'ATT-20260905-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-05', checkInTime: '14:04:10', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260905-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-05', checkInTime: '14:05:30', status: 'HADIR', feeGenerated: true },
-  
-  // 12 Sep 2026
-  { id: 'ATT-20260912-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-12', checkInTime: '14:02:15', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260912-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-12', checkInTime: '14:03:45', status: 'HADIR', feeGenerated: true },
-  
-  // 19 Sep 2026 (Tidak hadir)
-  { id: 'ATT-20260919-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-19', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
-  { id: 'ATT-20260919-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-19', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
-
-  // 26 Sep 2026
-  { id: 'ATT-20260926-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', date: '2026-09-26', checkInTime: '14:02:15', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260926-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', date: '2026-09-26', checkInTime: '14:05:00', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260926-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', date: '2026-09-26', checkInTime: '14:08:44', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260926-004', studentId: 'BFA-004', studentName: 'Fahmi', classGroupId: 'U8', date: '2026-09-26', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
-  { id: 'ATT-20260926-005', studentId: 'BFA-005', studentName: 'Rizky', classGroupId: 'U10', date: '2026-09-26', checkInTime: '13:58:30', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260926-006', studentId: 'BFA-006', studentName: 'Daffa', classGroupId: 'U12', date: '2026-09-26', checkInTime: '14:10:12', status: 'HADIR', feeGenerated: true },
-  { id: 'ATT-20260926-007', studentId: 'BFA-007', studentName: 'Fajar', classGroupId: 'U6', date: '2026-09-26', checkInTime: '-', status: 'TIDAK_HADIR', feeGenerated: false },
-  { id: 'ATT-20260926-008', studentId: 'BFA-008', studentName: 'Rafi', classGroupId: 'U10', date: '2026-09-26', checkInTime: '14:12:00', status: 'HADIR', feeGenerated: true }
-];
+export const INITIAL_ATTENDANCES: Attendance[] = [];
 
 export const INITIAL_SKILL_INDICATORS: SkillIndicator[] = [
   // 1. TEKNIK (SKILLS)
-  { key: 'pass', name: 'Passing', shortName: 'Passing', score: 83, category: 'Teknik' },
-  { key: 'ctrl', name: 'Ball Control', shortName: 'Ball Control', score: 81, category: 'Teknik' },
-  { key: 'drib', name: 'Dribbling', shortName: 'Dribbling', score: 84, category: 'Teknik' },
-  { key: 'shoot', name: 'Shooting', shortName: 'Shooting', score: 80, category: 'Teknik' },
+  { key: 'pass', name: 'Passing', shortName: 'Passing', score: 0, category: 'Teknik' },
+  { key: 'ctrl', name: 'Ball Control', shortName: 'Ball Control', score: 0, category: 'Teknik' },
+  { key: 'drib', name: 'Dribbling', shortName: 'Dribbling', score: 0, category: 'Teknik' },
+  { key: 'shoot', name: 'Shooting', shortName: 'Shooting', score: 0, category: 'Teknik' },
 
   // 2. FISIK & MOTORIK
-  { key: 'stamina', name: 'Stamina', shortName: 'Stamina', score: 80, category: 'Fisik' },
-  { key: 'kelincahan', name: 'Kelincahan', shortName: 'Kelincahan', score: 88, category: 'Fisik' },
-  { key: 'koordinasi', name: 'Koordinasi', shortName: 'Koordinasi', score: 88, category: 'Fisik' },
-  { key: 'keseimbangan', name: 'Keseimbangan', shortName: 'Keseimbangan', score: 84, category: 'Fisik' },
+  { key: 'stamina', name: 'Stamina', shortName: 'Stamina', score: 0, category: 'Fisik' },
+  { key: 'kelincahan', name: 'Kelincahan', shortName: 'Kelincahan', score: 0, category: 'Fisik' },
+  { key: 'koordinasi', name: 'Koordinasi', shortName: 'Koordinasi', score: 0, category: 'Fisik' },
+  { key: 'keseimbangan', name: 'Keseimbangan', shortName: 'Keseimbangan', score: 0, category: 'Fisik' },
 
   // 3. MENTAL & SIKAP
-  { key: 'p_diri', name: 'Percaya Diri', shortName: 'Percaya Diri', score: 85, category: 'Mental' },
-  { key: 'fokus', name: 'Fokus', shortName: 'Fokus', score: 82, category: 'Mental' },
-  { key: 'disiplin', name: 'Disiplin', shortName: 'Disiplin', score: 85, category: 'Mental' },
-  { key: 'k_sama', name: 'Kerja Sama', shortName: 'Kerja Sama', score: 82, category: 'Mental' },
-  { key: 'sportif', name: 'Sportivitas', shortName: 'Sportivitas', score: 85, category: 'Mental' },
+  { key: 'p_diri', name: 'Percaya Diri', shortName: 'Percaya Diri', score: 0, category: 'Mental' },
+  { key: 'fokus', name: 'Fokus', shortName: 'Fokus', score: 0, category: 'Mental' },
+  { key: 'disiplin', name: 'Disiplin', shortName: 'Disiplin', score: 0, category: 'Mental' },
+  { key: 'k_sama', name: 'Kerja Sama', shortName: 'Kerja Sama', score: 0, category: 'Mental' },
+  { key: 'sportif', name: 'Sportivitas', shortName: 'Sportivitas', score: 0, category: 'Mental' },
 ];
 
 export const INITIAL_COACH_NOTES = 
-  'Tingkatkan lagi konsistensi first touch dan komunikasi saat transisi permainan.';
+  'Belum ada evaluasi nilai untuk periode Oktober. Silakan klik tombol Edit Nilai untuk memasukkan penilaian riil atlet.';
 
 export function createDefaultReport(studentId: string, studentName?: string, position?: string): StudentReport {
-  const isGK = position === 'Goalkeeper';
-  const isAnchor = position === 'Anchor';
-  const isPivot = position === 'Pivot';
-
-  let indicators = INITIAL_SKILL_INDICATORS.map((item) => ({ ...item }));
-  let notes = 'Terus tingkatkan performa latihan dan pertahankan kedisiplinan di setiap sesi akademi.';
-
-  if (isGK) {
-    indicators = indicators.map((ind) => {
-      if (ind.key === 'kelincahan') return { ...ind, score: 90 };
-      if (ind.key === 'koordinasi') return { ...ind, score: 91 };
-      if (ind.key === 'fokus') return { ...ind, score: 92 };
-      if (ind.key === 'keseimbangan') return { ...ind, score: 88 };
-      if (ind.key === 'shoot') return { ...ind, score: 72 };
-      return ind;
-    });
-    notes = 'Refleks penjagaan gawang sangat baik. Terus asah distribusi bola dan komando lini belakang.';
-  } else if (isAnchor) {
-    indicators = indicators.map((ind) => {
-      if (ind.key === 'pass') return { ...ind, score: 87 };
-      if (ind.key === 'disiplin') return { ...ind, score: 89 };
-      if (ind.key === 'fokus') return { ...ind, score: 88 };
-      if (ind.key === 'k_sama') return { ...ind, score: 88 };
-      return ind;
-    });
-    notes = 'Pertahanan kokoh dan pembacaan arah serangan lawan sangat matang. Bagus dalam distribusi bola.';
-  } else if (isPivot) {
-    indicators = indicators.map((ind) => {
-      if (ind.key === 'shoot') return { ...ind, score: 88 };
-      if (ind.key === 'ctrl') return { ...ind, score: 85 };
-      if (ind.key === 'p_diri') return { ...ind, score: 87 };
-      return ind;
-    });
-    notes = 'Naluri penyelesaian akhir tajam. Asah lagi kemampuan menahan bola dengan punggung menghadap gawang.';
-  }
+  const indicators = INITIAL_SKILL_INDICATORS.map((item) => ({ ...item, score: 0 }));
 
   return {
     studentId,
     skillIndicators: indicators,
-    coachNotes: notes,
-    evaluationDate: '2026-09-25',
-    attendancePercent: 100,
-    totalSessions: 17,
+    coachNotes: 'Belum ada evaluasi nilai untuk periode Oktober. Silakan klik tombol Edit Nilai untuk memasukkan penilaian riil atlet.',
+    evaluationDate: '2026-10-01',
+    attendancePercent: 0,
+    totalSessions: 0,
   };
 }
 
 export const INITIAL_STUDENT_REPORTS: Record<string, StudentReport> = {
-  'BFA-001': {
-    studentId: 'BFA-001',
-    skillIndicators: INITIAL_SKILL_INDICATORS,
-    coachNotes: INITIAL_COACH_NOTES,
-    evaluationDate: '2026-09-25',
-    attendancePercent: 100,
-    totalSessions: 17,
-  },
+  'BFA-001': createDefaultReport('BFA-001', 'Andra', 'Flank'),
   'BFA-002': createDefaultReport('BFA-002', 'Bima', 'Pivot'),
   'BFA-003': createDefaultReport('BFA-003', 'Raka', 'Anchor'),
   'BFA-004': createDefaultReport('BFA-004', 'Fahmi', 'Flank'),

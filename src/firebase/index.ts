@@ -3,6 +3,7 @@ import {
   getFirestore, 
   doc, 
   setDoc, 
+  deleteDoc,
   getDocFromServer,
   getDocs,
   collection, 
@@ -194,7 +195,7 @@ export async function seedInitialFirestoreDataIfEmpty(
     }
 
     const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
-    if (invSnapshot.empty) {
+    if (invSnapshot.empty && defaultInvoices.length > 0) {
       console.log('Seeding initial invoices to Firestore online...');
       for (const inv of defaultInvoices) {
         await setDoc(doc(db, INVOICES_COLLECTION, inv.id), inv);
@@ -204,4 +205,35 @@ export async function seedInitialFirestoreDataIfEmpty(
     console.warn('Firestore seeding check:', err);
   }
 }
+
+// Clear demo data (September demo invoices & attendances) from Firestore to start clean from October
+export async function wipeDemoDataFromFirestore(): Promise<void> {
+  try {
+    // 1. Wipe demo September invoices
+    const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
+    for (const d of invSnapshot.docs) {
+      const data = d.data();
+      if (
+        data.period?.includes('September') || 
+        data.createdAt?.includes('/09/2026') || 
+        d.id.startsWith('INV-202609')
+      ) {
+        await deleteDoc(d.ref);
+      }
+    }
+
+    // 2. Wipe demo September attendances
+    const attSnapshot = await getDocs(collection(db, ATTENDANCES_COLLECTION));
+    for (const d of attSnapshot.docs) {
+      const data = d.data();
+      if (data.date?.startsWith('2026-09') || d.id.startsWith('ATT-202609')) {
+        await deleteDoc(d.ref);
+      }
+    }
+    console.log('Demo September data wiped from Firestore successfully.');
+  } catch (err) {
+    console.warn('Wipe demo data from Firestore:', err);
+  }
+}
+
 

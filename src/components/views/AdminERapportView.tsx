@@ -98,21 +98,21 @@ export const AdminERapportView: React.FC<AdminERapportViewProps> = ({
   const mentalItems = skillIndicators.filter((item) => item.category === 'Mental');
 
   // Compute 6 Pillars for the Hexagon Radar Chart
-  const staminaScore = skillIndicators.find((i) => i.key === 'stamina')?.score ?? 80;
-  const keseimbanganScore = skillIndicators.find((i) => i.key === 'keseimbangan')?.score ?? 84;
+  const staminaScore = skillIndicators.find((i) => i.key === 'stamina')?.score ?? 0;
+  const keseimbanganScore = skillIndicators.find((i) => i.key === 'keseimbangan')?.score ?? 0;
   const fisikPillar = Math.round((staminaScore + keseimbanganScore) / 2);
 
-  const agilitasPillar = skillIndicators.find((i) => i.key === 'kelincahan')?.score ?? 88;
+  const agilitasPillar = skillIndicators.find((i) => i.key === 'kelincahan')?.score ?? 0;
 
-  const kSamaScore = skillIndicators.find((i) => i.key === 'k_sama')?.score ?? 82;
-  const sportifScore = skillIndicators.find((i) => i.key === 'sportif')?.score ?? 85;
+  const kSamaScore = skillIndicators.find((i) => i.key === 'k_sama')?.score ?? 0;
+  const sportifScore = skillIndicators.find((i) => i.key === 'sportif')?.score ?? 0;
   const teamworkPillar = Math.round((kSamaScore + sportifScore) / 2);
 
-  const disiplinScore = skillIndicators.find((i) => i.key === 'disiplin')?.score ?? 85;
-  const pDiriScore = skillIndicators.find((i) => i.key === 'p_diri')?.score ?? 85;
+  const disiplinScore = skillIndicators.find((i) => i.key === 'disiplin')?.score ?? 0;
+  const pDiriScore = skillIndicators.find((i) => i.key === 'p_diri')?.score ?? 0;
   const karakterPillar = Math.round((disiplinScore + pDiriScore) / 2);
 
-  const fokusPillar = skillIndicators.find((i) => i.key === 'fokus')?.score ?? 82;
+  const fokusPillar = skillIndicators.find((i) => i.key === 'fokus')?.score ?? 0;
 
   const teknikAvg = Math.round(
     teknikItems.reduce((acc, curr) => acc + curr.score, 0) / (teknikItems.length || 1)

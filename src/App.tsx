@@ -69,7 +69,8 @@ import {
   subscribeToStudents,
   subscribeToReports,
   subscribeToInvoices,
-  subscribeToAttendances
+  subscribeToAttendances,
+  wipeDemoDataFromFirestore
 } from './firebase';
 
 export default function App() {
@@ -77,7 +78,16 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const saved = localStorage.getItem('bfa_auth_user');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const user: AuthUser = JSON.parse(saved);
+        // Reset old demo admin logins (like Coach Hendra or Sari) so user logs in with Admin / EdySun
+        if (user.role === 'admin' && (user.name.includes('Hendra') || user.name.includes('Sari'))) {
+          localStorage.removeItem('bfa_auth_user');
+          return null;
+        }
+        return user;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -137,14 +147,18 @@ export default function App() {
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     try {
-      const resetFlag = localStorage.getItem('bfa_invoices_october_reset_v2');
-      if (!resetFlag) {
-        localStorage.setItem('bfa_invoices_october_reset_v2', 'true');
+      const resetKey = 'bfa_october_clean_reset_v5';
+      if (!localStorage.getItem(resetKey)) {
+        localStorage.setItem(resetKey, 'true');
         localStorage.setItem('bfa_invoices', JSON.stringify([]));
+        localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
+        localStorage.setItem('bfa_attendances', JSON.stringify([]));
+        localStorage.setItem('bfa_student_reports', JSON.stringify(INITIAL_STUDENT_REPORTS));
         return [];
       }
       const saved = localStorage.getItem('bfa_invoices');
-      return saved ? JSON.parse(saved) : [];
+      const parsed: Invoice[] = saved ? JSON.parse(saved) : [];
+      return parsed.filter((inv) => !inv.id.startsWith('INV-202609') && !inv.period?.includes('September'));
     } catch {
       return [];
     }
@@ -152,18 +166,35 @@ export default function App() {
 
   const [attendances, setAttendances] = useState<Attendance[]>(() => {
     try {
+      const resetKey = 'bfa_october_clean_reset_v5';
+      if (!localStorage.getItem(resetKey)) {
+        return [];
+      }
       const saved = localStorage.getItem('bfa_attendances');
-      return saved ? JSON.parse(saved) : INITIAL_ATTENDANCES;
+      const parsed: Attendance[] = saved ? JSON.parse(saved) : [];
+      return parsed.filter((att) => !att.date.startsWith('2026-09') && !att.id.startsWith('ATT-202609'));
     } catch {
-      return INITIAL_ATTENDANCES;
+      return [];
     }
   });
 
   // Per-student E-Rapport reports (Persisted in localStorage across page refreshes)
   const [studentReports, setStudentReports] = useState<Record<string, StudentReport>>(() => {
     try {
+      const resetKey = 'bfa_october_clean_reset_v5';
+      if (!localStorage.getItem(resetKey)) {
+        return INITIAL_STUDENT_REPORTS;
+      }
       const saved = localStorage.getItem('bfa_student_reports');
-      return saved ? JSON.parse(saved) : INITIAL_STUDENT_REPORTS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Reset if it contains old demo grade numbers
+        if (parsed['BFA-001']?.totalSessions > 0 || parsed['BFA-001']?.evaluationDate === '2026-09-25') {
+          return INITIAL_STUDENT_REPORTS;
+        }
+        return parsed;
+      }
+      return INITIAL_STUDENT_REPORTS;
     } catch {
       return INITIAL_STUDENT_REPORTS;
     }
@@ -199,10 +230,13 @@ export default function App() {
       }
     });
 
-    // 2. Seed initial data if Firestore collections are empty
+    // 2. Wipe demo September data from online Firestore
+    wipeDemoDataFromFirestore().catch((e) => console.warn('Firestore demo wipe error:', e));
+
+    // 3. Seed initial clean data if Firestore collections are empty
     seedInitialFirestoreDataIfEmpty(INITIAL_STUDENTS, INITIAL_STUDENT_REPORTS, INITIAL_INVOICES);
 
-    // 3. Listen to real-time changes from Firestore
+    // 4. Listen to real-time changes from Firestore
     const unsubStudents = subscribeToStudents((cloudStudents) => {
       if (cloudStudents && cloudStudents.length > 0) {
         const { list: sanitized, changed } = sanitizeStudentsList(cloudStudents);
@@ -222,8 +256,22 @@ export default function App() {
     });
 
     const unsubInvoices = subscribeToInvoices((cloudInvoices) => {
-      if (cloudInvoices && cloudInvoices.length > 0) {
-        setInvoices(cloudInvoices);
+      if (cloudInvoices) {
+        // Filter out any demo September invoices
+        const realInvoices = cloudInvoices.filter(
+          (inv) => !inv.id.startsWith('INV-202609') && !inv.period?.includes('September')
+        );
+        setInvoices(realInvoices);
+      }
+    });
+
+    const unsubAttendances = subscribeToAttendances((cloudAttendances) => {
+      if (cloudAttendances) {
+        // Filter out any demo September attendances
+        const realAttendances = cloudAttendances.filter(
+          (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
+        );
+        setAttendances(realAttendances);
       }
     });
 
@@ -231,6 +279,7 @@ export default function App() {
       unsubStudents();
       unsubReports();
       unsubInvoices();
+      unsubAttendances();
     };
   }, []);
 
@@ -425,25 +474,47 @@ export default function App() {
     const student = students.find((s) => s.id === studentId);
     if (!student) return;
 
-    const existingAtt = attendances.find((a) => a.studentId === studentId && a.date === date);
-    if (existingAtt) {
-      showToast(`Absensi ${student.name} sudah tercatat pada ${date}.`, 'warning');
-      return;
+    const existingIndex = attendances.findIndex((a) => a.studentId === studentId && a.date === date);
+    let updatedAtt: Attendance;
+
+    if (existingIndex >= 0) {
+      // Update existing attendance record
+      updatedAtt = {
+        ...attendances[existingIndex],
+        status,
+        checkInTime: time,
+        feeGenerated: status === 'HADIR',
+      };
+      setAttendances((prev) => {
+        const next = [...prev];
+        next[existingIndex] = updatedAtt;
+        try {
+          localStorage.setItem('bfa_attendances', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      saveAttendanceToFirestore(updatedAtt).catch((e) => console.warn('Firestore attendance sync:', e));
+    } else {
+      // Create new attendance record
+      updatedAtt = {
+        id: `ATT-${date.replace(/-/g, '')}-${student.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`,
+        studentId: student.id,
+        studentName: student.name,
+        classGroupId: student.classGroupId,
+        date,
+        checkInTime: time,
+        status,
+        feeGenerated: status === 'HADIR',
+      };
+      setAttendances((prev) => {
+        const next = [updatedAtt, ...prev];
+        try {
+          localStorage.setItem('bfa_attendances', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      saveAttendanceToFirestore(updatedAtt).catch((e) => console.warn('Firestore attendance sync:', e));
     }
-
-    const newAtt: Attendance = {
-      id: `ATT-${date.replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
-      studentId: student.id,
-      studentName: student.name,
-      classGroupId: student.classGroupId,
-      date,
-      checkInTime: time,
-      status,
-      feeGenerated: status === 'HADIR',
-    };
-
-    setAttendances((prev) => [newAtt, ...prev]);
-    saveAttendanceToFirestore(newAtt).catch((e) => console.warn('Firestore attendance sync:', e));
 
     if (status === 'HADIR') {
       const duplicateInvoice = invoices.find(
@@ -454,7 +525,7 @@ export default function App() {
         const dateParts = date.split('-');
         const formattedCreated = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
         const newInvoice: Invoice = {
-          id: `INV-${date.replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+          id: `INV-${date.replace(/-/g, '')}-${student.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`,
           studentId: student.id,
           studentName: student.name,
           classGroupId: student.classGroupId,
@@ -466,11 +537,22 @@ export default function App() {
           dueDate: date,
           createdAt: formattedCreated,
         };
-        setInvoices((prev) => [newInvoice, ...prev]);
+        setInvoices((prev) => {
+          const next = [newInvoice, ...prev];
+          try {
+            localStorage.setItem('bfa_invoices', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
         saveInvoiceToFirestore(newInvoice).catch((e) => console.warn('Firestore invoice sync:', e));
 
         showToast(
-          `Absensi ${student.name} berhasil & tagihan iuran latihan Rp15.000 otomatis diterbitkan.`,
+          `Absensi ${student.name} berhasil tercatat (HADIR) & Tagihan Sesi Latihan Rp15.000 otomatis diterbitkan!`,
+          'success'
+        );
+      } else {
+        showToast(
+          `Absensi ${student.name} berhasil diverifikasi (HADIR) pada sesi ${date} jam ${time}.`,
           'success'
         );
       }

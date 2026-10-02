@@ -41,14 +41,19 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
   onDeleteSchedule,
   onQuickMarkAttendance,
 }) => {
-  const [activeTab, setActiveTab] = useState<'jadwal' | 'presensi'>('jadwal');
+  const [activeTab, setActiveTab] = useState<'jadwal' | 'presensi'>('presensi');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState('2026-10-02');
+  const [dateFilter, setDateFilter] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
 
   const filteredAttendances = attendances.filter(
     (a) => (classFilter === 'Semua' || a.classGroupId === classFilter) && (!dateFilter || a.date === dateFilter)
   );
+
+  const sortedAttendances = [...filteredAttendances].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return (b.checkInTime || '').localeCompare(a.checkInTime || '');
+  });
 
   const hadirCount = filteredAttendances.filter((a) => a.status === 'HADIR').length;
   const tidakHadirCount = filteredAttendances.filter((a) => a.status !== 'HADIR').length;
@@ -320,9 +325,20 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
           {/* Filter Bar & Counters */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-center shadow-xs">
             <div>
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                Tanggal Sesi:
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                  Tanggal Sesi:
+                </label>
+                {dateFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setDateFilter('')}
+                    className="text-[10px] text-blue-600 hover:text-blue-800 font-bold hover:underline"
+                  >
+                    Tampilkan Semua
+                  </button>
+                )}
+              </div>
               <input
                 type="date"
                 value={dateFilter}
@@ -379,27 +395,44 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                   <tr>
                     <th className="px-4 py-3.5">Nama Siswa</th>
                     <th className="px-4 py-3.5">KU</th>
-                    <th className="px-4 py-3.5">Jam Presensi</th>
+                    <th className="px-4 py-3.5">Tanggal & Jam Presensi</th>
                     <th className="px-4 py-3.5">Status Kehadiran</th>
                     <th className="px-4 py-3.5">Tagihan Sesi Latihan</th>
                     <th className="px-4 py-3.5 text-center">Aksi Cepat Presensi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {filteredAttendances.length === 0 ? (
+                  {sortedAttendances.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                        Belum ada catatan presensi untuk sesi tanggal {dateFilter}. Silakan klik &quot;Simulasi Tap Presensi&quot; untuk mencatat kehadiran.
+                        Belum ada catatan presensi{dateFilter ? ` untuk sesi tanggal ${dateFilter}` : ''}. Silakan klik &quot;Simulasi Tap Presensi&quot; untuk mencatat kehadiran.
                       </td>
                     </tr>
                   ) : (
-                    filteredAttendances.map((att) => {
+                    sortedAttendances.map((att) => {
                       const isHadir = att.status === 'HADIR';
+                      const studentObj = students.find((s) => s.id === att.studentId);
                       return (
                         <tr key={att.id} className="hover:bg-slate-50 transition">
-                          <td className="px-4 py-3 font-bold text-slate-900">{att.studentName}</td>
-                          <td className="px-4 py-3 font-mono text-slate-600">{att.classGroupId}</td>
-                          <td className="px-4 py-3 font-mono text-slate-600 tabular-nums">{att.checkInTime}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={studentObj?.avatar || 'https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=120'}
+                                alt={att.studentName}
+                                className="w-8 h-8 rounded-full object-cover border border-slate-300 shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div>
+                                <span className="font-black text-slate-900 block leading-tight">{att.studentName}</span>
+                                <span className="text-[10px] font-mono text-blue-700 font-bold">{att.studentId}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-slate-700">{att.classGroupId}</td>
+                          <td className="px-4 py-3 font-mono text-slate-600 tabular-nums">
+                            <span className="font-bold text-slate-800">{att.date}</span>
+                            <span className="text-slate-400 block text-[10px]">{att.checkInTime} WIB</span>
+                          </td>
                           <td className="px-4 py-3">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -413,9 +446,16 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                           </td>
                           <td className="px-4 py-3 font-mono font-extrabold text-slate-900 tabular-nums">
                             {isHadir ? (
-                              <span className="text-orange-600">Rp15.000 (Terbit Otomatis)</span>
+                              <div>
+                                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono font-black text-[11px]">
+                                  Rp15.000
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                                  ✓ Masuk Tagihan Siswa
+                                </span>
+                              </div>
                             ) : (
-                              <span className="text-slate-400">Bebas Biaya (Rp0)</span>
+                              <span className="text-slate-400 font-medium">Bebas Biaya (Rp0)</span>
                             )}
                           </td>
                           <td className="px-4 py-3 text-center">
