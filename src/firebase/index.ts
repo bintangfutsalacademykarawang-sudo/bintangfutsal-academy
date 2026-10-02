@@ -51,6 +51,16 @@ export async function saveAttendanceToFirestore(attendance: Attendance): Promise
   }
 }
 
+export async function deleteAttendanceFromFirestore(attendanceId: string): Promise<void> {
+  try {
+    const attRef = doc(db, ATTENDANCES_COLLECTION, attendanceId);
+    await deleteDoc(attRef);
+  } catch (error) {
+    console.error('Failed to delete attendance from Firestore:', error);
+    throw error;
+  }
+}
+
 export function subscribeToAttendances(
   onData: (attendances: Attendance[]) => void,
   onError?: (err: Error) => void
@@ -235,5 +245,19 @@ export async function wipeDemoDataFromFirestore(): Promise<void> {
     console.warn('Wipe demo data from Firestore:', err);
   }
 }
+
+// Completely wipe all existing invoices from Firestore to reset all invoice numbers to 0 for real bookkeeping
+export async function wipeAllInvoicesFromFirestore(): Promise<void> {
+  try {
+    const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
+    for (const d of invSnapshot.docs) {
+      await deleteDoc(d.ref);
+    }
+    console.log('All invoices wiped from Firestore successfully.');
+  } catch (err) {
+    console.warn('Wipe all invoices error:', err);
+  }
+}
+
 
 

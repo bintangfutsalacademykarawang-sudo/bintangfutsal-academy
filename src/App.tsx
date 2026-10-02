@@ -66,11 +66,13 @@ import {
   saveReportToFirestore,
   saveInvoiceToFirestore,
   saveAttendanceToFirestore,
+  deleteAttendanceFromFirestore,
   subscribeToStudents,
   subscribeToReports,
   subscribeToInvoices,
   subscribeToAttendances,
-  wipeDemoDataFromFirestore
+  wipeDemoDataFromFirestore,
+  wipeAllInvoicesFromFirestore
 } from './firebase';
 
 export default function App() {
@@ -147,13 +149,10 @@ export default function App() {
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     try {
-      const resetKey = 'bfa_october_clean_reset_v5';
+      const resetKey = 'bfa_real_bookkeeping_wipe_all_v10';
       if (!localStorage.getItem(resetKey)) {
         localStorage.setItem(resetKey, 'true');
         localStorage.setItem('bfa_invoices', JSON.stringify([]));
-        localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
-        localStorage.setItem('bfa_attendances', JSON.stringify([]));
-        localStorage.setItem('bfa_student_reports', JSON.stringify(INITIAL_STUDENT_REPORTS));
         return [];
       }
       const saved = localStorage.getItem('bfa_invoices');
@@ -230,8 +229,14 @@ export default function App() {
       }
     });
 
-    // 2. Wipe demo September data from online Firestore
+    // 2. Wipe demo September data & clear all previous invoices from online Firestore for clean bookkeeping
     wipeDemoDataFromFirestore().catch((e) => console.warn('Firestore demo wipe error:', e));
+
+    const wipeKey = 'bfa_cloud_invoices_wiped_v10';
+    if (!localStorage.getItem(wipeKey)) {
+      localStorage.setItem(wipeKey, 'true');
+      wipeAllInvoicesFromFirestore().catch((e) => console.warn('Wipe all cloud invoices error:', e));
+    }
 
     // 3. Seed initial clean data if Firestore collections are empty
     seedInitialFirestoreDataIfEmpty(INITIAL_STUDENTS, INITIAL_STUDENT_REPORTS, INITIAL_INVOICES);
@@ -567,6 +572,44 @@ export default function App() {
     handleFingerprintSubmit(studentId, date, timeStr, status);
   };
 
+  // Delete attendance record feature requested by user
+  const handleDeleteAttendance = (attendanceId: string) => {
+    const target = attendances.find((a) => a.id === attendanceId);
+    setAttendances((prev) => {
+      const next = prev.filter((a) => a.id !== attendanceId);
+      try {
+        localStorage.setItem('bfa_attendances', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    deleteAttendanceFromFirestore(attendanceId).catch((e) =>
+      console.warn('Firestore attendance delete error:', e)
+    );
+
+    if (target) {
+      // If an unpaid training fee invoice was automatically generated for this session, remove it too
+      setInvoices((prev) => {
+        const next = prev.filter(
+          (inv) =>
+            !(
+              inv.studentId === target.studentId &&
+              inv.attendanceDate === target.date &&
+              inv.type === 'Latihan' &&
+              inv.status === 'BELUM BAYAR'
+            )
+        );
+        try {
+          localStorage.setItem('bfa_invoices', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      showToast(`Catatan absensi ${target.studentName} (${target.date}) berhasil dihapus.`, 'info');
+    } else {
+      showToast('Catatan absensi berhasil dihapus.', 'info');
+    }
+  };
+
   // Open SPP Configuration Modal
   const handleGenerateMonthlyInvoices = () => {
     setIsGenerateInvoiceModalOpen(true);
@@ -623,8 +666,11 @@ export default function App() {
     }
   };
 
-  // Mark invoice paid manually (Admin)
+  // Mark invoice paid manually (Admin & Keuangan live sync)
   const handleMarkInvoicePaid = (id: string) => {
+    const targetInv = invoices.find((inv) => inv.id === id);
+    if (!targetInv) return;
+
     let updatedTarget: Invoice | null = null;
     setInvoices((prev) =>
       prev.map((inv) => {
@@ -641,10 +687,45 @@ export default function App() {
         return inv;
       })
     );
+
     if (updatedTarget) {
       saveInvoiceToFirestore(updatedTarget).catch((e) => console.warn('Firestore invoice sync:', e));
+
+      // Otomatis sinkronisasi masuk ke Buku Kas & Keuangan (Pemasukan)
+      const newCashMutation: CashMutation = {
+        id: `MUT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+        date: new Date().toISOString().split('T')[0],
+        type: 'Pemasukan',
+        category: targetInv.type === 'Bulanan' ? 'SPP Bulanan' : 'Iuran Sesi Lapangan',
+        amount: targetInv.amount,
+        note: `Pembayaran ${targetInv.type} (${targetInv.period}) - ${targetInv.studentName} [${targetInv.id}]`,
+        method: 'Tunai / Transfer',
+        staff: currentUser?.name || 'Admin BFA',
+      };
+
+      setCashMutations((prev) => {
+        const next = [newCashMutation, ...prev];
+        try {
+          localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      showToast(
+        `Invoice ${id} (${targetInv.studentName}) LUNAS & Rp${targetInv.amount.toLocaleString('id-ID')} otomatis tercatat masuk ke Kas!`,
+        'success'
+      );
     }
-    showToast(`Invoice ${id} berhasil ditandai LUNAS (disinkron online).`, 'success');
+  };
+
+  // Wipe all invoices for clean real bookkeeping
+  const handleClearAllInvoices = async () => {
+    setInvoices([]);
+    try {
+      localStorage.setItem('bfa_invoices', JSON.stringify([]));
+    } catch {}
+    await wipeAllInvoicesFromFirestore();
+    showToast('Seluruh data tagihan iuran berhasil dihapus bersih (Rp0). Siap untuk pembukuan riil!', 'success');
   };
 
   // Student Form Submit (Add or Edit)
@@ -1020,9 +1101,16 @@ Official Performance Report • BFA Karawang
               {currentRoute === 'keuangan' && (
                 <AdminKeuanganView
                   cashMutations={cashMutations}
+                  invoices={invoices}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onDeleteMutation={handleDeleteMutation}
                   onResetCash={handleResetCash}
+                  onMarkInvoicePaid={handleMarkInvoicePaid}
+                  onShowReceipt={(inv) => {
+                    setInvoiceForReceipt(inv);
+                    setIsReceiptOpen(true);
+                  }}
+                  onGenerateInvoices={handleGenerateMonthlyInvoices}
                 />
               )}
 
@@ -1050,6 +1138,7 @@ Official Performance Report • BFA Karawang
                   onEditSchedule={handleOpenEditSchedule}
                   onDeleteSchedule={handleDeleteSchedule}
                   onQuickMarkAttendance={handleQuickMarkAttendance}
+                  onDeleteAttendance={handleDeleteAttendance}
                 />
               )}
 
@@ -1069,6 +1158,7 @@ Official Performance Report • BFA Karawang
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
                   }}
+                  onClearAllInvoices={handleClearAllInvoices}
                 />
               )}
             </>

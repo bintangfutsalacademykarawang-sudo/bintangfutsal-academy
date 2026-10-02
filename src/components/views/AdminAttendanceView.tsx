@@ -29,6 +29,7 @@ interface AdminAttendanceViewProps {
   onEditSchedule?: (schedule: TrainingSchedule) => void;
   onDeleteSchedule: (id: string) => void;
   onQuickMarkAttendance: (studentId: string, date: string, status: 'HADIR' | 'TIDAK_HADIR') => void;
+  onDeleteAttendance?: (attendanceId: string) => void;
 }
 
 export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
@@ -40,9 +41,11 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
   onEditSchedule,
   onDeleteSchedule,
   onQuickMarkAttendance,
+  onDeleteAttendance,
 }) => {
   const [activeTab, setActiveTab] = useState<'jadwal' | 'presensi'>('presensi');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteAttId, setConfirmDeleteAttId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
 
@@ -480,6 +483,39 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                               >
                                 Tidak Hadir
                               </button>
+
+                              {onDeleteAttendance && (
+                                confirmDeleteAttId === att.id ? (
+                                  <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 p-1 rounded-lg">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onDeleteAttendance(att.id);
+                                        setConfirmDeleteAttId(null);
+                                      }}
+                                      className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded transition active:scale-95"
+                                    >
+                                      Hapus
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteAttId(null)}
+                                      className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] transition"
+                                    >
+                                      Batal
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteAttId(att.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                    title="Hapus catatan absensi siswa ini"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              )}
                             </div>
                           </td>
                         </tr>
