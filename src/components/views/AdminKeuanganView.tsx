@@ -7,33 +7,82 @@ import {
   PlusCircle, 
   Search, 
   Trash2, 
-  CreditCard 
+  CreditCard,
+  Download,
+  FileSpreadsheet,
+  RotateCcw
 } from 'lucide-react';
+import { exportFinancePDF } from '../../utils/exportFinancePDF';
+import { exportFinanceExcel } from '../../utils/exportHelpers';
 
 interface AdminKeuanganViewProps {
   cashMutations: CashMutation[];
   onOpenRecordCash: () => void;
   onDeleteMutation: (id: string) => void;
+  onResetCash: () => void;
 }
 
 export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   cashMutations,
   onOpenRecordCash,
   onDeleteMutation,
+  onResetCash,
 }) => {
   const [filterType, setFilterType] = useState<'Semua' | 'Pemasukan' | 'Pengeluaran'>('Semua');
   const [filterCategory, setFilterCategory] = useState('Semua');
   const [search, setSearch] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
+  // Financial metrics 100% Realtime from Recorded Mutations
   const totalPemasukan = cashMutations
     .filter((m) => m.type === 'Pemasukan')
-    .reduce((acc, curr) => acc + curr.amount, 0) + 3660000;
+    .reduce((acc, curr) => acc + curr.amount, 0);
   
   const totalPengeluaran = cashMutations
     .filter((m) => m.type === 'Pengeluaran')
-    .reduce((acc, curr) => acc + curr.amount, 0) - 250000;
+    .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalKas = totalPemasukan - totalPengeluaran;
+
+  // Realtime Subcategories
+  const sppPemasukan = cashMutations
+    .filter((m) => m.type === 'Pemasukan' && m.category.toLowerCase().includes('spp'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const sesiPemasukan = cashMutations
+    .filter((m) => m.type === 'Pemasukan' && m.category.toLowerCase().includes('sesi'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const regPemasukan = cashMutations
+    .filter((m) => m.type === 'Pemasukan' && !m.category.toLowerCase().includes('spp') && !m.category.toLowerCase().includes('sesi'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const sewaPengeluaran = cashMutations
+    .filter((m) => m.type === 'Pengeluaran' && m.category.toLowerCase().includes('sewa'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const honorPengeluaran = cashMutations
+    .filter((m) => m.type === 'Pengeluaran' && m.category.toLowerCase().includes('honor'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const alatPengeluaran = cashMutations
+    .filter((m) => m.type === 'Pengeluaran' && (m.category.toLowerCase().includes('alat') || m.category.toLowerCase().includes('bola')))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const p3kPengeluaran = cashMutations
+    .filter((m) => m.type === 'Pengeluaran' && !m.category.toLowerCase().includes('sewa') && !m.category.toLowerCase().includes('honor') && !m.category.toLowerCase().includes('alat') && !m.category.toLowerCase().includes('bola'))
+    .reduce((acc, c) => acc + c.amount, 0);
+
+  const handleExportPDF = () => {
+    setIsExporting(true);
+    try {
+      exportFinancePDF(cashMutations, totalPemasukan, totalPengeluaran, totalKas);
+    } catch (e) {
+      console.error('Export error:', e);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const filteredMutations = cashMutations.filter((m) => {
     const matchType = filterType === 'Semua' || m.type === filterType;
@@ -60,16 +109,46 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
             Pencatatan real-time kas masuk (SPP, iuran latihan, formulir) dan kas keluar operasional.
           </p>
         </div>
-        <button
-          onClick={onOpenRecordCash}
-          className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl text-xs flex items-center space-x-2 shadow-md shadow-orange-500/20 transition active:scale-95 self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Catat Mutasi Kas Baru</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => exportFinanceExcel(cashMutations, totalPemasukan, totalPengeluaran, totalKas)}
+            className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
+            title="Download Rekapitulasi Kas format Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            <span>Unduh Excel</span>
+          </button>
+          <button
+            onClick={handleExportPDF}
+            disabled={isExporting}
+            className="px-3.5 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
+          >
+            <Download className="w-4 h-4 text-amber-400" />
+            <span>{isExporting ? 'Membuat PDF...' : 'Unduh Laporan Kas PDF'}</span>
+          </button>
+          <button
+            onClick={onOpenRecordCash}
+            className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl text-xs flex items-center space-x-2 shadow-md shadow-orange-500/20 transition active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Catat Mutasi Kas Baru</span>
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm('Apakah Anda yakin ingin mereset seluruh mutasi kas ke Rp0 (Mulai dari nol)?')) {
+                onResetCash();
+              }
+            }}
+            className="px-3 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition active:scale-95 border border-rose-200"
+            title="Reset seluruh catatan kas ke Rp0"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+            <span>Reset Kas ke Rp0</span>
+          </button>
+        </div>
       </div>
 
-      {/* Top Summary 3 Cards */}
+      {/* Top Summary 3 Cards (100% Realtime Synchronized) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-gradient-to-br from-white to-emerald-50/60 rounded-2xl p-5 border border-emerald-200 shadow-xs">
           <div className="flex items-center justify-between">
@@ -84,9 +163,9 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
             Rp{totalPemasukan.toLocaleString('id-ID')}
           </div>
           <div className="mt-2 pt-2 border-t border-emerald-200 text-[11px] text-slate-600 space-y-0.5">
-            <p>• SPP Bulanan: <strong className="text-emerald-800">Rp6.250.000</strong></p>
-            <p>• Iuran Sesi Lapangan: <strong className="text-emerald-800">Rp2.000.000</strong></p>
-            <p>• Registrasi Anggota Baru: <strong className="text-emerald-800">Rp500.000</strong></p>
+            <p>• SPP Bulanan: <strong className="text-emerald-800">Rp{sppPemasukan.toLocaleString('id-ID')}</strong></p>
+            <p>• Iuran Sesi Lapangan: <strong className="text-emerald-800">Rp{sesiPemasukan.toLocaleString('id-ID')}</strong></p>
+            <p>• Pendaftaran & Lainnya: <strong className="text-emerald-800">Rp{regPemasukan.toLocaleString('id-ID')}</strong></p>
           </div>
         </div>
 
@@ -103,9 +182,9 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
             Rp{totalPengeluaran.toLocaleString('id-ID')}
           </div>
           <div className="mt-2 pt-2 border-t border-rose-200 text-[11px] text-slate-600 space-y-0.5">
-            <p>• Sewa Lapangan: <strong className="text-rose-800">Rp1.500.000</strong></p>
-            <p>• Honor Tim Pelatih: <strong className="text-rose-800">Rp1.100.000</strong></p>
-            <p>• Alat, Bola & Medis: <strong className="text-rose-800">Rp650.000</strong></p>
+            <p>• Sewa Lapangan: <strong className="text-rose-800">Rp{sewaPengeluaran.toLocaleString('id-ID')}</strong></p>
+            <p>• Honor Tim Pelatih: <strong className="text-rose-800">Rp{honorPengeluaran.toLocaleString('id-ID')}</strong></p>
+            <p>• Alat, Bola & Operasional: <strong className="text-rose-800">Rp{(alatPengeluaran + p3kPengeluaran).toLocaleString('id-ID')}</strong></p>
           </div>
         </div>
 
@@ -133,29 +212,29 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
         </div>
       </div>
 
-      {/* Rincian Pos Operasional */}
+      {/* Rincian Pos Operasional (100% Realtime dari Database) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-slate-500 text-[10px] block">Sewa Lapangan FlaminGO</span>
-          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp1.500.000</p>
+          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp{sewaPengeluaran.toLocaleString('id-ID')}</p>
           <span className="text-[10px] text-slate-400">Alokasi Mingguan Terjadwal</span>
         </div>
 
         <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-slate-500 text-[10px] block">Honor Pelatih & Official</span>
-          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp1.100.000</p>
+          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp{honorPengeluaran.toLocaleString('id-ID')}</p>
           <span className="text-[10px] text-slate-400">Head Coach & Ass. Coach</span>
         </div>
 
         <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-slate-500 text-[10px] block">Inventaris Bola & Alat</span>
-          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp650.000</p>
+          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp{alatPengeluaran.toLocaleString('id-ID')}</p>
           <span className="text-[10px] text-slate-400">Bola Molten, Rompi, Cone</span>
         </div>
 
         <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs">
           <span className="text-slate-500 text-[10px] block">P3K, Medis & Konsumsi</span>
-          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp250.000</p>
+          <p className="font-black text-slate-900 mt-1 tabular-nums">Rp{p3kPengeluaran.toLocaleString('id-ID')}</p>
           <span className="text-[10px] text-slate-400">Spray Pereda, Es & Mineral</span>
         </div>
       </div>
@@ -179,10 +258,10 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
               <button
                 key={t}
                 onClick={() => setFilterType(t)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                   filterType === t
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {t}
@@ -193,7 +272,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className="bg-slate-100 border border-slate-300 text-slate-800 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none font-medium"
+            className="bg-slate-100 text-slate-700 font-bold text-xs rounded-xl px-3 py-1.5 border-0 focus:ring-2 focus:ring-blue-600"
           >
             <option value="Semua">Semua Kategori</option>
             <option value="SPP Bulanan">SPP Bulanan</option>
@@ -202,73 +281,85 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
             <option value="Sewa Lapangan">Sewa Lapangan</option>
             <option value="Honor Pelatih">Honor Pelatih</option>
             <option value="Alat & Bola Futsal">Alat & Bola</option>
-            <option value="Operasional Lainnya">Operasional Lainnya</option>
+            <option value="Operasional Lainnya">Operasional</option>
           </select>
         </div>
       </div>
 
-      {/* Table Mutasi Kas */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+      {/* Cash Mutations Table */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-3.5">Tanggal</th>
-                <th className="px-4 py-3.5">Tipe & Kategori</th>
-                <th className="px-4 py-3.5">Keterangan / Rincian</th>
-                <th className="px-4 py-3.5">Metode Bayar</th>
-                <th className="px-4 py-3.5">Petugas</th>
-                <th className="px-4 py-3.5 text-right">Nominal (Rp)</th>
-                <th className="px-4 py-3.5 text-center">Aksi</th>
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-wider">
+                <th className="py-3 px-4">TANGGAL</th>
+                <th className="py-3 px-4">TIPE & KATEGORI</th>
+                <th className="py-3 px-4">KETERANGAN / RINCIAN</th>
+                <th className="py-3 px-4">METODE BAYAR</th>
+                <th className="py-3 px-4">PETUGAS</th>
+                <th className="py-3 px-4 text-right">NOMINAL (RP)</th>
+                <th className="py-3 px-4 text-center">AKSI</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredMutations.map((m) => {
-                const isIncome = m.type === 'Pemasukan';
-                return (
-                  <tr key={m.id} className="hover:bg-slate-50 transition">
-                    <td className="px-4 py-3 font-mono text-slate-500 whitespace-nowrap">{m.date}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                          isIncome
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {filteredMutations.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
+                    Tidak ada catatan mutasi kas yang cocok dengan filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredMutations.map((m) => {
+                  const isPemasukan = m.type === 'Pemasukan';
+                  return (
+                    <tr key={m.id} className="hover:bg-slate-50/70 transition">
+                      <td className="py-3 px-4 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                        {m.date}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isPemasukan
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {isPemasukan ? <ArrowDownLeft className="w-3 h-3 mr-1" /> : <ArrowUpRight className="w-3 h-3 mr-1" />}
+                          {m.category}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-900 font-semibold max-w-xs truncate">
+                        {m.note}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        <span className="flex items-center gap-1.5">
+                          <CreditCard className="w-3 h-3 text-slate-400" />
+                          <span>{m.method}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        {m.staff}
+                      </td>
+                      <td
+                        className={`py-3 px-4 font-mono font-bold text-right tabular-nums whitespace-nowrap ${
+                          isPemasukan ? 'text-emerald-700' : 'text-rose-600'
                         }`}
                       >
-                        {isIncome ? (
-                          <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
-                        ) : (
-                          <ArrowUpRight className="w-3 h-3 text-rose-600" />
-                        )}
-                        <span>{m.category}</span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{m.note}</td>
-                    <td className="px-4 py-3 text-slate-600 font-medium whitespace-nowrap">
-                      <CreditCard className="w-3.5 h-3.5 text-blue-600 inline mr-1" />
-                      {m.method}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{m.staff}</td>
-                    <td
-                      className={`px-4 py-3 text-right font-black font-mono whitespace-nowrap tabular-nums ${
-                        isIncome ? 'text-emerald-700' : 'text-rose-700'
-                      }`}
-                    >
-                      {isIncome ? '+' : '-'}Rp{m.amount.toLocaleString('id-ID')}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => onDeleteMutation(m.id)}
-                        title="Hapus Mutasi"
-                        className="p-1 text-slate-400 hover:text-rose-600 transition"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                        {isPemasukan ? '+' : '-'}Rp{m.amount.toLocaleString('id-ID')}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => onDeleteMutation(m.id)}
+                          className="p-1 text-slate-300 hover:text-rose-600 transition rounded-lg"
+                          title="Hapus mutasi kas"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

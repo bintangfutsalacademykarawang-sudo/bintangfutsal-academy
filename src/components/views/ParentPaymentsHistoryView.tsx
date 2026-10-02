@@ -1,6 +1,6 @@
 import React from 'react';
 import { RouteId, Invoice, Student } from '../../types';
-import { Download, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Download, AlertCircle, CheckCircle2, Receipt, ShieldCheck } from 'lucide-react';
 
 interface ParentPaymentsHistoryViewProps {
   student?: Student;
@@ -15,199 +15,116 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
   onNavigate,
   onShowReceipt,
 }) => {
-  const childName = student?.name || 'Raka';
-  const childGroup = student?.classGroupId || 'U12';
+  const childName = student?.name || 'Siswa BFA';
+  const childGroup = student?.classGroupId || 'U11';
+
   const childInvoices = invoices.filter(
     (i) => (student?.id && i.studentId === student.id) || i.studentName === childName
   );
+
+  const paidInvoices = childInvoices.filter((i) => i.status === 'LUNAS');
   const unpaidInvoices = childInvoices.filter((i) => i.status === 'BELUM BAYAR');
-  const isAllPaid = unpaidInvoices.length === 0;
-
-  // Build the 5 synchronized payment items matching "Bayar Tagihan" exactly
-  // 1. SPP Bulanan September 2026
-  const invMonthly = childInvoices.find((i) => i.type === 'Bulanan');
-  const isMonthlyPaid = invMonthly ? invMonthly.status === 'LUNAS' : isAllPaid;
-  const itemMonthly: Invoice = invMonthly || {
-    id: `INV-20260901-${student?.id?.replace('BFA-', '') || '003'}`,
-    studentId: student?.id || 'BFA-003',
-    studentName: childName,
-    classGroupId: childGroup,
-    type: 'Bulanan',
-    period: 'September 2026',
-    amount: 50000,
-    status: isMonthlyPaid ? 'LUNAS' : 'BELUM BAYAR',
-    dueDate: '2026-09-10',
-    createdAt: '01/09/2026',
-    paidAt: '01/09/2026 09:30:00',
-    transactionId: `BFA-TRX-20260901-${student?.id?.replace('BFA-', '') || '003'}`,
-    paymentMethod: 'QRIS',
-  };
-
-  // 2. Sesi Latihan 5 Sep
-  const inv5 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-05' || i.period?.includes('5 Sep')
-  );
-  const is5Paid = inv5 ? inv5.status === 'LUNAS' : isAllPaid;
-  const item5: Invoice = inv5 || {
-    id: `INV-20260905-${student?.id?.replace('BFA-', '') || '003'}`,
-    studentId: student?.id || 'BFA-003',
-    studentName: childName,
-    classGroupId: childGroup,
-    type: 'Latihan',
-    attendanceDate: '2026-09-05',
-    period: 'Latihan 5 Sep',
-    amount: 15000,
-    status: is5Paid ? 'LUNAS' : 'BELUM BAYAR',
-    dueDate: '2026-09-08',
-    createdAt: '05/09/2026',
-    paidAt: '05/09/2026 16:30:00',
-    transactionId: `BFA-TRX-20260905-${student?.id?.replace('BFA-', '') || '014'}`,
-    paymentMethod: 'QRIS',
-  };
-
-  // 3. Sesi Latihan 12 Sep
-  const inv12 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-12' || i.period?.includes('12 Sep')
-  );
-  const is12Paid = inv12 ? inv12.status === 'LUNAS' : isAllPaid;
-  const item12: Invoice = inv12 || {
-    id: `INV-20260912-${student?.id?.replace('BFA-', '') || '003'}`,
-    studentId: student?.id || 'BFA-003',
-    studentName: childName,
-    classGroupId: childGroup,
-    type: 'Latihan',
-    attendanceDate: '2026-09-12',
-    period: 'Latihan 12 Sep',
-    amount: 15000,
-    status: is12Paid ? 'LUNAS' : 'BELUM BAYAR',
-    dueDate: '2026-09-15',
-    createdAt: '12/09/2026',
-    paidAt: '12/09/2026 17:15:00',
-    transactionId: `BFA-TRX-20260912-${student?.id?.replace('BFA-', '') || '029'}`,
-    paymentMethod: 'QRIS',
-  };
-
-  // 4. Sesi Latihan 19 Sep (Tidak Hadir • Bebas Iuran)
-  const item19: Invoice = {
-    id: `INV-20260919-${student?.id?.replace('BFA-', '') || '003'}`,
-    studentId: student?.id || 'BFA-003',
-    studentName: childName,
-    classGroupId: childGroup,
-    type: 'Latihan',
-    attendanceDate: '2026-09-19',
-    period: 'Latihan 19 Sep (Tidak Hadir)',
-    amount: 0,
-    status: 'LUNAS',
-    dueDate: '2026-09-22',
-    createdAt: '19/09/2026',
-    paidAt: '19/09/2026 14:00:00',
-    transactionId: `BFA-TRX-20260919-EXEMPT`,
-    paymentMethod: 'Bebas Iuran Siswa',
-  };
-
-  // 5. Sesi Latihan 26 Sep
-  const inv26 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-26' || i.period?.includes('26 Sep')
-  );
-  const is26Paid = inv26 ? inv26.status === 'LUNAS' : isAllPaid;
-  const item26: Invoice = inv26 || {
-    id: `INV-20260926-${student?.id?.replace('BFA-', '') || '003'}`,
-    studentId: student?.id || 'BFA-003',
-    studentName: childName,
-    classGroupId: childGroup,
-    type: 'Latihan',
-    attendanceDate: '2026-09-26',
-    period: 'Latihan 26 Sep',
-    amount: 15000,
-    status: is26Paid ? 'LUNAS' : 'BELUM BAYAR',
-    dueDate: '2026-09-29',
-    createdAt: '26/09/2026',
-    paidAt: '26/09/2026 16:45:00',
-    transactionId: `BFA-TRX-20260926-${student?.id?.replace('BFA-', '') || '091'}`,
-    paymentMethod: 'QRIS',
-  };
-
-  const historyItems = [itemMonthly, item5, item12, item19, item26];
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-          Riwayat Pembayaran Siswa
-        </h1>
-        <p className="text-xs text-slate-500">
-          Daftar seluruh transaksi dan unduhan bukti kuitansi digital sah ananda {childName}.
-        </p>
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Riwayat Pembayaran & Kwitansi
+          </h1>
+          <p className="text-xs text-slate-500">
+            Daftar bukti transaksi resmi pembayaran iuran akademi ananda (Periode: Mulai Oktober 2026).
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="text-[10px] uppercase font-bold text-slate-400 block">Siswa:</span>
+          <span className="text-sm font-black text-blue-900">{childName}</span>
+          <span className="ml-1 text-[10px] font-bold text-white bg-blue-600 px-1.5 py-0.5 rounded-full">
+            {childGroup}
+          </span>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-black text-slate-500 uppercase tracking-wider block">
-            September 2026
-          </span>
-          <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-            5 Pembayaran Terdata
+      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-emerald-600" />
+            <span>Kwitansi Transaksi Resmi (Oktober 2026)</span>
+          </h3>
+          <span className="text-xs text-slate-500 font-mono">
+            {paidInvoices.length} Lunas • {unpaidInvoices.length} Belum Bayar
           </span>
         </div>
 
-        <div className="divide-y divide-slate-100">
-          {historyItems.map((inv) => {
-            const isExempt = inv.amount === 0;
-            const isPaid = inv.status === 'LUNAS';
-            const cleanTitle =
-              inv.type === 'Bulanan'
-                ? `Iuran Akademi (SPP ${inv.period})`
-                : inv.period?.includes('Tidak Hadir')
-                ? 'Latihan 19 Sep (Tidak Hadir)'
-                : `${inv.period} (Kehadiran Tap)`;
+        {childInvoices.length === 0 ? (
+          <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+            <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h4 className="font-black text-xs text-slate-900">Periode Iuran Dimulai Oktober 2026</h4>
+            <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+              Seluruh riwayat tagihan periode Agustus & September telah direset bersih. Bukti pembayaran dan kwitansi resmi akan tercatat di sini setelah Anda melakukan pembayaran iuran Oktober.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {childInvoices.map((inv) => {
+              const isPaid = inv.status === 'LUNAS';
+              return (
+                <div
+                  key={inv.id}
+                  className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900">
+                        {inv.type === 'Bulanan' ? `Iuran SPP (${inv.period})` : `${inv.period} (Kehadiran Tap)`}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isPaid
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }`}
+                      >
+                        {inv.status}
+                      </span>
+                    </div>
 
-            return (
-              <div key={inv.id} className="py-3.5 flex items-center justify-between text-xs">
-                <div>
-                  <p className="font-mono text-slate-400 text-[10px]">{inv.createdAt} • #{inv.id}</p>
-                  <p className="font-bold text-slate-900">
-                    {cleanTitle}
-                  </p>
-                  <p className={`font-mono font-bold mt-0.5 tabular-nums ${isExempt ? 'text-slate-400' : 'text-slate-700'}`}>
-                    Rp{inv.amount.toLocaleString('id-ID')} {isExempt ? '(Bebas Iuran)' : ''}
-                  </p>
-                </div>
-                <div className="text-right space-y-1">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      isExempt
-                        ? 'bg-slate-100 text-slate-600 border border-slate-300'
-                        : isPaid
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-rose-100 text-rose-800 border border-rose-300'
-                    }`}
-                  >
-                    {isExempt ? 'BEBAS IURAN' : inv.status}
-                  </span>
-                  <div>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 font-mono">
+                      <span>ID: {inv.id}</span>
+                      {inv.paidAt && <span>• Lunas: {inv.paidAt}</span>}
+                      {inv.paymentMethod && <span>• Metode: {inv.paymentMethod}</span>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
+                    <span className="font-black font-mono text-sm text-slate-900">
+                      Rp{inv.amount.toLocaleString('id-ID')}
+                    </span>
+
                     {isPaid ? (
                       <button
                         onClick={() => onShowReceipt(inv)}
-                        className="text-[11px] text-blue-700 hover:underline font-bold inline-flex items-center gap-1 active:scale-95"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition active:scale-95 shadow-xs"
                       >
-                        <Download className="w-3 h-3 text-blue-700" />
-                        <span>Kuitansi Digital</span>
+                        <Download className="w-3.5 h-3.5 text-emerald-200" />
+                        <span>Kwitansi</span>
                       </button>
                     ) : (
                       <button
                         onClick={() => onNavigate('parent-payment')}
-                        className="text-[11px] text-orange-600 hover:underline font-bold inline-flex items-center gap-1 active:scale-95"
+                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition active:scale-95 shadow-xs"
                       >
-                        <AlertCircle className="w-3 h-3 text-orange-600" />
-                        <span>Bayar Sekarang</span>
+                        <span>Bayar</span>
                       </button>
                     )}
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

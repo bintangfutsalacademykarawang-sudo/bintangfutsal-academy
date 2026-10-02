@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Student, SkillIndicator, Invoice, Attendance } from '../../types';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
-import { X, Edit3, CheckCircle2, FileText } from 'lucide-react';
+import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User } from 'lucide-react';
+import { BarcodeDisplay } from '../common/BarcodeDisplay';
+import { StudentBarcodeModal } from './StudentBarcodeModal';
 
 interface StudentDetailModalProps {
   isOpen: boolean;
@@ -22,7 +24,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   onClose,
   onEdit,
 }) => {
-  const [subtab, setSubtab] = useState<'overview' | 'absensi' | 'pembayaran' | 'rapor' | 'berkas'>('overview');
+  const [subtab, setSubtab] = useState<'overview' | 'barcode' | 'absensi' | 'pembayaran' | 'rapor' | 'berkas'>('overview');
+  const [isBarcodeCardOpen, setIsBarcodeCardOpen] = useState(false);
 
   if (!isOpen || !student) return null;
 
@@ -67,19 +70,33 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={() => onEdit(student)}
-            className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-xl text-xs font-bold border border-blue-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-orange-600" />
-            <span>Edit Data</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsBarcodeCardOpen(true)}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+              title="Buka & Cetak Kartu Barcode Siswa"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Kartu Barcode</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onEdit(student)}
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-orange-600" />
+              <span>Edit Data</span>
+            </button>
+          </div>
         </div>
 
         {/* Subtab Navigation */}
         <div className="flex border-b border-slate-200 mt-4 text-xs overflow-x-auto">
           {[
             { id: 'overview' as const, label: 'Overview' },
+            { id: 'barcode' as const, label: 'Kartu Barcode & QR' },
             { id: 'absensi' as const, label: 'Absensi' },
             { id: 'pembayaran' as const, label: 'Pembayaran' },
             { id: 'rapor' as const, label: 'Rapor (20 Indikator)' },
@@ -121,6 +138,62 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="text-slate-500 block text-[10px]">Nomor WhatsApp</span>
                 <span className="font-bold text-emerald-700 font-mono text-sm tabular-nums">{student.phone}</span>
+              </div>
+            </div>
+          )}
+
+          {subtab === 'barcode' && (
+            <div className="space-y-4">
+              <div className="p-4 sm:p-5 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-950 text-white rounded-2xl border border-blue-800/60 shadow-lg">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-white/10">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-800 border-2 border-amber-400 shrink-0 shadow-md">
+                      {student.avatar ? (
+                        <img src={student.avatar} alt={student.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-8 h-8 text-slate-400 m-4" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white border border-blue-400">
+                          KELOMPOK {student.classGroupId}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30">
+                          {student.id}
+                        </span>
+                      </div>
+                      <h4 className="text-base font-black text-white uppercase mt-1">
+                        {student.name}
+                      </h4>
+                      <p className="text-[11px] text-blue-200/90 font-medium">
+                        Posisi: <strong className="text-white">{student.position}</strong> {student.jerseyNumber ? `• No. #${student.jerseyNumber}` : ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsBarcodeCardOpen(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-md transition active:scale-95 shrink-0"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Buka Kartu & Cetak</span>
+                  </button>
+                </div>
+
+                <div className="mt-4 flex flex-col items-center">
+                  <BarcodeDisplay
+                    value={student.id}
+                    studentName={student.name}
+                    classGroup={student.classGroupId}
+                    width={320}
+                    height={80}
+                  />
+                  <p className="text-[11px] text-blue-200/80 mt-3 text-center max-w-sm">
+                    Barcode dan QR Code ini siap dipindai kamera gate atau barcode scanner gun fisik saat presensi latihan.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -222,6 +295,13 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Student Barcode Pass Modal */}
+        <StudentBarcodeModal
+          isOpen={isBarcodeCardOpen}
+          student={student}
+          onClose={() => setIsBarcodeCardOpen(false)}
+        />
       </div>
     </div>
   );

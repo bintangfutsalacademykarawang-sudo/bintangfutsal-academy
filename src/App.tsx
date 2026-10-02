@@ -14,7 +14,8 @@ import {
   SkillIndicator, 
   ToastMessage,
   AuthUser,
-  StudentReport
+  StudentReport,
+  TrainingSchedule
 } from './types';
 import { 
   INITIAL_STUDENTS, 
@@ -23,6 +24,7 @@ import {
   INITIAL_ATTENDANCES, 
   INITIAL_SKILL_INDICATORS, 
   INITIAL_STUDENT_REPORTS,
+  INITIAL_SCHEDULES,
   createDefaultReport,
   formatDateIndo,
   getNextStudentId,
@@ -54,15 +56,20 @@ import { StudentDetailModal } from './components/modals/StudentDetailModal';
 import { EditReportModal } from './components/modals/EditReportModal';
 import { ReceiptModal } from './components/modals/ReceiptModal';
 import { CameraModal } from './components/modals/CameraModal';
+import { GenerateInvoiceModal } from './components/modals/GenerateInvoiceModal';
+import { CreateScheduleModal } from './components/modals/CreateScheduleModal';
+import { StudentBarcodeModal } from './components/modals/StudentBarcodeModal';
 import { 
   testFirestoreConnection,
   seedInitialFirestoreDataIfEmpty,
   saveStudentToFirestore,
   saveReportToFirestore,
   saveInvoiceToFirestore,
+  saveAttendanceToFirestore,
   subscribeToStudents,
   subscribeToReports,
-  subscribeToInvoices
+  subscribeToInvoices,
+  subscribeToAttendances
 } from './firebase';
 
 export default function App() {
@@ -102,44 +109,44 @@ export default function App() {
 
   const [cashMutations, setCashMutations] = useState<CashMutation[]>(() => {
     try {
+      const resetFlag = localStorage.getItem('bfa_cash_reset_v4');
+      if (!resetFlag) {
+        localStorage.setItem('bfa_cash_reset_v4', 'true');
+        localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
+        return [];
+      }
       const saved = localStorage.getItem('bfa_cash_mutations');
-      return saved ? JSON.parse(saved) : INITIAL_CASH_MUTATIONS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_CASH_MUTATIONS;
+      return [];
     }
   });
 
+  const [schedules, setSchedules] = useState<TrainingSchedule[]>(() => {
+    try {
+      const saved = localStorage.getItem('bfa_training_schedules');
+      return saved ? JSON.parse(saved) : INITIAL_SCHEDULES;
+    } catch {
+      return INITIAL_SCHEDULES;
+    }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('bfa_training_schedules', JSON.stringify(schedules)); } catch (e) { console.error(e); }
+  }, [schedules]);
+
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     try {
-      const saved = localStorage.getItem('bfa_invoices');
-      if (saved) {
-        const parsed: Invoice[] = JSON.parse(saved);
-        // Ensure any standard initial invoice that is missing is added
-        const missing = INITIAL_INVOICES.filter(
-          (init) => !parsed.some((p) => p.id === init.id)
-        );
-        let merged = missing.length > 0 ? [...parsed, ...missing] : parsed;
-
-        // Ensure Bima and Andra have their 12 Sep & 26 Sep invoices synchronized with INITIAL_INVOICES
-        merged = merged.map((inv) => {
-          const match = INITIAL_INVOICES.find((i) => i.id === inv.id);
-          if (match && match.status === 'LUNAS' && inv.status !== 'LUNAS') {
-            return {
-              ...inv,
-              status: 'LUNAS',
-              paidAt: match.paidAt,
-              transactionId: match.transactionId,
-              paymentMethod: match.paymentMethod,
-            };
-          }
-          return inv;
-        });
-
-        return merged;
+      const resetFlag = localStorage.getItem('bfa_invoices_october_reset_v2');
+      if (!resetFlag) {
+        localStorage.setItem('bfa_invoices_october_reset_v2', 'true');
+        localStorage.setItem('bfa_invoices', JSON.stringify([]));
+        return [];
       }
-      return INITIAL_INVOICES;
+      const saved = localStorage.getItem('bfa_invoices');
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_INVOICES;
+      return [];
     }
   });
 
@@ -305,8 +312,12 @@ export default function App() {
 
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [invoiceForReceipt, setInvoiceForReceipt] = useState<Invoice | null>(null);
+  const [isGenerateInvoiceModalOpen, setIsGenerateInvoiceModalOpen] = useState(false);
+  const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<'photo' | 'kk' | 'akte' | 'kia' | 'ijazah' | null>(null);
+  const [newlyRegisteredStudent, setNewlyRegisteredStudent] = useState<Student | null>(null);
+  const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
 
   // Cash Mutation Operations
   const handleAddCashMutation = (mutationData: Omit<CashMutation, 'id'>) => {
@@ -326,6 +337,82 @@ export default function App() {
     const item = cashMutations.find((m) => m.id === id);
     setCashMutations((prev) => prev.filter((m) => m.id !== id));
     showToast(`Mutasi kas ${item?.note || id} berhasil dihapus.`, 'info');
+  };
+
+  const handleResetCash = () => {
+    setCashMutations([]);
+    try {
+      localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
+    } catch {}
+    showToast('Seluruh data buku kas berhasil direset ke Rp0.', 'info');
+  };
+
+  // Update Student Photo Handler
+  const handleUpdateStudentPhoto = (studentId: string, newPhotoUrl: string) => {
+    setStudents((prev) => {
+      const updated = prev.map((s) => (s.id === studentId ? { ...s, avatar: newPhotoUrl } : s));
+      try {
+        localStorage.setItem('bfa_students', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      const target = updated.find((s) => s.id === studentId);
+      if (target) {
+        saveStudentToFirestore(target).catch((e) => console.warn('Firestore student photo sync:', e));
+      }
+      return updated;
+    });
+    showToast('Foto profil ananda berhasil diperbarui!', 'success');
+  };
+
+  // Schedule Operations (Add / Edit / Delete)
+  const [scheduleToEdit, setScheduleToEdit] = useState<TrainingSchedule | null>(null);
+
+  const handleSaveSchedule = (scheduleData: Omit<TrainingSchedule, 'id'>, editId?: string) => {
+    if (editId) {
+      setSchedules((prev) =>
+        prev.map((s) => (s.id === editId ? { ...s, ...scheduleData, id: editId } : s))
+      );
+      showToast(
+        `Jadwal sesi latihan ${scheduleData.classGroupId} (${scheduleData.dayName}) berhasil diperbarui!`,
+        'success'
+      );
+    } else {
+      const newId = `SCH-${scheduleData.date.replace(/-/g, '')}-${String(schedules.length + 1).padStart(3, '0')}`;
+      const newSchedule: TrainingSchedule = {
+        id: newId,
+        ...scheduleData,
+      };
+      setSchedules((prev) => [newSchedule, ...prev]);
+      showToast(
+        `Jadwal sesi latihan ${newSchedule.classGroupId} (${newSchedule.dayName}) berhasil disimpan!`,
+        'success'
+      );
+    }
+    setScheduleToEdit(null);
+  };
+
+  const handleOpenEditSchedule = (sch: TrainingSchedule) => {
+    setScheduleToEdit(sch);
+    setIsCreateScheduleOpen(true);
+  };
+
+  const handleOpenAddSchedule = () => {
+    setScheduleToEdit(null);
+    setIsCreateScheduleOpen(true);
+  };
+
+  const handleDeleteSchedule = (id: string) => {
+    setSchedules((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      try {
+        localStorage.setItem('bfa_training_schedules', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+    showToast('Jadwal sesi latihan berhasil dihapus.', 'info');
   };
 
   // Fingerprint Attendance Logic
@@ -356,6 +443,7 @@ export default function App() {
     };
 
     setAttendances((prev) => [newAtt, ...prev]);
+    saveAttendanceToFirestore(newAtt).catch((e) => console.warn('Firestore attendance sync:', e));
 
     if (status === 'HADIR') {
       const duplicateInvoice = invoices.find(
@@ -363,6 +451,8 @@ export default function App() {
       );
 
       if (!duplicateInvoice) {
+        const dateParts = date.split('-');
+        const formattedCreated = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
         const newInvoice: Invoice = {
           id: `INV-${date.replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
           studentId: student.id,
@@ -370,29 +460,17 @@ export default function App() {
           classGroupId: student.classGroupId,
           type: 'Latihan',
           attendanceDate: date,
-          period: `Latihan ${date.split('-')[2]} Sep`,
+          period: `Sesi Latihan (${date})`,
           amount: 15000,
           status: 'BELUM BAYAR',
           dueDate: date,
-          createdAt: `${date.split('-')[2]}/${date.split('-')[1]}/2026`,
+          createdAt: formattedCreated,
         };
         setInvoices((prev) => [newInvoice, ...prev]);
-
-        // Record cash entry
-        const newMut: CashMutation = {
-          id: `MUT-${String(cashMutations.length + 1).padStart(3, '0')}`,
-          date,
-          type: 'Pemasukan',
-          category: 'Iuran Sesi Lapangan',
-          note: `Iuran sesi latihan: ${student.name}`,
-          method: 'Tunai Lapangan',
-          amount: 15000,
-          staff: 'Auto Gate 01',
-        };
-        setCashMutations((prev) => [newMut, ...prev]);
+        saveInvoiceToFirestore(newInvoice).catch((e) => console.warn('Firestore invoice sync:', e));
 
         showToast(
-          `Absensi ${student.name} berhasil & tagihan latihan Rp15.000 otomatis diterbitkan.`,
+          `Absensi ${student.name} berhasil & tagihan iuran latihan Rp15.000 otomatis diterbitkan.`,
           'success'
         );
       }
@@ -401,29 +479,48 @@ export default function App() {
     }
   };
 
-  // Generate Monthly Invoices (SPP Bulanan)
+  const handleQuickMarkAttendance = (studentId: string, date: string, status: 'HADIR' | 'TIDAK_HADIR') => {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    handleFingerprintSubmit(studentId, date, timeStr, status);
+  };
+
+  // Open SPP Configuration Modal
   const handleGenerateMonthlyInvoices = () => {
+    setIsGenerateInvoiceModalOpen(true);
+  };
+
+  // Generate Monthly Invoices with custom settings from Modal
+  const handleConfirmGenerateInvoices = (config: {
+    period: string;
+    dueDate: string;
+    issueDate: string;
+    amount: number;
+    classGroupId: string;
+  }) => {
     let count = 0;
-    const period = 'September 2026';
     const newInvoices: Invoice[] = [];
+    const dateFormatted = config.issueDate.split('-').reverse().join('/');
 
     students.forEach((st) => {
-      if (st.status === 'Aktif') {
+      const matchGroup = config.classGroupId === 'ALL' || st.classGroupId === config.classGroupId;
+      if (st.status === 'Aktif' && matchGroup) {
         const exists = invoices.some(
-          (inv) => inv.studentId === st.id && inv.type === 'Bulanan' && inv.period === period
+          (inv) => inv.studentId === st.id && inv.type === 'Bulanan' && inv.period === config.period
         );
         if (!exists) {
+          const invId = `INV-${config.issueDate.replace(/-/g, '')}-${st.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`;
           newInvoices.push({
-            id: `INV-20260901-${Math.floor(100 + Math.random() * 900)}`,
+            id: invId,
             studentId: st.id,
             studentName: st.name,
             classGroupId: st.classGroupId,
             type: 'Bulanan',
-            period,
-            amount: 50000,
+            period: config.period,
+            amount: config.amount,
             status: 'BELUM BAYAR',
-            dueDate: '2026-09-10',
-            createdAt: '01/09/2026',
+            dueDate: config.dueDate,
+            createdAt: dateFormatted,
           });
           count++;
         }
@@ -432,12 +529,15 @@ export default function App() {
 
     if (count > 0) {
       setInvoices((prev) => [...newInvoices, ...prev]);
+      try {
+        localStorage.setItem('bfa_invoices', JSON.stringify([...newInvoices, ...invoices]));
+      } catch {}
       newInvoices.forEach((inv) => {
         saveInvoiceToFirestore(inv).catch((e) => console.warn('Firestore invoice sync:', e));
       });
-      showToast(`Berhasil menerbitkan ${count} invoice SPP Bulanan Rp50.000 (tersimpan online).`, 'success');
+      showToast(`Berhasil menerbitkan ${count} tagihan SPP (${config.period}) jatuh tempo ${config.dueDate}!`, 'success');
     } else {
-      showToast('Semua siswa aktif sudah memiliki invoice SPP bulan ini.', 'info');
+      showToast(`Seluruh siswa aktif pada kelompok ${config.classGroupId === 'ALL' ? 'Semua' : config.classGroupId} sudah memiliki tagihan untuk ${config.period}.`, 'info');
     }
   };
 
@@ -501,8 +601,12 @@ export default function App() {
       saveStudentToFirestore(newStudent).catch((e) => console.warn('Firestore student sync:', e));
       saveReportToFirestore(nextId, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
 
+      // Automatically trigger the official Athlete Barcode Pass modal for new registration
+      setNewlyRegisteredStudent(newStudent);
+      setIsNewStudentBarcodeOpen(true);
+
       showToast(
-        `Siswa baru ${newStudent.name} (${nextId} - ${newStudent.classGroupId}) berhasil didaftarkan & tersimpan online!`,
+        `Siswa baru ${newStudent.name} (${nextId} - ${newStudent.classGroupId}) berhasil didaftarkan & kartu barcode resmi otomatis diterbitkan!`,
         'success'
       );
     }
@@ -801,10 +905,18 @@ Official Performance Report • BFA Karawang
                   cashMutations={cashMutations}
                   invoices={invoices}
                   attendances={attendances}
+                  schedules={schedules}
                   onNavigate={handleNavigate}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onOpenFingerprint={() => setIsFingerprintOpen(true)}
                   onGenerateInvoices={handleGenerateMonthlyInvoices}
+                  onOpenCreateSchedule={handleOpenAddSchedule}
+                  onEditSchedule={handleOpenEditSchedule}
+                  onDeleteSchedule={handleDeleteSchedule}
+                  onViewParentDashboard={() => {
+                    setRole('parent');
+                    setCurrentRoute('parent-dashboard');
+                  }}
                 />
               )}
 
@@ -828,6 +940,7 @@ Official Performance Report • BFA Karawang
                   cashMutations={cashMutations}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onDeleteMutation={handleDeleteMutation}
+                  onResetCash={handleResetCash}
                 />
               )}
 
@@ -848,7 +961,13 @@ Official Performance Report • BFA Karawang
               {currentRoute === 'attendance' && (
                 <AdminAttendanceView
                   attendances={attendances}
+                  students={students}
+                  schedules={schedules}
                   onOpenFingerprint={() => setIsFingerprintOpen(true)}
+                  onOpenCreateSchedule={handleOpenAddSchedule}
+                  onEditSchedule={handleOpenEditSchedule}
+                  onDeleteSchedule={handleDeleteSchedule}
+                  onQuickMarkAttendance={handleQuickMarkAttendance}
                 />
               )}
 
@@ -880,7 +999,9 @@ Official Performance Report • BFA Karawang
                   student={activeParentStudent}
                   invoices={invoices}
                   attendances={attendances}
+                  schedules={schedules}
                   onNavigate={handleNavigate}
+                  onUpdateStudentPhoto={handleUpdateStudentPhoto}
                 />
               )}
 
@@ -889,6 +1010,7 @@ Official Performance Report • BFA Karawang
                   student={activeParentStudent}
                   invoices={invoices}
                   attendances={attendances}
+                  schedules={schedules}
                   onNavigate={handleNavigate}
                 />
               )}
@@ -942,6 +1064,7 @@ Official Performance Report • BFA Karawang
       <FingerprintModal
         isOpen={isFingerprintOpen}
         students={students}
+        schedules={schedules}
         onClose={() => setIsFingerprintOpen(false)}
         onSubmit={handleFingerprintSubmit}
       />
@@ -996,6 +1119,34 @@ Official Performance Report • BFA Karawang
         target={cameraTarget}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCameraCapture}
+      />
+
+      <GenerateInvoiceModal
+        isOpen={isGenerateInvoiceModalOpen}
+        students={students}
+        onClose={() => setIsGenerateInvoiceModalOpen(false)}
+        onConfirm={handleConfirmGenerateInvoices}
+      />
+
+      <CreateScheduleModal
+        isOpen={isCreateScheduleOpen}
+        scheduleToEdit={scheduleToEdit}
+        onClose={() => {
+          setIsCreateScheduleOpen(false);
+          setScheduleToEdit(null);
+        }}
+        onSubmit={handleSaveSchedule}
+      />
+
+      {/* Newly Registered Student Barcode Pass Modal */}
+      <StudentBarcodeModal
+        isOpen={isNewStudentBarcodeOpen}
+        student={newlyRegisteredStudent}
+        isNewRegistration={true}
+        onClose={() => {
+          setIsNewStudentBarcodeOpen(false);
+          setNewlyRegisteredStudent(null);
+        }}
       />
 
       {/* Toast Notification Container */}

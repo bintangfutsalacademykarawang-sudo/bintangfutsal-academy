@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Student } from '../../types';
 import { formatDateIndo, getKUCategoryInfo } from '../../data/initialData';
-import { Search, Plus, Eye, Edit3, Filter, X, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Eye, Edit3, Filter, X, ChevronDown, CheckCircle2, Download, FileSpreadsheet, QrCode } from 'lucide-react';
 import { CategoryFilterModal } from '../modals/CategoryFilterModal';
+import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
+import { exportStudentsExcel, exportStudentsPDF } from '../../utils/exportHelpers';
 
 interface AdminStudentsViewProps {
   students: Student[];
@@ -20,6 +22,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [barcodeModalStudent, setBarcodeModalStudent] = useState<Student | null>(null);
 
   // Filter students based on search and selected KU
   const filtered = students.filter((st) => {
@@ -47,13 +50,33 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
             Daftar atlet BFA, filter kelompok umur (KU U3 - U30), tempat lahir, wali murid, dan berkas.
           </p>
         </div>
-        <button
-          onClick={onOpenAddStudent}
-          className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center space-x-1.5 self-start sm:self-auto active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Siswa</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => exportStudentsExcel(filtered)}
+            className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 active:scale-95"
+            title="Download Data Siswa format Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+            <span>Unduh Excel</span>
+          </button>
+
+          <button
+            onClick={() => exportStudentsPDF(filtered)}
+            className="px-3.5 py-2.5 bg-slate-900 hover:bg-black text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 active:scale-95"
+            title="Download Data Siswa format PDF"
+          >
+            <Download className="w-3.5 h-3.5 text-amber-400" />
+            <span>Unduh PDF</span>
+          </button>
+
+          <button
+            onClick={onOpenAddStudent}
+            className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center space-x-1.5 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Siswa</span>
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
@@ -230,6 +253,13 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center space-x-1.5">
                         <button
+                          onClick={() => setBarcodeModalStudent(st)}
+                          title="Buka & Cetak Kartu Barcode Siswa"
+                          className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition shadow-xs active:scale-95"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => onOpenEditStudent(st)}
                           title="Edit Data Siswa"
                           className="p-1.5 bg-white hover:bg-slate-100 text-orange-600 rounded-lg border border-slate-200 transition shadow-xs active:scale-95"
@@ -260,6 +290,13 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
         students={students}
         onClose={() => setIsFilterModalOpen(false)}
         onSelectCategory={(cat) => setClassFilter(cat)}
+      />
+
+      {/* Student Barcode ID Pass Modal */}
+      <StudentBarcodeModal
+        isOpen={Boolean(barcodeModalStudent)}
+        student={barcodeModalStudent}
+        onClose={() => setBarcodeModalStudent(null)}
       />
     </div>
   );

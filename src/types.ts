@@ -100,6 +100,18 @@ export interface StudentReport {
   totalSessions?: number;
 }
 
+export interface TrainingSchedule {
+  id: string;
+  date: string; // YYYY-MM-DD
+  dayName: string; // e.g. 'Jumat, 2 Oktober 2026'
+  startTime: string; // e.g. '14:00'
+  endTime: string; // e.g. '16:00'
+  classGroupId: string; // e.g. 'U10'
+  courtName: string; // e.g. 'Bintang Futsal (Lap B)'
+  coaches: string[]; // multi-coach selection
+  status: 'Akan Datang' | 'Sedang Berjalan' | 'Selesai';
+}
+
 export interface AuthUser {
   role: Role;
   name: string;

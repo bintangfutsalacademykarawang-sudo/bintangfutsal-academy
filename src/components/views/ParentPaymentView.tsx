@@ -44,23 +44,6 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
   const totalUnpaidAmount = unpaidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
   const isAllPaid = unpaidInvoices.length === 0;
 
-  // Session specific paid checks
-  const invMonthly = childInvoices.find((i) => i.type === 'Bulanan');
-  const inv5 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-05' || i.period?.includes('5 Sep')
-  );
-  const inv12 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-12' || i.period?.includes('12 Sep')
-  );
-  const inv26 = childInvoices.find(
-    (i) => i.attendanceDate === '2026-09-26' || i.period?.includes('26 Sep')
-  );
-
-  const isMonthlyPaid = invMonthly ? invMonthly.status === 'LUNAS' : isAllPaid;
-  const is5Paid = inv5 ? inv5.status === 'LUNAS' : isAllPaid;
-  const is12Paid = inv12 ? inv12.status === 'LUNAS' : isAllPaid;
-  const is26Paid = inv26 ? inv26.status === 'LUNAS' : isAllPaid;
-
   // Copy state feedbacks
   const [copiedAccount, setCopiedAccount] = useState(false);
   const [copiedAmount, setCopiedAmount] = useState(false);
@@ -148,51 +131,25 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
           </div>
 
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
-            {/* 1. Iuran SPP Bulanan */}
-            <div className="flex justify-between items-center">
-              <span className={isMonthlyPaid ? 'text-slate-600' : 'font-bold text-slate-900'}>
-                Iuran Akademi (SPP September 2026)
-              </span>
-              <span className={`font-mono font-bold ${isMonthlyPaid ? 'text-emerald-700' : 'text-orange-600'}`}>
-                Rp50.000 {isMonthlyPaid ? '(Lunas ✓)' : ''}
-              </span>
-            </div>
-
-            {/* 2. Sesi 5 Sep */}
-            <div className="flex justify-between items-center">
-              <span className={is5Paid ? 'text-slate-600' : 'font-bold text-slate-900'}>
-                Latihan 5 Sep (Kehadiran Tap)
-              </span>
-              <span className={`font-mono font-bold ${is5Paid ? 'text-emerald-700' : 'text-orange-600'}`}>
-                Rp15.000 {is5Paid ? '(Lunas ✓)' : ''}
-              </span>
-            </div>
-
-            {/* 3. Sesi 12 Sep */}
-            <div className="flex justify-between items-center">
-              <span className={is12Paid ? 'text-slate-600' : 'font-bold text-slate-900'}>
-                Latihan 12 Sep (Kehadiran Tap)
-              </span>
-              <span className={`font-mono font-bold ${is12Paid ? 'text-emerald-700' : 'text-orange-600'}`}>
-                Rp15.000 {is12Paid ? '(Lunas ✓)' : ''}
-              </span>
-            </div>
-
-            {/* 4. Sesi 19 Sep (Tidak Hadir) */}
-            <div className="flex justify-between items-center text-slate-400">
-              <span>Latihan 19 Sep (Tidak Hadir)</span>
-              <span className="font-mono text-emerald-700 font-semibold">Rp0 (Bebas Iuran ✓)</span>
-            </div>
-
-            {/* 5. Sesi 26 Sep */}
-            <div className="flex justify-between items-center">
-              <span className={is26Paid ? 'text-slate-600' : 'font-bold text-slate-900'}>
-                Latihan 26 Sep (Kehadiran Tap)
-              </span>
-              <span className={`font-mono font-bold ${is26Paid ? 'text-emerald-700' : 'text-orange-600'}`}>
-                Rp15.000 {is26Paid ? '(Lunas ✓)' : ''}
-              </span>
-            </div>
+            {childInvoices.length === 0 ? (
+              <div className="py-3 px-3 text-center space-y-1">
+                <p className="font-bold text-slate-800">Periode Iuran: Mulai Oktober 2026</p>
+                <p className="text-[11px] text-slate-500">
+                  Seluruh iuran periode Agustus & September telah direset. Belum ada tagihan baru untuk ananda {childName}.
+                </p>
+              </div>
+            ) : (
+              childInvoices.map((inv) => (
+                <div key={inv.id} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-b-0">
+                  <span className={inv.status === 'LUNAS' ? 'text-slate-600' : 'font-bold text-slate-900'}>
+                    {inv.type === 'Bulanan' ? `Iuran SPP (${inv.period})` : `${inv.period} (Kehadiran Tap)`}
+                  </span>
+                  <span className={`font-mono font-bold ${inv.status === 'LUNAS' ? 'text-emerald-700' : 'text-orange-600'}`}>
+                    Rp{inv.amount.toLocaleString('id-ID')} {inv.status === 'LUNAS' ? '(Lunas ✓)' : '(Belum Bayar)'}
+                  </span>
+                </div>
+              ))
+            )}
 
             <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-slate-900">
               <span>Total yang Harus Dibayar:</span>

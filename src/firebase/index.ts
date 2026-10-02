@@ -9,7 +9,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Student, StudentReport, Invoice } from '../types';
+import { Student, StudentReport, Invoice, Attendance } from '../types';
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -37,6 +37,39 @@ export async function testFirestoreConnection(): Promise<boolean> {
 const STUDENTS_COLLECTION = 'students';
 const REPORTS_COLLECTION = 'studentReports';
 const INVOICES_COLLECTION = 'invoices';
+const ATTENDANCES_COLLECTION = 'attendances';
+
+// --- ATTENDANCE OPERATIONS ---
+export async function saveAttendanceToFirestore(attendance: Attendance): Promise<void> {
+  try {
+    const attRef = doc(db, ATTENDANCES_COLLECTION, attendance.id);
+    await setDoc(attRef, attendance, { merge: true });
+  } catch (error) {
+    console.error('Failed to save attendance to Firestore:', error);
+    throw error;
+  }
+}
+
+export function subscribeToAttendances(
+  onData: (attendances: Attendance[]) => void,
+  onError?: (err: Error) => void
+) {
+  const collRef = collection(db, ATTENDANCES_COLLECTION);
+  return onSnapshot(
+    collRef,
+    (snapshot) => {
+      const items: Attendance[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as Attendance);
+      });
+      onData(items);
+    },
+    (err) => {
+      console.warn('Firestore attendances subscription error:', err);
+      onError?.(err);
+    }
+  );
+}
 
 // --- STUDENT OPERATIONS ---
 export async function saveStudentToFirestore(student: Student): Promise<void> {

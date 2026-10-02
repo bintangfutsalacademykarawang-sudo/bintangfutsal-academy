@@ -1,6 +1,7 @@
 import React from 'react';
 import { Invoice } from '../../types';
-import { CreditCard, Plus, Receipt, CheckCircle } from 'lucide-react';
+import { CreditCard, Plus, Receipt, CheckCircle, Download, FileSpreadsheet } from 'lucide-react';
+import { exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
 
 interface AdminInvoicesViewProps {
   invoices: Invoice[];
@@ -32,13 +33,33 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
             Total tagihan bulanan Rp50.000 dan tagihan latihan Rp15.000 per kehadiran siswa.
           </p>
         </div>
-        <button
-          onClick={onGenerateInvoices}
-          className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center space-x-1.5 active:scale-95 self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Generate Tagihan Bulanan</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => exportInvoicesExcel(invoices)}
+            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
+            title="Download Tagihan format Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+            <span>Unduh Excel</span>
+          </button>
+
+          <button
+            onClick={() => exportInvoicesPDF(invoices)}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
+            title="Download Tagihan format PDF"
+          >
+            <Download className="w-3.5 h-3.5 text-amber-400" />
+            <span>Unduh PDF</span>
+          </button>
+
+          <button
+            onClick={onGenerateInvoices}
+            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center space-x-1.5 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Generate Tagihan SPP</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

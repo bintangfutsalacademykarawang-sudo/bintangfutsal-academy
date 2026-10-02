@@ -1,4 +1,4 @@
-import { Student, CashMutation, Invoice, Attendance, SkillIndicator, StudentReport } from '../types';
+import { Student, CashMutation, Invoice, Attendance, SkillIndicator, StudentReport, TrainingSchedule } from '../types';
 
 export const CURRENT_SYSTEM_YEAR = 2026;
 
@@ -165,34 +165,45 @@ export const INITIAL_STUDENTS: Student[] = [
   }
 ];
 
-export const INITIAL_CASH_MUTATIONS: CashMutation[] = [
-  { id: 'MUT-001', date: '2026-09-26', type: 'Pemasukan', category: 'SPP Bulanan', note: 'Pembayaran SPP September - 35 Siswa', method: 'Transfer Bank BFA', amount: 1750000, staff: 'Admin Sari' },
-  { id: 'MUT-002', date: '2026-09-26', type: 'Pemasukan', category: 'Iuran Sesi Lapangan', note: 'Iuran kehadiran Sabtu 26 Sep (24 Siswa)', method: 'Tunai Lapangan', amount: 360000, staff: 'Coach Hendra' },
-  { id: 'MUT-003', date: '2026-09-26', type: 'Pengeluaran', category: 'Sewa Lapangan', note: 'Sewa 4 Jam Lapangan Vinyl FlaminGO Center', method: 'Transfer Bank BFA', amount: 900000, staff: 'Coach Hendra' },
-  { id: 'MUT-004', date: '2026-09-25', type: 'Pengeluaran', category: 'Honor Pelatih', note: 'Honor Sesi Latihan Reguler & Kiper (3 Pelatih)', method: 'Transfer Bank BFA', amount: 650000, staff: 'Admin Sari' },
-  { id: 'MUT-005', date: '2026-09-24', type: 'Pemasukan', category: 'Pendaftaran Anggota Baru', note: 'Registrasi 2 Siswa Baru U11 (Farhan & Rizky)', method: 'QRIS Kasir', amount: 500000, staff: 'Admin Sari' },
-  { id: 'MUT-006', date: '2026-09-22', type: 'Pengeluaran', category: 'Alat & Bola Futsal', note: 'Pembelian 4 Bola Futsal Molten Vantaggio & Cone', method: 'Tunai Lapangan', amount: 1100000, staff: 'Coach Hendra' },
-  { id: 'MUT-007', date: '2026-09-20', type: 'Pengeluaran', category: 'Operasional Lainnya', note: 'Pengisian Kotak P3K, Es Batu, & Air Mineral Sesi', method: 'Tunai Lapangan', amount: 250000, staff: 'Official Dani' },
-  { id: 'MUT-008', date: '2026-09-18', type: 'Pemasukan', category: 'SPP Bulanan', note: 'Pelunasan SPP Bulanan - 40 Siswa', method: 'Virtual Account', amount: 2000000, staff: 'Admin Sari' },
-  { id: 'MUT-009', date: '2026-09-15', type: 'Pengeluaran', category: 'Sewa Lapangan', note: 'Sewa Lapangan Pertandingan Internal Sparing', method: 'Transfer Bank BFA', amount: 600000, staff: 'Coach Hendra' },
-  { id: 'MUT-010', date: '2026-09-12', type: 'Pemasukan', category: 'Iuran Sesi Lapangan', note: 'Iuran sesi latihan Sabtu 12 Sep', method: 'QRIS Kasir', amount: 480000, staff: 'Admin Sari' }
+export const INITIAL_CASH_MUTATIONS: CashMutation[] = [];
+
+export const INITIAL_SCHEDULES: TrainingSchedule[] = [
+  {
+    id: 'SCH-20261002-001',
+    date: '2026-10-02',
+    dayName: 'Jumat, 2 Oktober 2026',
+    startTime: '14:00',
+    endTime: '16:00',
+    classGroupId: 'U10',
+    courtName: 'Bintang Futsal (Lap B)',
+    coaches: ['Coach Ilham', 'Coach Hanif'],
+    status: 'Sedang Berjalan'
+  },
+  {
+    id: 'SCH-20261003-001',
+    date: '2026-10-03',
+    dayName: 'Sabtu, 3 Oktober 2026',
+    startTime: '08:00',
+    endTime: '10:00',
+    classGroupId: 'U11',
+    courtName: 'FlaminGO Center (Vinyl)',
+    coaches: ['Coach Hendra', 'Coach Dani'],
+    status: 'Akan Datang'
+  },
+  {
+    id: 'SCH-20261003-002',
+    date: '2026-10-03',
+    dayName: 'Sabtu, 3 Oktober 2026',
+    startTime: '15:30',
+    endTime: '17:30',
+    classGroupId: 'U12',
+    courtName: 'Bintang Futsal (Lap A)',
+    coaches: ['Coach Hendra', 'Coach Ilham'],
+    status: 'Akan Datang'
+  }
 ];
 
-export const INITIAL_INVOICES: Invoice[] = [
-  { id: 'INV-20260901-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-01 09:12:00', transactionId: 'BFA-TRX-20260901-001', paymentMethod: 'QRIS' },
-  { id: 'INV-20260905-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-05', period: 'Latihan 5 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-08', createdAt: '05/09/2026', paidAt: '2026-09-05 16:30:00', transactionId: 'BFA-TRX-20260905-014', paymentMethod: 'Virtual Account' },
-  { id: 'INV-20260912-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-15', createdAt: '12/09/2026', paidAt: '2026-09-12 17:10:00', transactionId: 'BFA-TRX-20260912-021', paymentMethod: 'QRIS' },
-  { id: 'INV-20260926-001', studentId: 'BFA-001', studentName: 'Andra', classGroupId: 'U11', type: 'Latihan', attendanceDate: '2026-09-26', period: 'Latihan 26 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-29', createdAt: '26/09/2026', paidAt: '2026-09-26 16:30:00', transactionId: 'BFA-TRX-20260926-055', paymentMethod: 'QRIS' },
-
-  { id: 'INV-20260901-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-03 14:10:00', transactionId: 'BFA-TRX-20260903-088', paymentMethod: 'Transfer Bank' },
-  { id: 'INV-20260905-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-05', period: 'Latihan 5 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-08', createdAt: '05/09/2026', paidAt: '2026-09-05 17:15:00', transactionId: 'BFA-TRX-20260905-032', paymentMethod: 'QRIS' },
-  { id: 'INV-20260912-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-15', createdAt: '12/09/2026', paidAt: '2026-09-12 17:25:00', transactionId: 'BFA-TRX-20260912-064', paymentMethod: 'QRIS' },
-  { id: 'INV-20260926-002', studentId: 'BFA-002', studentName: 'Bima', classGroupId: 'U10', type: 'Latihan', attendanceDate: '2026-09-26', period: 'Latihan 26 Sep', amount: 15000, status: 'LUNAS', dueDate: '2026-09-29', createdAt: '26/09/2026', paidAt: '2026-09-26 16:50:00', transactionId: 'BFA-TRX-20260926-091', paymentMethod: 'QRIS' },
-
-  { id: 'INV-20260912-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', type: 'Latihan', attendanceDate: '2026-09-12', period: 'Latihan 12 Sep', amount: 15000, status: 'BELUM BAYAR', dueDate: '2026-09-15', createdAt: '12/09/2026' },
-  { id: 'INV-20260901-003', studentId: 'BFA-003', studentName: 'Raka', classGroupId: 'U12', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'LUNAS', dueDate: '2026-09-10', createdAt: '01/09/2026', paidAt: '2026-09-02 11:20:00', transactionId: 'BFA-TRX-20260902-019', paymentMethod: 'QRIS' },
-  { id: 'INV-20260901-004', studentId: 'BFA-004', studentName: 'Fahmi', classGroupId: 'U8', type: 'Bulanan', period: 'September 2026', amount: 50000, status: 'BELUM BAYAR', dueDate: '2026-09-10', createdAt: '01/09/2026' }
-];
+export const INITIAL_INVOICES: Invoice[] = [];
 
 export const INITIAL_ATTENDANCES: Attendance[] = [
   // 5 Sep 2026

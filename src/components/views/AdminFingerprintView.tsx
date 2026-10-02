@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Fingerprint, RefreshCw, Cpu, Activity } from 'lucide-react';
+import { Fingerprint, RefreshCw, Cpu, Activity, QrCode, Scan } from 'lucide-react';
 
 interface AdminFingerprintViewProps {
   onOpenFingerprint: () => void;
@@ -24,15 +24,16 @@ export const AdminFingerprintView: React.FC<AdminFingerprintViewProps> = ({
   };
 
   const handleTestSensor = () => {
-    onShowToast('Tes sensor: Hardware merespons OK (Latency: 14ms)', 'info');
+    onShowToast('Tes sensor: Sensor Sidik Jari & Scanner Barcode OK (Latency: 12ms)', 'info');
   };
 
   const logs = [
-    { time: '14:15:32', event: 'Heartbeat ping: 14ms latency. Terminal siap scan sidik jari.', status: 'OK' },
+    { time: '14:15:32', event: 'Heartbeat ping: 12ms latency. Terminal Sidik Jari & Barcode siap scan.', status: 'OK' },
+    { time: '14:12:10', event: 'Barcode Scanned: ID BFA-001 (Andra). Status HADIR.', status: 'SUCCESS' },
     { time: '14:08:44', event: 'Biometric matched: ID BFA-003 (Raka). Status HADIR.', status: 'SUCCESS' },
-    { time: '14:05:00', event: 'Biometric matched: ID BFA-002 (Bima). Status HADIR.', status: 'SUCCESS' },
-    { time: '14:02:15', event: 'Biometric matched: ID BFA-001 (Andra). Status HADIR.', status: 'SUCCESS' },
-    { time: '13:58:30', event: 'Biometric matched: ID BFA-005 (Rizky). Status HADIR.', status: 'SUCCESS' },
+    { time: '14:05:00', event: 'Barcode Scanned: ID BFA-002 (Bima). Status HADIR.', status: 'SUCCESS' },
+    { time: '14:02:15', event: 'Biometric matched: ID BFA-004 (Fikri). Status HADIR.', status: 'SUCCESS' },
+    { time: '13:58:30', event: 'Barcode Scanned: ID BFA-005 (Rizky). Status HADIR.', status: 'SUCCESS' },
   ];
 
   return (
@@ -40,18 +41,18 @@ export const AdminFingerprintView: React.FC<AdminFingerprintViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Hardware Fingerprint & IoT Gate
+            Terminal Biometrik & Scanner Barcode IoT Gate
           </h1>
           <p className="text-xs text-slate-500">
-            Koneksi sensor biometrik pintu masuk arena Bintang Futsal Karawang.
+            Koneksi sensor sidik jari optik & pemindai barcode / QR pintu masuk arena Bintang Futsal Karawang.
           </p>
         </div>
         <button
           onClick={onOpenFingerprint}
-          className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-orange-500/20 transition active:scale-95 flex items-center space-x-1.5 self-start sm:self-auto"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-blue-500/20 transition active:scale-95 flex items-center space-x-2 self-start sm:self-auto"
         >
-          <Fingerprint className="w-4 h-4" />
-          <span>SIMULATE ATTENDANCE</span>
+          <Scan className="w-4 h-4" />
+          <span>BUKA SCANNER BIOMETRIK & BARCODE</span>
         </button>
       </div>
 
