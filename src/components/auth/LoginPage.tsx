@@ -9,10 +9,13 @@ import {
   ArrowRight, 
   CheckCircle2, 
   HelpCircle,
-  UserPlus
+  UserPlus,
+  Users,
+  X
 } from 'lucide-react';
 import { BFALogo } from '../common/BFALogo';
 import { ForgotPasswordModal } from '../modals/ForgotPasswordModal';
+import { normalizePhoneNumber, isValidIndonesianMobile, isExactPhoneMatch } from '../../utils/phoneUtils';
 
 interface LoginPageProps {
   students: Student[];
@@ -49,67 +52,114 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const [rememberMe, setRememberMe] = useState(true);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [candidateStudents, setCandidateStudents] = useState<Student[]>([]);
+  const [isSelectChildModalOpen, setIsSelectChildModalOpen] = useState(false);
 
   // Handle Parent Login Submission
   const handleParentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = parentIdentifier.trim();
+    const rawInput = parentIdentifier.trim();
     const cleanPass = parentPassword.trim().toLowerCase();
 
-    if (!cleanId) {
+    if (!rawInput) {
       onShowToast('Silakan masukkan ID Siswa (contoh: BFA-001) atau Nomor WhatsApp yang terdaftar.', 'warning');
       return;
     }
 
-    if (rememberMe) {
-      try { localStorage.setItem('bfa_remembered_parent_id', parentIdentifier); } catch {}
+    if (!cleanPass) {
+      onShowToast('Silakan masukkan password akses akun.', 'warning');
+      return;
     }
 
-    // Match with student in database
-    const matched = students.find((s) => {
-      const matchId = s.id.toLowerCase() === cleanId.toLowerCase();
-      const cleanPhoneInput = cleanId.replace(/\D/g, '');
-      const cleanStudentPhone = s.phone.replace(/\D/g, '');
-      const matchPhone = cleanPhoneInput.length >= 7 && (
-        cleanStudentPhone.includes(cleanPhoneInput) || cleanPhoneInput.includes(cleanStudentPhone)
+    // 1. Strict exact match against Student ID (case-insensitive & formatting-tolerant)
+    const cleanIdInput = rawInput.replace(/[\s-]/g, '').toUpperCase();
+    const matchedById = students.filter(
+      (s) => s.id && (
+        s.id.trim().toUpperCase() === rawInput.toUpperCase() ||
+        s.id.replace(/[\s-]/g, '').toUpperCase() === cleanIdInput
+      )
+    );
+
+    // 2. Strict normalized exact match against WhatsApp mobile number
+    const normalizedInput = normalizePhoneNumber(rawInput);
+    let matchedByPhone: Student[] = [];
+    if (isValidIndonesianMobile(normalizedInput)) {
+      matchedByPhone = students.filter((s) => isExactPhoneMatch(s.phone, normalizedInput));
+    }
+
+    // Combine exact matches (ID takes priority if matched, otherwise Phone matches)
+    const matchedList = matchedById.length > 0 ? matchedById : matchedByPhone;
+
+    if (matchedList.length === 0) {
+      onShowToast(
+        'ID Siswa atau Nomor WhatsApp tidak ditemukan di database. Pastikan nomor diawali 08... (minimal 10 digit) atau gunakan ID Siswa resmi (contoh: BFA-001).',
+        'error'
       );
-      const matchName = s.name.toLowerCase() === cleanId.toLowerCase();
-      return matchId || matchPhone || matchName;
-    });
+      return;
+    }
 
-    if (matched) {
-      // Check if custom password was set via Forgot Password
-      let savedCustomPasswords: Record<string, string> = {};
-      try {
-        const raw = localStorage.getItem('bfa_student_passwords');
-        if (raw) savedCustomPasswords = JSON.parse(raw);
-      } catch {}
+    // Check if password is valid for each matched student
+    let savedCustomPasswords: Record<string, string> = {};
+    try {
+      const raw = localStorage.getItem('bfa_student_passwords');
+      if (raw) savedCustomPasswords = JSON.parse(raw);
+    } catch {}
 
-      const customPass = savedCustomPasswords[matched.id] || matched.customPassword;
-
-      const isValidPassword = 
+    const isStudentPasswordValid = (st: Student) => {
+      const customPass = savedCustomPasswords[st.id] || st.customPassword;
+      return (
         (customPass && cleanPass === customPass.toLowerCase()) ||
-        cleanPass === 'bfa123' || 
-        cleanPass === '123456' || 
+        cleanPass === 'bfa123' ||
+        cleanPass === '123456' ||
         cleanPass === 'admin123' ||
-        cleanPass === (matched.birthDate || '').replace(/\D/g, '');
+        cleanPass === (st.birthDate || '').replace(/\D/g, '')
+      );
+    };
 
-      if (!isValidPassword) {
-        onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
-        return;
-      }
+    const validStudents = matchedList.filter(isStudentPasswordValid);
 
+    if (validStudents.length === 0) {
+      onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
+      return;
+    }
+
+    if (rememberMe) {
+      try {
+        localStorage.setItem('bfa_remembered_parent_id', rawInput);
+      } catch {}
+    }
+
+    // Scenario A: Exactly 1 valid student matched
+    if (validStudents.length === 1) {
+      const target = validStudents[0];
       onLogin({
         role: 'parent',
-        name: matched.parentName || `Wali ${matched.name}`,
-        emailOrPhone: matched.phone,
-        studentId: matched.id,
-        studentName: matched.name,
+        name: target.parentName || `Wali ${target.name}`,
+        emailOrPhone: target.phone,
+        studentId: target.id,
+        studentName: target.name,
       });
-      onShowToast(`Selamat datang, ${matched.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${matched.name}.`, 'success');
-    } else {
-      onShowToast('ID Siswa atau Nomor WhatsApp tidak ditemukan di database. Pastikan data sudah terdaftar di BFA.', 'error');
+      onShowToast(`Selamat datang, ${target.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${target.name}.`, 'success');
+      return;
     }
+
+    // Scenario B: 1 Phone number registered for multiple children (Family / Siblings)
+    // Present clear, unambiguous selection modal as per Requirement 4
+    setCandidateStudents(validStudents);
+    setIsSelectChildModalOpen(true);
+  };
+
+  const handleSelectChild = (child: Student) => {
+    setIsSelectChildModalOpen(false);
+    setCandidateStudents([]);
+    onLogin({
+      role: 'parent',
+      name: child.parentName || `Wali ${child.name}`,
+      emailOrPhone: child.phone,
+      studentId: child.id,
+      studentName: child.name,
+    });
+    onShowToast(`Selamat datang, ${child.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${child.name}.`, 'success');
   };
 
   // Handle Admin Login Submission
@@ -451,6 +501,91 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         onResetAdminPassword={handleResetAdminPasswordInternal}
         onSuccess={(msg) => onShowToast(msg, 'success')}
       />
+
+      {/* Modal Pemilihan Siswa untuk 1 Nomor HP Banyak Anak (Family Account) */}
+      {isSelectChildModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 text-slate-800 shadow-2xl relative my-8 border border-slate-200">
+            <button
+              onClick={() => setIsSelectChildModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1.5 rounded-xl hover:bg-slate-100 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center pb-4 border-b border-slate-100 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto mb-2 font-bold shadow-xs">
+                <Users className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 tracking-tight">
+                Pilih Ananda untuk Membuka Dashboard
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Nomor WhatsApp <strong className="text-blue-900 font-mono">{parentIdentifier}</strong> terdaftar untuk {candidateStudents.length} siswa di akademi BFA Karawang:
+              </p>
+            </div>
+
+            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+              {candidateStudents.map((child) => (
+                <div
+                  key={child.id}
+                  onClick={() => handleSelectChild(child)}
+                  className="p-3.5 bg-slate-50 hover:bg-blue-50/70 border border-slate-200 hover:border-blue-300 rounded-2xl cursor-pointer transition flex items-center justify-between gap-3 shadow-2xs group"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={child.avatar}
+                      alt={child.name}
+                      className="w-12 h-12 rounded-xl object-cover border-2 border-orange-500 shrink-0"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-black text-slate-900 text-sm group-hover:text-blue-900">
+                          {child.name}
+                        </span>
+                        {child.nickname && (
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">
+                            {child.nickname}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 font-medium">
+                        <span className="font-mono text-blue-800 font-bold">{child.id}</span>
+                        <span>•</span>
+                        <span className="bg-blue-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full">
+                          {child.classGroupId}
+                        </span>
+                        {child.position && (
+                          <>
+                            <span>•</span>
+                            <span>{child.position}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectChild(child);
+                    }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition shrink-0 flex items-center gap-1"
+                  >
+                    <span>Pilih</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-[10px] text-slate-400 text-center mt-4">
+              Anda juga dapat beralih antar ananda kapan saja langsung dari header dashboard.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

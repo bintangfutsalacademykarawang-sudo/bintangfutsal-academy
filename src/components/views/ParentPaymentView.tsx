@@ -30,16 +30,16 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
   onPaymentSuccess,
   onShowToast,
 }) => {
-  const childName = student?.name || 'Andra';
-  const childGroup = student?.classGroupId || 'U11';
+  const childName = student?.name || 'Siswa BFA';
+  const childGroup = student?.classGroupId || '-';
   const [step, setStep] = useState<'checkout' | 'waiting' | 'success'>('checkout');
   const [selectedMethod, setSelectedMethod] = useState<'QRIS' | 'Transfer Bank'>('QRIS');
   const [lastTrxId, setLastTrxId] = useState('');
 
-  // Dynamic invoices & amounts for active student
-  const childInvoices = invoices.filter(
-    (i) => (student?.id && i.studentId === student.id) || i.studentName === childName
-  );
+  // Dynamic invoices & amounts strictly for active verified student
+  const childInvoices = student?.id 
+    ? invoices.filter((i) => i.studentId === student.id)
+    : [];
   const unpaidInvoices = childInvoices.filter((i) => i.status === 'BELUM BAYAR');
   const totalUnpaidAmount = unpaidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
   const isAllPaid = unpaidInvoices.length === 0;

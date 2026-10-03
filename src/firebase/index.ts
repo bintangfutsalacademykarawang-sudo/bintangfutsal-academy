@@ -109,8 +109,13 @@ export function subscribeToAttendances(
 // --- STUDENT OPERATIONS ---
 export async function saveStudentToFirestore(student: Student): Promise<void> {
   try {
-    const studentRef = doc(db, STUDENTS_COLLECTION, student.id);
-    await setDoc(studentRef, student, { merge: true });
+    if (!student || !student.id || typeof student.id !== 'string' || !student.id.trim()) {
+      console.warn('saveStudentToFirestore: Invalid argument: student or student.id is missing/invalid', student);
+      return;
+    }
+    const cleanId = student.id.trim();
+    const studentRef = doc(db, STUDENTS_COLLECTION, cleanId);
+    await setDoc(studentRef, cleanForFirestore(student), { merge: true });
   } catch (error) {
     console.error('Failed to save student to Firestore:', error);
     throw error;
@@ -119,9 +124,13 @@ export async function saveStudentToFirestore(student: Student): Promise<void> {
 
 export async function deleteStudentFromFirestore(studentId: string): Promise<void> {
   try {
-    const studentRef = doc(db, STUDENTS_COLLECTION, studentId);
+    if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
+      return;
+    }
+    const cleanId = studentId.trim();
+    const studentRef = doc(db, STUDENTS_COLLECTION, cleanId);
     await deleteDoc(studentRef);
-    const reportRef = doc(db, REPORTS_COLLECTION, studentId);
+    const reportRef = doc(db, REPORTS_COLLECTION, cleanId);
     await deleteDoc(reportRef).catch(() => {});
   } catch (error) {
     console.error('Failed to delete student from Firestore:', error);
@@ -156,8 +165,12 @@ export async function saveReportToFirestore(
   report: StudentReport
 ): Promise<void> {
   try {
-    const reportRef = doc(db, REPORTS_COLLECTION, studentId);
-    await setDoc(reportRef, report, { merge: true });
+    if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
+      return;
+    }
+    const cleanId = studentId.trim();
+    const reportRef = doc(db, REPORTS_COLLECTION, cleanId);
+    await setDoc(reportRef, cleanForFirestore(report), { merge: true });
   } catch (error) {
     console.error('Failed to save report to Firestore:', error);
     throw error;
@@ -188,8 +201,12 @@ export function subscribeToReports(
 // --- INVOICE OPERATIONS ---
 export async function saveInvoiceToFirestore(invoice: Invoice): Promise<void> {
   try {
-    const invRef = doc(db, INVOICES_COLLECTION, invoice.id);
-    await setDoc(invRef, invoice, { merge: true });
+    if (!invoice || !invoice.id || typeof invoice.id !== 'string' || !invoice.id.trim()) {
+      return;
+    }
+    const cleanId = invoice.id.trim();
+    const invRef = doc(db, INVOICES_COLLECTION, cleanId);
+    await setDoc(invRef, cleanForFirestore(invoice), { merge: true });
   } catch (error) {
     console.error('Failed to save invoice to Firestore:', error);
     throw error;
@@ -198,7 +215,11 @@ export async function saveInvoiceToFirestore(invoice: Invoice): Promise<void> {
 
 export async function deleteInvoiceFromFirestore(invoiceId: string): Promise<void> {
   try {
-    const invRef = doc(db, INVOICES_COLLECTION, invoiceId);
+    if (!invoiceId || typeof invoiceId !== 'string' || !invoiceId.trim()) {
+      return;
+    }
+    const cleanId = invoiceId.trim();
+    const invRef = doc(db, INVOICES_COLLECTION, cleanId);
     await deleteDoc(invRef);
   } catch (error) {
     console.error('Failed to delete invoice from Firestore:', error);
@@ -230,8 +251,12 @@ export function subscribeToInvoices(
 // --- SCHEDULE OPERATIONS ---
 export async function saveScheduleToFirestore(schedule: TrainingSchedule): Promise<void> {
   try {
-    const schRef = doc(db, SCHEDULES_COLLECTION, schedule.id);
-    await setDoc(schRef, schedule, { merge: true });
+    if (!schedule || !schedule.id || typeof schedule.id !== 'string' || !schedule.id.trim()) {
+      return;
+    }
+    const cleanId = schedule.id.trim();
+    const schRef = doc(db, SCHEDULES_COLLECTION, cleanId);
+    await setDoc(schRef, cleanForFirestore(schedule), { merge: true });
   } catch (error) {
     console.error('Failed to save schedule to Firestore:', error);
     throw error;
@@ -240,7 +265,11 @@ export async function saveScheduleToFirestore(schedule: TrainingSchedule): Promi
 
 export async function deleteScheduleFromFirestore(scheduleId: string): Promise<void> {
   try {
-    const schRef = doc(db, SCHEDULES_COLLECTION, scheduleId);
+    if (!scheduleId || typeof scheduleId !== 'string' || !scheduleId.trim()) {
+      return;
+    }
+    const cleanId = scheduleId.trim();
+    const schRef = doc(db, SCHEDULES_COLLECTION, cleanId);
     await deleteDoc(schRef);
   } catch (error) {
     console.error('Failed to delete schedule from Firestore:', error);
@@ -283,7 +312,9 @@ export async function seedInitialFirestoreDataIfEmpty(
     if (studentSnapshot.empty) {
       console.log('Seeding initial students to Firestore online...');
       for (const st of defaultStudents) {
-        await setDoc(doc(db, STUDENTS_COLLECTION, st.id), st);
+        if (st && st.id) {
+          await setDoc(doc(db, STUDENTS_COLLECTION, st.id.trim()), cleanForFirestore(st));
+        }
       }
     }
 
@@ -291,7 +322,9 @@ export async function seedInitialFirestoreDataIfEmpty(
     if (reportSnapshot.empty) {
       console.log('Seeding initial reports to Firestore online...');
       for (const [id, rep] of Object.entries(defaultReports)) {
-        await setDoc(doc(db, REPORTS_COLLECTION, id), rep);
+        if (id) {
+          await setDoc(doc(db, REPORTS_COLLECTION, id.trim()), cleanForFirestore(rep));
+        }
       }
     }
 
@@ -299,7 +332,9 @@ export async function seedInitialFirestoreDataIfEmpty(
     if (invSnapshot.empty && defaultInvoices.length > 0) {
       console.log('Seeding initial invoices to Firestore online...');
       for (const inv of defaultInvoices) {
-        await setDoc(doc(db, INVOICES_COLLECTION, inv.id), inv);
+        if (inv && inv.id) {
+          await setDoc(doc(db, INVOICES_COLLECTION, inv.id.trim()), cleanForFirestore(inv));
+        }
       }
     }
 
@@ -308,7 +343,9 @@ export async function seedInitialFirestoreDataIfEmpty(
       if (schSnapshot.empty) {
         console.log('Seeding initial training schedules to Firestore online...');
         for (const sch of defaultSchedules) {
-          await setDoc(doc(db, SCHEDULES_COLLECTION, sch.id), sch);
+          if (sch && sch.id) {
+            await setDoc(doc(db, SCHEDULES_COLLECTION, sch.id.trim()), cleanForFirestore(sch));
+          }
         }
       }
     }

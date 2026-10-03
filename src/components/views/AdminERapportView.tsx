@@ -11,8 +11,9 @@ import {
   Search, 
   Users, 
   CheckCircle2, 
-  Sparkles,
-  UserPlus
+  Sparkles, 
+  UserPlus, 
+  AlertCircle 
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { toJpeg, toPng } from 'html-to-image';
@@ -74,10 +75,23 @@ export const AdminERapportView: React.FC<AdminERapportViewProps> = ({
   const reportCardRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Active student object
+  // Synchronize when currentStudentId changes (e.g. parent switching active child)
+  React.useEffect(() => {
+    if (currentStudentId) {
+      setSelectedStudentId(currentStudentId);
+    }
+  }, [currentStudentId]);
+
+  // Active student object strictly resolving targeted student
   const activeStudent = useMemo(() => {
-    return students.find((s) => s.id === selectedStudentId) || students[0];
-  }, [students, selectedStudentId]);
+    const targetId = isParentView ? (currentStudentId || selectedStudentId) : selectedStudentId;
+    if (!targetId) return isParentView ? null : (students[0] || null);
+    const cleanTarget = targetId.trim().toUpperCase();
+    const found = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanTarget);
+    if (found) return found;
+    // In parent view, NEVER fallback to students[0]
+    return isParentView ? null : (students[0] || null);
+  }, [students, isParentView, currentStudentId, selectedStudentId]);
 
   // Active report for the selected student (Default 0 untuk semua indikator & kehadiran)
   const activeReport = useMemo(() => {
@@ -200,6 +214,20 @@ export const AdminERapportView: React.FC<AdminERapportViewProps> = ({
       return matchSearch && matchKU;
     });
   }, [students, studentSearch, selectedKUFilter]);
+
+  if (!activeStudent) {
+    return (
+      <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-3xl border border-rose-200 shadow-md text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto font-bold">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-black text-slate-900">Rapor Siswa Tidak Ditemukan</h3>
+        <p className="text-xs text-slate-600">
+          Sistem tidak menemukan data atlet yang terhubung dengan sesi ini. Silakan hubungi admin atau login kembali dengan akun terdaftar.
+        </p>
+      </div>
+    );
+  }
 
   // Comprehensive WhatsApp Message Generator with FULL (unabbreviated) indicator names
   const generateWhatsAppMessage = () => {

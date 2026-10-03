@@ -13,9 +13,11 @@ import {
   MessageCircle,
   ArrowRight,
   User,
-  Shield
+  Shield,
+  Users
 } from 'lucide-react';
 import { BFALogo } from '../common/BFALogo';
+import { normalizePhoneNumber, isValidIndonesianMobile, isExactPhoneMatch } from '../../utils/phoneUtils';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -39,6 +41,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   // Parent state
   const [parentQuery, setParentQuery] = useState('');
   const [matchedStudent, setMatchedStudent] = useState<Student | null>(null);
+  const [candidateMatches, setCandidateMatches] = useState<Student[]>([]);
   const [newParentPassword, setNewParentPassword] = useState('');
   const [confirmParentPassword, setConfirmParentPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -56,30 +59,44 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const handleSearchStudent = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    const q = parentQuery.trim().toLowerCase();
+    setCandidateMatches([]);
+    const rawQ = parentQuery.trim();
 
-    if (!q) {
+    if (!rawQ) {
       setErrorMessage('Silakan masukkan ID Siswa atau No. WhatsApp.');
       return;
     }
 
-    const cleanInputPhone = q.replace(/\D/g, '');
-    const found = students.find((s) => {
-      const matchId = s.id.toLowerCase() === q;
-      const cleanStudentPhone = s.phone.replace(/\D/g, '');
-      const matchPhone = cleanInputPhone.length >= 7 && (
-        cleanStudentPhone.includes(cleanInputPhone) || cleanInputPhone.includes(cleanStudentPhone)
-      );
-      const matchName = s.name.toLowerCase() === q;
-      return matchId || matchPhone || matchName;
-    });
+    // 1. Exact match by student ID
+    const cleanId = rawQ.replace(/[\s-]/g, '').toUpperCase();
+    const matchedById = students.filter(
+      (s) => s.id && (
+        s.id.trim().toUpperCase() === rawQ.toUpperCase() ||
+        s.id.replace(/[\s-]/g, '').toUpperCase() === cleanId
+      )
+    );
 
-    if (found) {
-      setMatchedStudent(found);
+    // 2. Strict normalized exact match by phone
+    const normalizedInput = normalizePhoneNumber(rawQ);
+    let matchedByPhone: Student[] = [];
+    if (isValidIndonesianMobile(normalizedInput)) {
+      matchedByPhone = students.filter((s) => isExactPhoneMatch(s.phone, normalizedInput));
+    }
+
+    const matchedList = matchedById.length > 0 ? matchedById : matchedByPhone;
+
+    if (matchedList.length === 1) {
+      setMatchedStudent(matchedList[0]);
+      setCandidateMatches([]);
+      setErrorMessage('');
+    } else if (matchedList.length > 1) {
+      setMatchedStudent(null);
+      setCandidateMatches(matchedList);
       setErrorMessage('');
     } else {
       setMatchedStudent(null);
-      setErrorMessage('Akun tidak ditemukan. Pastikan ID Siswa (contoh: BFA-001) atau No. WhatsApp sudah benar.');
+      setCandidateMatches([]);
+      setErrorMessage('Akun tidak ditemukan. Pastikan ID Siswa (contoh: BFA-001) atau No. WhatsApp (contoh: 08xxx) sudah terdaftar di akademi.');
     }
   };
 
@@ -233,35 +250,81 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
         {activeTab === 'parent' && (
           <div className="space-y-4 text-xs">
             {!matchedStudent ? (
-              <form onSubmit={handleSearchStudent} className="space-y-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    ID Siswa atau No. WhatsApp Terdaftar:
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      required
-                      value={parentQuery}
-                      onChange={(e) => setParentQuery(e.target.value)}
-                      placeholder="Contoh: BFA-001 atau 081283623727"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
-                    />
+              <div className="space-y-3">
+                <form onSubmit={handleSearchStudent} className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      ID Siswa atau No. WhatsApp Terdaftar:
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        value={parentQuery}
+                        onChange={(e) => {
+                          setParentQuery(e.target.value);
+                          if (candidateMatches.length > 0) setCandidateMatches([]);
+                        }}
+                        placeholder="Contoh: BFA-001 atau 081283623727"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Sistem akan memverifikasi data atlet di database resmi akademi.
+                    </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 mt-1 block">
-                    Sistem akan memverifikasi data atlet di database resmi akademi.
-                  </span>
-                </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-500/25 transition active:scale-95 flex items-center justify-center gap-1.5"
-                >
-                  <Search className="w-4 h-4" />
-                  <span>Verifikasi Akun Siswa</span>
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-500/25 transition active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span>Verifikasi Akun Siswa</span>
+                  </button>
+                </form>
+
+                {/* Candidate Selection if multiple children share this parent phone */}
+                {candidateMatches.length > 1 && (
+                  <div className="pt-3 border-t border-slate-200 space-y-2">
+                    <div className="flex items-center gap-1.5 text-slate-800 font-bold">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <span>Ditemukan {candidateMatches.length} Ananda Terdaftar:</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Silakan pilih ananda yang ingin diatur ulang kata sandinya:
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {candidateMatches.map((child) => (
+                        <div
+                          key={child.id}
+                          onClick={() => {
+                            setMatchedStudent(child);
+                            setCandidateMatches([]);
+                          }}
+                          className="p-2.5 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl cursor-pointer transition flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={child.avatar}
+                              alt={child.name}
+                              className="w-8 h-8 rounded-lg object-cover border border-blue-500 shrink-0"
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-slate-900 text-xs">{child.name}</span>
+                                <span className="font-mono text-[9px] bg-blue-100 text-blue-800 px-1 rounded">{child.id}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500">KU: {child.classGroupId} • Posisi: {child.position}</span>
+                            </div>
+                          </div>
+                          <span className="text-blue-600 font-bold text-[11px]">Pilih &rarr;</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <form onSubmit={handleSaveParentPassword} className="space-y-3.5">
                 {/* Matched Student Card */}

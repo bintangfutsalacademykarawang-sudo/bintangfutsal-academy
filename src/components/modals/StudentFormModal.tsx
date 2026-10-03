@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Student } from '../../types';
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR, ALL_KU_CATEGORIES } from '../../data/initialData';
+import { normalizePhoneNumber, isValidIndonesianMobile } from '../../utils/phoneUtils';
 import { X, UserCheck, Camera, Image, FileUp, CheckCircle2, Check } from 'lucide-react';
 
 interface StudentFormModalProps {
@@ -15,6 +16,7 @@ interface StudentFormModalProps {
     timestamp: number;
   } | null;
   nextStudentId?: string;
+  isParentRole?: boolean;
 }
 
 export const StudentFormModal: React.FC<StudentFormModalProps> = ({
@@ -25,6 +27,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   onOpenLiveCamera,
   capturedItem,
   nextStudentId,
+  isParentRole = false,
 }) => {
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
@@ -36,7 +39,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   const [jerseyNumber, setJerseyNumber] = useState<number>(10);
   const [gender, setGender] = useState<'L' | 'P'>('L');
   const [parentName, setParentName] = useState('');
-  const [phone, setPhone] = useState('08');
+  const [phone, setPhone] = useState('');
   const [status, setStatus] = useState<'Aktif' | 'Non-Aktif'>('Aktif');
 
   const [docKK, setDocKK] = useState('Belum diunggah');
@@ -63,12 +66,12 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
         setJerseyNumber(editStudent.jerseyNumber);
         setGender(editStudent.gender);
         setParentName(editStudent.parentName);
-        setPhone(editStudent.phone || '08');
+        setPhone(editStudent.phone || '');
         setStatus(editStudent.status);
-        setDocKK(editStudent.documents.kk || 'Belum diunggah');
-        setDocAkte(editStudent.documents.akte || 'Belum diunggah');
-        setDocKIA(editStudent.documents.kia || 'Belum diunggah');
-        setDocIjazah(editStudent.documents.ijazah || 'Belum diunggah');
+        setDocKK(editStudent.documents?.kk || 'Belum diunggah');
+        setDocAkte(editStudent.documents?.akte || 'Belum diunggah');
+        setDocKIA(editStudent.documents?.kia || 'Belum diunggah');
+        setDocIjazah(editStudent.documents?.ijazah || 'Belum diunggah');
 
         const { age, group } = calculateAgeAndGroup(editStudent.birthDate);
         setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - ${new Date(editStudent.birthDate).getFullYear()} = ${age} Thn (${group})`);
@@ -85,7 +88,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
         setJerseyNumber(10);
         setGender('L');
         setParentName('');
-        setPhone('08');
+        setPhone('');
         setStatus('Aktif');
         setDocKK('Belum diunggah');
         setDocAkte('Belum diunggah');
@@ -159,6 +162,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const assignedId = editStudent?.id || nextStudentId;
+    const cleanPhone = normalizePhoneNumber(phone.trim());
     onSubmit({
       id: assignedId,
       name: name.trim(),
@@ -171,7 +175,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
       jerseyNumber: Number(jerseyNumber) || 10,
       gender,
       parentName: parentName.trim(),
-      phone: phone.trim(),
+      phone: cleanPhone || phone.trim(),
       status,
       documents: {
         kk: docKK,
@@ -201,10 +205,14 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
           </div>
           <div>
             <h3 className="text-base font-black text-slate-900 tracking-tight">
-              {editStudent ? `Edit Data Siswa - ${editStudent.name} (${editStudent.id})` : 'Pendaftaran Siswa Baru BFA'}
+              {isParentRole
+                ? `Edit Profil Ananda - ${editStudent ? editStudent.name : 'Siswa'} (${assignedStudentId})`
+                : (editStudent ? `Edit Data Siswa - ${editStudent.name} (${editStudent.id})` : 'Pendaftaran Siswa Baru BFA')}
             </h3>
             <p className="text-xs text-slate-500">
-              Kalkulasi otomatis kelompok umur (KU), ID otomatis, foto & dokumen legalitas.
+              {isParentRole
+                ? 'Perbarui foto, nama panggilan, nomor jersey, tempat & tgl lahir, data wali, dan berkas legalitas ananda.'
+                : 'Kalkulasi otomatis kelompok umur (KU), ID otomatis, foto & dokumen legalitas.'}
             </p>
           </div>
         </div>
@@ -455,17 +463,29 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Status Keanggotaan</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
-            >
-              <option value="Aktif">Aktif</option>
-              <option value="Non-Aktif">Non-Aktif</option>
-            </select>
-          </div>
+          {isParentRole ? (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">Status Keanggotaan</span>
+                <span className="font-bold text-emerald-950 text-xs">Atlet Terdaftar BFA Karawang ({status})</span>
+              </div>
+              <span className="px-2.5 py-0.5 bg-emerald-600 text-white rounded-full text-[10px] font-black shadow-2xs">
+                {status}
+              </span>
+            </div>
+          ) : (
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Status Keanggotaan</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as any)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
+              >
+                <option value="Aktif">Aktif</option>
+                <option value="Non-Aktif">Non-Aktif</option>
+              </select>
+            </div>
+          )}
 
           {/* Dokumen Legalitas */}
           <div className="pt-3 border-t border-slate-200 space-y-2">
@@ -539,7 +559,9 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
               type="submit"
               className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-black rounded-xl shadow-md shadow-orange-600/25 transition active:scale-95 text-xs"
             >
-              Simpan Data Siswa
+              {isParentRole
+                ? 'Simpan Perubahan Profil Ananda'
+                : (editStudent ? 'Simpan Perubahan Siswa' : 'Simpan Data Siswa')}
             </button>
           </div>
         </form>

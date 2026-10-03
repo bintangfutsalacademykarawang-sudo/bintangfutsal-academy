@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { AlertCircle, LogOut } from 'lucide-react';
 import { 
   Role, 
   RouteId, 
@@ -12,10 +13,10 @@ import {
   Invoice, 
   Attendance, 
   SkillIndicator, 
-  ToastMessage,
-  AuthUser,
-  StudentReport,
-  TrainingSchedule
+  ToastMessage, 
+  AuthUser, 
+  StudentReport, 
+  TrainingSchedule 
 } from './types';
 import { 
   INITIAL_STUDENTS, 
@@ -23,13 +24,14 @@ import {
   INITIAL_INVOICES, 
   INITIAL_ATTENDANCES, 
   INITIAL_SKILL_INDICATORS, 
-  INITIAL_STUDENT_REPORTS,
-  INITIAL_SCHEDULES,
-  createDefaultReport,
-  formatDateIndo,
-  getNextStudentId,
-  sanitizeStudentsList
+  INITIAL_STUDENT_REPORTS, 
+  INITIAL_SCHEDULES, 
+  createDefaultReport, 
+  formatDateIndo, 
+  getNextStudentId, 
+  sanitizeStudentsList 
 } from './data/initialData';
+import { isExactPhoneMatch, isValidIndonesianMobile } from './utils/phoneUtils';
 
 import { LoginPage } from './components/auth/LoginPage';
 import { Header } from './components/Header';
@@ -350,6 +352,13 @@ export default function App() {
 
   // Auth Handlers
   const handleLogin = (user: AuthUser) => {
+    // Clear any temporary edit/detail/report states from previous accounts
+    setStudentToEdit(null);
+    setStudentForDetail(null);
+    setEditingReportStudent(null);
+    setInvoiceForReceipt(null);
+    setCapturedCameraData(null);
+
     setCurrentUser(user);
     setRole(user.role);
     try {
@@ -367,9 +376,17 @@ export default function App() {
   // Logout is the only official way to switch account / role as requested
   const handleLogout = () => {
     setCurrentUser(null);
+    setRole('admin');
+    setRegisteredStudentId('');
+    setStudentToEdit(null);
+    setStudentForDetail(null);
+    setEditingReportStudent(null);
+    setInvoiceForReceipt(null);
+    setCapturedCameraData(null);
     try {
       localStorage.removeItem('bfa_auth_user');
       localStorage.removeItem('bfa_current_route');
+      sessionStorage.clear();
     } catch (e) {
       console.error(e);
     }
@@ -797,14 +814,32 @@ export default function App() {
     const isExisting = Boolean(data.id && students.some((s) => s.id === data.id));
     if (isExisting && data.id) {
       // Edit
+      const existing = students.find((s) => s.id === data.id);
       const updatedStudent: Student = {
-        ...(students.find((s) => s.id === data.id) || {}),
+        ...(existing || {}),
         ...data,
         id: data.id,
+        joinedDate: existing?.joinedDate || '2024-01-10',
       } as Student;
+
       setStudents((prev) =>
         prev.map((s) => (s.id === data.id ? updatedStudent : s))
       );
+
+      // If parent user is currently logged in, sync active parent session
+      if (currentUser?.role === 'parent' && (currentUser.studentId === data.id || currentUser.studentName === existing?.name)) {
+        const updatedAuthUser: AuthUser = {
+          ...currentUser,
+          studentName: updatedStudent.name,
+          name: updatedStudent.parentName || currentUser.name,
+          emailOrPhone: updatedStudent.phone || currentUser.emailOrPhone,
+        };
+        setCurrentUser(updatedAuthUser);
+        try {
+          localStorage.setItem('bfa_auth_user', JSON.stringify(updatedAuthUser));
+        } catch {}
+      }
+
       saveStudentToFirestore(updatedStudent).catch((e) => console.warn('Firestore student sync:', e));
       showToast(`Data siswa ${data.name} (${data.id}) berhasil diperbarui & tersimpan online!`, 'success');
     } else {
@@ -1035,15 +1070,14 @@ Official Performance Report • BFA Karawang
   // Parent Payment Success
   const handleParentPaymentSuccess = (method: string, trxId: string) => {
     const targetStudent = activeParentStudent;
+    if (!targetStudent) return;
     const nowIso = new Date().toISOString();
     let paidTotal = 0;
     const updatedInvoicesToSync: Invoice[] = [];
 
     setInvoices((prev) => {
       return prev.map((inv) => {
-        const isTargetChild =
-          (targetStudent?.id && inv.studentId === targetStudent.id) ||
-          inv.studentName === targetStudent.name;
+        const isTargetChild = Boolean(targetStudent.id && inv.studentId === targetStudent.id);
 
         if (isTargetChild && inv.status === 'BELUM BAYAR') {
           paidTotal += inv.amount;
@@ -1181,10 +1215,81 @@ Official Performance Report • BFA Karawang
     } catch {}
   };
 
-  // Find active student for current parent session
-  const activeParentStudent = currentUser?.studentId
-    ? (students.find((s) => s.id === currentUser.studentId) || students[0])
-    : students[0];
+  // Find active student strictly matching current verified parent session
+  const activeParentStudent = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'parent') return null;
+
+    // 1. Strict exact match by studentId (case-insensitive & whitespace-trimmed)
+    if (currentUser.studentId) {
+      const cleanId = currentUser.studentId.trim().toUpperCase();
+      const foundById = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
+      if (foundById) {
+        return foundById;
+      }
+    }
+
+    // 2. Strict exact match by verified parent phone number
+    if (currentUser.emailOrPhone && isValidIndonesianMobile(currentUser.emailOrPhone)) {
+      const matchingByPhone = students.filter((s) => isExactPhoneMatch(s.phone, currentUser.emailOrPhone));
+      if (matchingByPhone.length === 1) {
+        return matchingByPhone[0];
+      }
+      if (matchingByPhone.length > 1) {
+        if (currentUser.studentId) {
+          const cleanId = currentUser.studentId.trim().toUpperCase();
+          const byId = matchingByPhone.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
+          if (byId) return byId;
+        }
+        if (currentUser.studentName) {
+          const cleanName = currentUser.studentName.trim().toLowerCase();
+          const byName = matchingByPhone.find((s) => s.name.trim().toLowerCase() === cleanName);
+          if (byName) return byName;
+        }
+        return matchingByPhone[0];
+      }
+    }
+
+    // NEVER fallback to students[0] or another arbitrary student!
+    return null;
+  }, [currentUser, students]);
+
+  // List of all sibling students sharing the same verified parent phone
+  const parentSiblings = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'parent' || !activeParentStudent?.phone) return [];
+    if (!isValidIndonesianMobile(activeParentStudent.phone)) return [];
+    return students.filter((s) => isExactPhoneMatch(s.phone, activeParentStudent.phone));
+  }, [currentUser, activeParentStudent, students]);
+
+  // Switch active child for multi-student family accounts
+  const handleSwitchStudent = (newStudentId: string) => {
+    const cleanNewId = newStudentId.trim().toUpperCase();
+    const targetStudent = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanNewId);
+    if (!targetStudent) {
+      showToast('Data ananda tidak ditemukan.', 'error');
+      return;
+    }
+
+    // Security check: Must belong to the same parent phone number
+    if (activeParentStudent?.phone && isValidIndonesianMobile(activeParentStudent.phone)) {
+      if (!isExactPhoneMatch(targetStudent.phone, activeParentStudent.phone)) {
+        showToast('Akses ditolak: Siswa ini bukan bagian dari akun keluarga Anda.', 'error');
+        return;
+      }
+    }
+
+    const updatedUser: AuthUser = {
+      ...currentUser!,
+      studentId: targetStudent.id,
+      studentName: targetStudent.name,
+      name: targetStudent.parentName || currentUser!.name,
+      emailOrPhone: targetStudent.phone,
+    };
+    setCurrentUser(updatedUser);
+    try {
+      localStorage.setItem('bfa_auth_user', JSON.stringify(updatedUser));
+    } catch {}
+    showToast(`✓ Berhasil beralih ke portal ananda ${targetStudent.name} (${targetStudent.id}).`, 'success');
+  };
 
   // If user is not logged in, render the Dedicated Login Page!
   if (!currentUser) {
@@ -1245,6 +1350,9 @@ Official Performance Report • BFA Karawang
         currentUser={currentUser}
         onLogoClick={() => handleNavigate(role === 'admin' ? 'dashboard' : 'parent-dashboard')}
         onLogout={handleLogout}
+        parentSiblings={parentSiblings}
+        onSwitchStudent={handleSwitchStudent}
+        activeStudentId={activeParentStudent?.id}
       />
 
       {/* Main Container */}
@@ -1369,61 +1477,92 @@ Official Performance Report • BFA Karawang
 
           {role === 'parent' && (
             <>
-              {currentRoute === 'parent-dashboard' && (
-                <ParentDashboardView
-                  student={activeParentStudent}
-                  invoices={invoices}
-                  attendances={attendances}
-                  schedules={schedules}
-                  onNavigate={handleNavigate}
-                  onUpdateStudentPhoto={handleUpdateStudentPhoto}
-                />
-              )}
+              {!activeParentStudent ? (
+                <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-3xl border border-rose-200 shadow-md text-center space-y-4">
+                  <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto font-bold shadow-xs">
+                    <AlertCircle className="w-8 h-8" />
+                  </div>
+                  <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                    Data Siswa Tidak Ditemukan
+                  </h2>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Sistem tidak menemukan data atlet resmi yang terhubung dengan akun Anda ({currentUser?.emailOrPhone || currentUser?.studentId || 'Wali'}). Demi perlindungan privasi, sistem tidak menampilkan data siswa lain.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="w-full py-2.5 px-4 bg-[#0F274E] hover:bg-blue-950 text-white font-bold text-xs rounded-xl transition shadow-xs flex items-center justify-center gap-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Keluar & Login Kembali</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {currentRoute === 'parent-dashboard' && (
+                    <ParentDashboardView
+                      student={activeParentStudent}
+                      allStudents={students}
+                      invoices={invoices}
+                      attendances={attendances}
+                      schedules={schedules}
+                      onNavigate={handleNavigate}
+                      onUpdateStudentPhoto={handleUpdateStudentPhoto}
+                      onOpenEditStudent={(st) => {
+                        setStudentToEdit(st);
+                        setIsStudentFormOpen(true);
+                      }}
+                      onOpenDetailStudent={handleOpenDetail}
+                      onSwitchStudent={handleSwitchStudent}
+                    />
+                  )}
 
-              {currentRoute === 'parent-attendance' && (
-                <ParentAttendanceView
-                  student={activeParentStudent}
-                  invoices={invoices}
-                  attendances={attendances}
-                  schedules={schedules}
-                  onNavigate={handleNavigate}
-                />
-              )}
+                  {currentRoute === 'parent-attendance' && (
+                    <ParentAttendanceView
+                      student={activeParentStudent}
+                      invoices={invoices}
+                      attendances={attendances}
+                      schedules={schedules}
+                      onNavigate={handleNavigate}
+                    />
+                  )}
 
-              {currentRoute === 'parent-payment' && (
-                <ParentPaymentView
-                  student={activeParentStudent}
-                  invoices={invoices}
-                  onNavigate={handleNavigate}
-                  onPaymentSuccess={handleParentPaymentSuccess}
-                  onShowToast={showToast}
-                />
-              )}
+                  {currentRoute === 'parent-payment' && (
+                    <ParentPaymentView
+                      student={activeParentStudent}
+                      invoices={invoices}
+                      onNavigate={handleNavigate}
+                      onPaymentSuccess={handleParentPaymentSuccess}
+                      onShowToast={showToast}
+                    />
+                  )}
 
-              {currentRoute === 'parent-payments' && (
-                <ParentPaymentsHistoryView
-                  student={activeParentStudent}
-                  invoices={invoices}
-                  onNavigate={handleNavigate}
-                  onShowReceipt={(inv) => {
-                    setInvoiceForReceipt(inv);
-                    setIsReceiptOpen(true);
-                  }}
-                />
-              )}
+                  {currentRoute === 'parent-payments' && (
+                    <ParentPaymentsHistoryView
+                      student={activeParentStudent}
+                      invoices={invoices}
+                      onNavigate={handleNavigate}
+                      onShowReceipt={(inv) => {
+                        setInvoiceForReceipt(inv);
+                        setIsReceiptOpen(true);
+                      }}
+                    />
+                  )}
 
-              {currentRoute === 'parent-report' && (
-                <AdminERapportView
-                  students={students}
-                  currentStudentId={activeParentStudent.id}
-                  studentReports={studentReports}
-                  attendances={attendances}
-                  onSaveReportForStudent={handleSaveReportForStudent}
-                  onSendWhatsApp={handleSendWhatsAppForStudent}
-                  onOpenEditReportForStudent={handleOpenEditReportForStudent}
-                  onShowToast={showToast}
-                  isParentView={true}
-                />
+                  {currentRoute === 'parent-report' && (
+                    <AdminERapportView
+                      students={students}
+                      currentStudentId={activeParentStudent.id}
+                      studentReports={studentReports}
+                      attendances={attendances}
+                      onSaveReportForStudent={handleSaveReportForStudent}
+                      onSendWhatsApp={handleSendWhatsAppForStudent}
+                      onOpenEditReportForStudent={handleOpenEditReportForStudent}
+                      onShowToast={showToast}
+                      isParentView={true}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -1449,13 +1588,17 @@ Official Performance Report • BFA Karawang
         isOpen={isStudentFormOpen}
         editStudent={studentToEdit}
         nextStudentId={getNextStudentId(students)}
-        onClose={() => setIsStudentFormOpen(false)}
+        onClose={() => {
+          setIsStudentFormOpen(false);
+          setStudentToEdit(null);
+        }}
         onSubmit={handleSaveStudent}
         onOpenLiveCamera={(target) => {
           setCameraTarget(target);
           setIsCameraOpen(true);
         }}
         capturedItem={capturedCameraData}
+        isParentRole={role === 'parent'}
       />
 
       <StudentDetailModal
@@ -1470,7 +1613,7 @@ Official Performance Report • BFA Karawang
         attendances={attendances}
         onClose={() => setIsStudentDetailOpen(false)}
         onEdit={handleEditFromDetail}
-        onDelete={handleDeleteStudent}
+        onDelete={role === 'admin' ? handleDeleteStudent : undefined}
       />
 
       <EditReportModal

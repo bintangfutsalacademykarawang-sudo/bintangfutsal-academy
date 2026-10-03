@@ -18,16 +18,16 @@ export const ParentAttendanceView: React.FC<ParentAttendanceViewProps> = ({
   onNavigate,
 }) => {
   const childName = student?.name || 'Siswa BFA';
-  const childGroup = student?.classGroupId || 'U11';
+  const childGroup = student?.classGroupId || '-';
 
-  // Filter child invoices and attendances
-  const childInvoices = invoices.filter(
-    (i) => (student?.id && i.studentId === student.id) || i.studentName === childName
-  );
+  // Filter child invoices and attendances strictly for verified student
+  const childInvoices = student?.id 
+    ? invoices.filter((i) => i.studentId === student.id)
+    : [];
 
-  const studentAtts = attendances.filter(
-    (a) => (student?.id && a.studentId === student.id) || a.studentName === childName
-  );
+  const studentAtts = student?.id 
+    ? attendances.filter((a) => a.studentId === student.id)
+    : [];
 
   // Relevant October schedules for this student's group (supports multi-KU like U10, U11)
   const octoberSchedules = schedules.filter((sch) => {

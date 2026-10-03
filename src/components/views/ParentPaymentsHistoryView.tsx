@@ -16,11 +16,11 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
   onShowReceipt,
 }) => {
   const childName = student?.name || 'Siswa BFA';
-  const childGroup = student?.classGroupId || 'U11';
+  const childGroup = student?.classGroupId || '-';
 
-  const childInvoices = invoices.filter(
-    (i) => (student?.id && i.studentId === student.id) || i.studentName === childName
-  );
+  const childInvoices = student?.id 
+    ? invoices.filter((i) => i.studentId === student.id)
+    : [];
 
   const paidInvoices = childInvoices.filter((i) => i.status === 'LUNAS');
   const unpaidInvoices = childInvoices.filter((i) => i.status === 'BELUM BAYAR');

@@ -356,16 +356,25 @@ export function sanitizeStudentsList(studentsList: Student[]): { list: Student[]
 
   let changed = false;
   const list = studentsList.map((st) => {
-    if (!st.id || typeof st.id !== 'string' || st.id.trim() === '') {
+    let item = st;
+    if (!item.id || typeof item.id !== 'string' || item.id.trim() === '') {
       changed = true;
       maxNum += 1;
       const assignedId = `BFA-${String(maxNum).padStart(3, '0')}`;
-      return {
-        ...st,
+      item = {
+        ...item,
         id: assignedId,
       };
     }
-    return st;
+    // Clean up placeholder phone '08' or '0' so it never falsely matches parent logins
+    if (item.phone && (item.phone.trim() === '08' || item.phone.trim() === '0')) {
+      changed = true;
+      item = {
+        ...item,
+        phone: '',
+      };
+    }
+    return item;
   });
 
   return { list, changed };

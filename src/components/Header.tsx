@@ -1,6 +1,6 @@
 import React from 'react';
-import { Role, AuthUser } from '../types';
-import { Shield, LogOut, User, Lock } from 'lucide-react';
+import { Role, AuthUser, Student } from '../types';
+import { Shield, LogOut, User, Lock, Users } from 'lucide-react';
 import { BFALogo } from './common/BFALogo';
 
 interface HeaderProps {
@@ -8,6 +8,9 @@ interface HeaderProps {
   currentUser: AuthUser | null;
   onLogoClick: () => void;
   onLogout: () => void;
+  parentSiblings?: Student[];
+  onSwitchStudent?: (studentId: string) => void;
+  activeStudentId?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
@@ -15,6 +18,9 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser, 
   onLogoClick,
   onLogout,
+  parentSiblings = [],
+  onSwitchStudent,
+  activeStudentId,
 }) => {
   return (
     <header className="bg-[#0F274E] border-b border-blue-900/60 sticky top-0 z-40 backdrop-blur-md shadow-md text-white">
@@ -45,6 +51,26 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Info, Locked Mode Indicator & Logout */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Multi-Child Family Switcher in Header */}
+            {role === 'parent' && parentSiblings.length > 1 && onSwitchStudent && (
+              <div className="flex items-center space-x-1.5 bg-blue-950/80 border border-amber-500/60 px-2.5 py-1.5 rounded-xl text-xs shadow-xs">
+                <Users className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="hidden sm:inline text-[10px] text-amber-300 font-bold">Ananda:</span>
+                <select
+                  value={activeStudentId || ''}
+                  onChange={(e) => onSwitchStudent(e.target.value)}
+                  className="bg-transparent text-white font-black text-xs focus:outline-none cursor-pointer pr-1"
+                  title="Pilih ananda untuk beralih portal"
+                >
+                  {parentSiblings.map((sib) => (
+                    <option key={sib.id} value={sib.id} className="bg-slate-900 text-white font-bold">
+                      {sib.name} ({sib.classGroupId})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* User Profile Pill */}
             {currentUser && (
               <div className="hidden md:flex items-center space-x-2 bg-blue-950/70 border border-blue-800 px-3 py-1.5 rounded-xl text-xs">
