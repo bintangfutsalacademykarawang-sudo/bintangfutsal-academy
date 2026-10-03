@@ -93,6 +93,18 @@ export async function saveStudentToFirestore(student: Student): Promise<void> {
   }
 }
 
+export async function deleteStudentFromFirestore(studentId: string): Promise<void> {
+  try {
+    const studentRef = doc(db, STUDENTS_COLLECTION, studentId);
+    await deleteDoc(studentRef);
+    const reportRef = doc(db, REPORTS_COLLECTION, studentId);
+    await deleteDoc(reportRef).catch(() => {});
+  } catch (error) {
+    console.error('Failed to delete student from Firestore:', error);
+    throw error;
+  }
+}
+
 export function subscribeToStudents(
   onData: (students: Student[]) => void,
   onError?: (err: Error) => void

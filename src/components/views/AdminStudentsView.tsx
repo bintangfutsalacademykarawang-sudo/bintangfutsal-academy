@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Student } from '../../types';
 import { formatDateIndo, getKUCategoryInfo } from '../../data/initialData';
-import { Search, Plus, Eye, Edit3, Filter, X, ChevronDown, CheckCircle2, Download, FileSpreadsheet, QrCode } from 'lucide-react';
+import { Search, Plus, Eye, Edit3, Filter, X, ChevronDown, CheckCircle2, Download, FileSpreadsheet, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 import { CategoryFilterModal } from '../modals/CategoryFilterModal';
 import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
 import { exportStudentsExcel, exportStudentsPDF } from '../../utils/exportHelpers';
@@ -11,6 +11,7 @@ interface AdminStudentsViewProps {
   onOpenAddStudent: () => void;
   onOpenEditStudent: (student: Student) => void;
   onOpenDetailStudent: (student: Student) => void;
+  onDeleteStudent: (student: Student) => void;
 }
 
 export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
@@ -18,11 +19,13 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   onOpenAddStudent,
   onOpenEditStudent,
   onOpenDetailStudent,
+  onDeleteStudent,
 }) => {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [barcodeModalStudent, setBarcodeModalStudent] = useState<Student | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
 
   // Filter students based on search and selected KU
   const filtered = students.filter((st) => {
@@ -273,6 +276,13 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          onClick={() => setStudentToDelete(st)}
+                          title={`Hapus Data ${st.name}`}
+                          className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-slate-200 hover:border-rose-300 transition shadow-xs active:scale-95"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -298,6 +308,73 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
         student={barcodeModalStudent}
         onClose={() => setBarcodeModalStudent(null)}
       />
+
+      {/* Modal Konfirmasi Hapus Siswa */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
+            <button
+              onClick={() => setStudentToDelete(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-lg"
+              title="Tutup"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
+              Hapus Data Siswa?
+            </h3>
+            
+            <p className="text-xs text-slate-500 text-center mt-1">
+              Data atlet ini akan dihapus permanen dari sistem BFA Hub & database online.
+            </p>
+
+            <div className="my-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center space-x-3">
+              <img
+                src={studentToDelete.avatar}
+                alt={studentToDelete.name}
+                className="w-11 h-11 rounded-xl object-cover border border-slate-300 shrink-0"
+              />
+              <div className="overflow-hidden">
+                <span className="font-extrabold text-xs text-slate-900 block truncate">
+                  {studentToDelete.name}
+                </span>
+                <span className="text-[10px] text-blue-700 font-mono font-bold block">
+                  {studentToDelete.id} • KU {studentToDelete.classGroupId}
+                </span>
+                <span className="text-[10px] text-slate-500 block truncate">
+                  Wali: {studentToDelete.parentName}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStudentToDelete(null)}
+                className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteStudent(studentToDelete);
+                  setStudentToDelete(null);
+                }}
+                className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

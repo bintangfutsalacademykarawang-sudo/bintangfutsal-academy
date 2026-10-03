@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Student } from '../../types';
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR, ALL_KU_CATEGORIES } from '../../data/initialData';
-import { X, UserCheck, Camera, Image, FileUp } from 'lucide-react';
+import { X, UserCheck, Camera, Image, FileUp, CheckCircle2, Check } from 'lucide-react';
 
 interface StudentFormModalProps {
   isOpen: boolean;
@@ -9,6 +9,11 @@ interface StudentFormModalProps {
   onClose: () => void;
   onSubmit: (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => void;
   onOpenLiveCamera: (target: 'photo' | 'kk' | 'akte' | 'kia' | 'ijazah') => void;
+  capturedItem?: {
+    dataUrl: string;
+    target: 'photo' | 'kk' | 'akte' | 'kia' | 'ijazah';
+    timestamp: number;
+  } | null;
   nextStudentId?: string;
 }
 
@@ -18,6 +23,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   onClose,
   onSubmit,
   onOpenLiveCamera,
+  capturedItem,
   nextStudentId,
 }) => {
   const [name, setName] = useState('');
@@ -29,7 +35,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   const [jerseyNumber, setJerseyNumber] = useState<number>(10);
   const [gender, setGender] = useState<'L' | 'P'>('L');
   const [parentName, setParentName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('08');
   const [status, setStatus] = useState<'Aktif' | 'Non-Aktif'>('Aktif');
 
   const [docKK, setDocKK] = useState('Belum diunggah');
@@ -39,46 +45,70 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
   const [ageBadgeText, setAgeBadgeText] = useState('Pilih tanggal');
 
-  useEffect(() => {
-    if (editStudent) {
-      setName(editStudent.name);
-      setAvatar(editStudent.avatar);
-      setBirthPlace(editStudent.birthPlace || 'Karawang');
-      setBirthDate(editStudent.birthDate);
-      setClassGroupId(editStudent.classGroupId);
-      setPosition(editStudent.position);
-      setJerseyNumber(editStudent.jerseyNumber);
-      setGender(editStudent.gender);
-      setParentName(editStudent.parentName);
-      setPhone(editStudent.phone);
-      setStatus(editStudent.status);
-      setDocKK(editStudent.documents.kk || 'Belum diunggah');
-      setDocAkte(editStudent.documents.akte || 'Belum diunggah');
-      setDocKIA(editStudent.documents.kia || 'Belum diunggah');
-      setDocIjazah(editStudent.documents.ijazah || 'Belum diunggah');
+  const prevIsOpenRef = useRef(false);
+  const mobileCameraInputRef = useRef<HTMLInputElement>(null);
 
-      const { age, group } = calculateAgeAndGroup(editStudent.birthDate);
-      setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - ${new Date(editStudent.birthDate).getFullYear()} = ${age} Thn (${group})`);
-    } else {
-      setName('');
-      setAvatar('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
-      setBirthPlace('Karawang');
-      setBirthDate('2015-05-21');
-      const { age, group } = calculateAgeAndGroup('2015-05-21');
-      setClassGroupId(group);
-      setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - 2015 = ${age} Thn (${group})`);
-      setPosition('Flank');
-      setJerseyNumber(10);
-      setGender('L');
-      setParentName('');
-      setPhone('08');
-      setStatus('Aktif');
-      setDocKK('Belum diunggah');
-      setDocAkte('Belum diunggah');
-      setDocKIA('Belum diunggah');
-      setDocIjazah('Belum diunggah');
+  // Initialize or reset form only when modal transitions from closed to open
+  useEffect(() => {
+    if (isOpen && !prevIsOpenRef.current) {
+      if (editStudent) {
+        setName(editStudent.name);
+        setAvatar(editStudent.avatar);
+        setBirthPlace(editStudent.birthPlace || 'Karawang');
+        setBirthDate(editStudent.birthDate);
+        setClassGroupId(editStudent.classGroupId);
+        setPosition(editStudent.position);
+        setJerseyNumber(editStudent.jerseyNumber);
+        setGender(editStudent.gender);
+        setParentName(editStudent.parentName);
+        setPhone(editStudent.phone || '08');
+        setStatus(editStudent.status);
+        setDocKK(editStudent.documents.kk || 'Belum diunggah');
+        setDocAkte(editStudent.documents.akte || 'Belum diunggah');
+        setDocKIA(editStudent.documents.kia || 'Belum diunggah');
+        setDocIjazah(editStudent.documents.ijazah || 'Belum diunggah');
+
+        const { age, group } = calculateAgeAndGroup(editStudent.birthDate);
+        setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - ${new Date(editStudent.birthDate).getFullYear()} = ${age} Thn (${group})`);
+      } else {
+        setName('');
+        setAvatar('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
+        setBirthPlace('Karawang');
+        setBirthDate('2015-05-21');
+        const { age, group } = calculateAgeAndGroup('2015-05-21');
+        setClassGroupId(group);
+        setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - 2015 = ${age} Thn (${group})`);
+        setPosition('Flank');
+        setJerseyNumber(10);
+        setGender('L');
+        setParentName('');
+        setPhone('08');
+        setStatus('Aktif');
+        setDocKK('Belum diunggah');
+        setDocAkte('Belum diunggah');
+        setDocKIA('Belum diunggah');
+        setDocIjazah('Belum diunggah');
+      }
     }
-  }, [editStudent, isOpen]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, editStudent]);
+
+  // When live camera snapshot is confirmed, apply immediately to form state!
+  useEffect(() => {
+    if (capturedItem && capturedItem.dataUrl) {
+      if (capturedItem.target === 'photo') {
+        setAvatar(capturedItem.dataUrl);
+      } else if (capturedItem.target === 'kk') {
+        setDocKK(capturedItem.dataUrl);
+      } else if (capturedItem.target === 'akte') {
+        setDocAkte(capturedItem.dataUrl);
+      } else if (capturedItem.target === 'kia') {
+        setDocKIA(capturedItem.dataUrl);
+      } else if (capturedItem.target === 'ijazah') {
+        setDocIjazah(capturedItem.dataUrl);
+      }
+    }
+  }, [capturedItem]);
 
   if (!isOpen) return null;
 
@@ -107,7 +137,19 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
   const handleDocumentFile = (e: React.ChangeEvent<HTMLInputElement>, setter: (name: string) => void) => {
     if (e.target.files && e.target.files[0]) {
-      setter(e.target.files[0].name);
+      const file = e.target.files[0];
+      // If it's an image, read data url so thumbnail can be shown
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setter(event.target.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setter(file.name);
+      }
     }
   };
 
@@ -140,17 +182,17 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   const assignedStudentId = editStudent?.id || nextStudentId || 'BFA-???';
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-xl w-full p-6 text-slate-800 shadow-2xl relative my-8 border border-slate-200">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-xl w-full p-5 sm:p-6 text-slate-800 shadow-2xl relative my-6 border border-slate-200">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-lg transition"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1.5 rounded-xl hover:bg-slate-100 transition z-10"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center space-x-3 mb-4 pb-3 border-b border-slate-200">
-          <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+          <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold shrink-0">
             <UserCheck className="w-5 h-5" />
           </div>
           <div>
@@ -186,21 +228,34 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
           {/* Foto Siswa Upload & Live Camera */}
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-            <label className="block font-bold text-slate-700">Foto Profil Siswa *</label>
-            <div className="flex items-center space-x-4">
-              <div className="relative w-16 h-16 rounded-2xl bg-white border-2 border-orange-500 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
+            <div className="flex items-center justify-between">
+              <label className="block font-bold text-slate-700">Foto Profil Siswa *</label>
+              {avatar.startsWith('data:image') && (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                  <Check className="w-3 h-3 text-emerald-700" />
+                  <span>Foto Kamera Terpasang!</span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-3.5">
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white border-2 border-orange-500 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
                 <img
                   src={avatar}
                   className="w-full h-full object-cover"
-                  alt="Preview Foto"
+                  alt="Preview Foto Siswa"
                   referrerPolicy="no-referrer"
                 />
+                {avatar.startsWith('data:image') && (
+                  <span className="absolute bottom-0 right-0 bg-emerald-500 text-white p-0.5 rounded-tl-lg shadow-xs" title="Foto Kamera Aktif">
+                    <Check className="w-3 h-3" />
+                  </span>
+                )}
               </div>
               <div className="flex-1 space-y-1.5">
-                <div className="flex flex-wrap gap-2">
-                  <label className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold cursor-pointer border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95">
+                <div className="flex flex-wrap gap-1.5">
+                  <label className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold cursor-pointer border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs">
                     <Image className="w-3.5 h-3.5 text-orange-600" />
-                    <span>Pilih dari Galeri</span>
+                    <span>Galeri</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -211,14 +266,31 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenLiveCamera('photo')}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95"
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
                   >
-                    <Camera className="w-3.5 h-3.5 text-blue-600" />
+                    <Camera className="w-3.5 h-3.5" />
                     <span>Live Kamera</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => mobileCameraInputRef.current?.click()}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-emerald-700 rounded-xl font-bold border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
+                    title="Buka kamera perangkat langsung"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Kamera HP</span>
+                  </button>
+                  <input
+                    ref={mobileCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                  />
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Format: JPG, PNG maks 3MB. Wajah atlet terlihat jelas.
+                  Format: JPG, PNG maks 3MB. Hasil kamera otomatis tampil langsung di kotak foto.
                 </p>
               </div>
             </div>
@@ -240,15 +312,16 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
               <label className="block font-bold text-slate-700 mb-1">Nomor Jersey</label>
               <input
                 type="number"
+                min="0"
+                max="99"
                 value={jerseyNumber}
                 onChange={(e) => setJerseyNumber(Number(e.target.value))}
                 placeholder="10"
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-mono font-bold"
               />
             </div>
           </div>
 
-          {/* Tempat & Tanggal Lahir dengan Auto-KU Calculation */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-bold text-slate-700 mb-1">Tempat Lahir *</label>
@@ -257,23 +330,23 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                 required
                 value={birthPlace}
                 onChange={(e) => setBirthPlace(e.target.value)}
-                placeholder="Contoh: Karawang / Jakarta"
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-medium"
+                placeholder="Karawang"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
               />
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-700">Tanggal Lahir *</label>
-                <span className="text-[10px] font-extrabold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200">
+              <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Tanggal Lahir *</span>
+                <span className="text-[10px] text-blue-700 bg-blue-100 font-bold px-2 py-0.5 rounded-md">
                   {ageBadgeText}
                 </span>
-              </div>
+              </label>
               <input
                 type="date"
                 required
                 value={birthDate}
                 onChange={(e) => handleBirthDateChange(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-semibold focus:outline-none focus:border-blue-600 cursor-pointer"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-medium"
               />
             </div>
           </div>
@@ -373,33 +446,52 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                 { title: '2. Akte Kelahiran', value: docAkte, setter: setDocAkte, target: 'akte' as const },
                 { title: '3. KIA / KTP Anak & Wali', value: docKIA, setter: setDocKIA, target: 'kia' as const },
                 { title: '4. Ijazah Terakhir', value: docIjazah, setter: setDocIjazah, target: 'ijazah' as const },
-              ].map((doc) => (
-                <div key={doc.target} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
-                  <div>
-                    <span className="font-bold text-slate-700 block text-[11px]">{doc.title}</span>
-                    <span className="text-[10px] text-slate-500 truncate block font-mono">{doc.value}</span>
+              ].map((doc) => {
+                const isImage = doc.value.startsWith('data:image');
+                const isUploaded = doc.value !== 'Belum diunggah';
+
+                return (
+                  <div key={doc.target} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
+                    <div>
+                      <span className="font-bold text-slate-700 block text-[11px]">{doc.title}</span>
+                      {isImage ? (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <img
+                            src={doc.value}
+                            alt={doc.title}
+                            className="w-8 h-8 rounded-lg object-cover border border-emerald-400"
+                          />
+                          <span className="text-[10px] text-emerald-700 font-bold">✓ Foto Tersimpan</span>
+                        </div>
+                      ) : (
+                        <span className={`text-[10px] truncate block font-mono ${isUploaded ? 'text-blue-700 font-bold' : 'text-slate-500'}`}>
+                          {doc.value}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5 mt-2">
+                      <label className="flex-1 py-1 bg-white hover:bg-slate-100 rounded-lg text-center font-bold text-[10px] cursor-pointer text-slate-700 border border-slate-300 shadow-xs active:scale-95">
+                        <FileUp className="w-3 h-3 text-orange-600 inline mr-1" />
+                        Pilih
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          className="hidden"
+                          onChange={(e) => handleDocumentFile(e, doc.setter)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => onOpenLiveCamera(doc.target)}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-xs active:scale-95"
+                        title="Ambil foto dokumen lewat live kamera"
+                      >
+                        <Camera className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-1.5 mt-2">
-                    <label className="flex-1 py-1 bg-white hover:bg-slate-100 rounded-lg text-center font-bold text-[10px] cursor-pointer text-slate-700 border border-slate-300 shadow-xs active:scale-95">
-                      <FileUp className="w-3 h-3 text-orange-600 inline mr-1" />
-                      Pilih
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        className="hidden"
-                        onChange={(e) => handleDocumentFile(e, doc.setter)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => onOpenLiveCamera(doc.target)}
-                      className="px-2 py-1 bg-white hover:bg-slate-100 rounded-lg text-[10px] font-bold text-blue-700 border border-slate-300 shadow-xs active:scale-95"
-                    >
-                      <Camera className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -407,13 +499,13 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-100 active:scale-95"
+              className="px-4 py-2.5 border border-slate-300 rounded-xl text-slate-600 font-bold hover:bg-slate-100 active:scale-95 text-xs"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl shadow-md transition active:scale-95"
+              className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-black rounded-xl shadow-md shadow-orange-600/25 transition active:scale-95 text-xs"
             >
               Simpan Data Siswa
             </button>

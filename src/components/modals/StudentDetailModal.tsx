@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Student, SkillIndicator, Invoice, Attendance } from '../../types';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
-import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User } from 'lucide-react';
+import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Trash2 } from 'lucide-react';
 import { BarcodeDisplay } from '../common/BarcodeDisplay';
 import { StudentBarcodeModal } from './StudentBarcodeModal';
 
@@ -13,6 +13,7 @@ interface StudentDetailModalProps {
   attendances: Attendance[];
   onClose: () => void;
   onEdit: (student: Student) => void;
+  onDelete?: (student: Student) => void;
 }
 
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
@@ -23,9 +24,11 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   attendances,
   onClose,
   onEdit,
+  onDelete,
 }) => {
   const [subtab, setSubtab] = useState<'overview' | 'barcode' | 'absensi' | 'pembayaran' | 'rapor' | 'berkas'>('overview');
   const [isBarcodeCardOpen, setIsBarcodeCardOpen] = useState(false);
+  const [isConfirmDelete, setIsConfirmDelete] = useState(false);
 
   if (!isOpen || !student) return null;
 
@@ -89,6 +92,18 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <Edit3 className="w-3.5 h-3.5 text-orange-600" />
               <span>Edit Data</span>
             </button>
+
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => setIsConfirmDelete(true)}
+                className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                title="Hapus Data Atlet Ini"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Hapus</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -302,6 +317,44 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           student={student}
           onClose={() => setIsBarcodeCardOpen(false)}
         />
+
+        {/* Modal Konfirmasi Hapus Siswa */}
+        {isConfirmDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
+                Hapus Data Siswa?
+              </h3>
+              <p className="text-xs text-slate-500 text-center mt-1">
+                Data atlet <strong>{student.name} ({student.id})</strong> akan dihapus permanen dari sistem dan database online.
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmDelete(false)}
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsConfirmDelete(false);
+                    onDelete?.(student);
+                    onClose();
+                  }}
+                  className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Ya, Hapus</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

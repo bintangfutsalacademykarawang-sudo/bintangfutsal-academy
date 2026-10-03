@@ -63,6 +63,7 @@ import {
   testFirestoreConnection,
   seedInitialFirestoreDataIfEmpty,
   saveStudentToFirestore,
+  deleteStudentFromFirestore,
   saveReportToFirestore,
   saveInvoiceToFirestore,
   saveAttendanceToFirestore,
@@ -386,6 +387,11 @@ export default function App() {
   const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraTarget, setCameraTarget] = useState<'photo' | 'kk' | 'akte' | 'kia' | 'ijazah' | null>(null);
+  const [capturedCameraData, setCapturedCameraData] = useState<{
+    dataUrl: string;
+    target: 'photo' | 'kk' | 'akte' | 'kia' | 'ijazah';
+    timestamp: number;
+  } | null>(null);
   const [newlyRegisteredStudent, setNewlyRegisteredStudent] = useState<Student | null>(null);
   const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
 
@@ -1042,10 +1048,16 @@ Official Performance Report • BFA Karawang
 
   // Camera Capture Handler
   const handleCameraCapture = (dataUrl: string, target: 'photo' | 'kk' | 'akte' | 'kia' | 'ijazah') => {
+    setCapturedCameraData({
+      dataUrl,
+      target,
+      timestamp: Date.now(),
+    });
+
     if (target === 'photo') {
-      showToast('Foto profil dari live kamera berhasil disimpan!', 'success');
+      showToast('✓ Foto profil dari live kamera berhasil dipasang ke formulir!', 'success');
     } else {
-      showToast(`Dokumen ${target.toUpperCase()} dari live kamera siap disimpan!`, 'success');
+      showToast(`✓ Dokumen ${target.toUpperCase()} dari live kamera siap disimpan!`, 'success');
     }
   };
 
@@ -1058,6 +1070,47 @@ Official Performance Report • BFA Karawang
     setIsStudentDetailOpen(false);
     setStudentToEdit(st);
     setIsStudentFormOpen(true);
+  };
+
+  const handleDeleteStudent = (student: Student) => {
+    // 1. Remove from students list
+    setStudents((prev) => {
+      const next = prev.filter((s) => s.id !== student.id);
+      try {
+        localStorage.setItem('bfa_students', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 2. Remove associated e-rapport report
+    setStudentReports((prev) => {
+      const copy = { ...prev };
+      delete copy[student.id];
+      try {
+        localStorage.setItem('bfa_student_reports', JSON.stringify(copy));
+      } catch {}
+      return copy;
+    });
+
+    // 3. Remove custom password if stored
+    try {
+      const raw = localStorage.getItem('bfa_student_passwords');
+      if (raw) {
+        const map = JSON.parse(raw);
+        delete map[student.id];
+        localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
+      }
+    } catch {}
+
+    // 4. Remove from online Firestore database
+    deleteStudentFromFirestore(student.id).catch((e) =>
+      console.warn('Firestore student delete error:', e)
+    );
+
+    // 5. Close detail modal if open
+    setIsStudentDetailOpen(false);
+
+    showToast(`✓ Data siswa ${student.name} (${student.id}) berhasil dihapus.`, 'success');
   };
 
   const handleResetStudentPassword = (studentId: string, newPass: string) => {
@@ -1118,6 +1171,7 @@ Official Performance Report • BFA Karawang
             setCameraTarget(target);
             setIsCameraOpen(true);
           }}
+          capturedItem={capturedCameraData}
         />
 
         <CameraModal
@@ -1199,6 +1253,7 @@ Official Performance Report • BFA Karawang
                     setIsStudentFormOpen(true);
                   }}
                   onOpenDetailStudent={handleOpenDetail}
+                  onDeleteStudent={handleDeleteStudent}
                 />
               )}
 
@@ -1357,6 +1412,7 @@ Official Performance Report • BFA Karawang
           setCameraTarget(target);
           setIsCameraOpen(true);
         }}
+        capturedItem={capturedCameraData}
       />
 
       <StudentDetailModal
@@ -1371,6 +1427,7 @@ Official Performance Report • BFA Karawang
         attendances={attendances}
         onClose={() => setIsStudentDetailOpen(false)}
         onEdit={handleEditFromDetail}
+        onDelete={handleDeleteStudent}
       />
 
       <EditReportModal
