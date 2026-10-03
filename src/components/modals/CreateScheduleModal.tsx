@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TrainingSchedule } from '../../types';
-import { X, Calendar, Clock, MapPin, Users, Check, Plus } from 'lucide-react';
+import { X, Calendar, Clock, MapPin, Users, Check, Plus, Layers } from 'lucide-react';
 
 interface CreateScheduleModalProps {
   isOpen: boolean;
@@ -17,6 +17,10 @@ const AVAILABLE_COACHES = [
   'Coach Sari',
 ];
 
+// Kelompok Umur lengkap dari U-3 sampai U-40
+const ALL_AVAILABLE_KUS = Array.from({ length: 38 }, (_, i) => `U-${i + 3}`); // U-3 to U-40
+const POPULAR_KUS = ['U-6', 'U-8', 'U-10', 'U-11', 'U-12', 'U-15', 'U-17'];
+
 export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
   isOpen,
   scheduleToEdit,
@@ -26,7 +30,7 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
   const [date, setDate] = useState('2026-10-02');
   const [startTime, setStartTime] = useState('14:00');
   const [endTime, setEndTime] = useState('16:00');
-  const [classGroupId, setClassGroupId] = useState('U10');
+  const [selectedKUs, setSelectedKUs] = useState<string[]>(['U-10']);
   const [courtName, setCourtName] = useState('Bintang Futsal (Lap B)');
   const [selectedCoaches, setSelectedCoaches] = useState<string[]>(['Coach Ilham', 'Coach Hanif']);
   const [customCoach, setCustomCoach] = useState('');
@@ -37,14 +41,21 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
       setDate(scheduleToEdit.date);
       setStartTime(scheduleToEdit.startTime);
       setEndTime(scheduleToEdit.endTime);
-      setClassGroupId(scheduleToEdit.classGroupId);
+      
+      const existingKUs = scheduleToEdit.classGroups && scheduleToEdit.classGroups.length > 0
+        ? scheduleToEdit.classGroups.map(k => k.startsWith('U') && !k.includes('-') ? k.replace('U', 'U-') : k)
+        : (scheduleToEdit.classGroupId || 'U10').split(',').map(k => {
+            const trimmed = k.trim();
+            return trimmed.startsWith('U') && !trimmed.includes('-') ? trimmed.replace('U', 'U-') : trimmed;
+          });
+      setSelectedKUs(existingKUs.length > 0 ? existingKUs : ['U-10']);
       setCourtName(scheduleToEdit.courtName);
       setSelectedCoaches(scheduleToEdit.coaches);
     } else {
       setDate('2026-10-02');
       setStartTime('14:00');
       setEndTime('16:00');
-      setClassGroupId('U10');
+      setSelectedKUs(['U-10']);
       setCourtName('Bintang Futsal (Lap B)');
       setSelectedCoaches(['Coach Ilham', 'Coach Hanif']);
     }
@@ -78,6 +89,26 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
     }
   };
 
+  const toggleKU = (ku: string) => {
+    if (selectedKUs.includes(ku)) {
+      setSelectedKUs(selectedKUs.filter((k) => k !== ku));
+    } else {
+      setSelectedKUs([...selectedKUs, ku]);
+    }
+  };
+
+  const selectAllKUs = () => {
+    setSelectedKUs([...ALL_AVAILABLE_KUS]);
+  };
+
+  const selectPopularKUs = () => {
+    setSelectedKUs([...POPULAR_KUS]);
+  };
+
+  const clearAllKUs = () => {
+    setSelectedKUs([]);
+  };
+
   const handleAddCustomCoach = () => {
     const trimmed = customCoach.trim();
     if (trimmed && !selectedCoaches.includes(trimmed)) {
@@ -88,10 +119,18 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedKUs.length === 0) {
+      alert('Silakan pilih minimal 1 kelompok umur latihan (U-3 s/d U-40).');
+      return;
+    }
     if (selectedCoaches.length === 0) {
       alert('Silakan pilih minimal 1 orang pelatih bertugas.');
       return;
     }
+
+    // Format normalized KUs
+    const normalizedKUs = selectedKUs.map(k => k.replace('-', ''));
+    const classGroupId = normalizedKUs.join(', ');
 
     onSubmit(
       {
@@ -100,6 +139,7 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
         startTime: startTime.replace('.', ':'),
         endTime: endTime.replace('.', ':'),
         classGroupId,
+        classGroups: normalizedKUs,
         courtName,
         coaches: selectedCoaches,
         status: scheduleToEdit ? scheduleToEdit.status : 'Akan Datang',
@@ -110,8 +150,8 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 text-slate-900 shadow-2xl relative border border-slate-200 my-8">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 text-slate-900 shadow-2xl relative border border-slate-200 my-6">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -120,8 +160,9 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-lg font-black text-slate-900 mb-4">
-          {scheduleToEdit ? 'Edit Jadwal Sesi Latihan' : 'Tambah Jadwal Latihan'}
+        <h2 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-indigo-600" />
+          <span>{scheduleToEdit ? 'Edit Jadwal Sesi Latihan' : 'Tambah Jadwal Latihan'}</span>
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
@@ -183,39 +224,108 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
             </div>
           </div>
 
-          {/* Kelompok Umur & Nama Lapangan */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Kelompok Umur
+          {/* Nama Lapangan */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">
+              Nama Lapangan
+            </label>
+            <input
+              type="text"
+              required
+              value={courtName}
+              onChange={(e) => setCourtName(e.target.value)}
+              placeholder="Bintang Futsal (Lap B)"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+            />
+          </div>
+
+          {/* Kelompok Umur (Bisa Pilih > 1 Kelompok Umur, U-3 s/d U-40) */}
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-blue-600" />
+                <span>Kelompok Umur (Bisa Pilih &gt; 1 KU, U-3 s/d U-40) *</span>
               </label>
-              <select
-                value={classGroupId}
-                onChange={(e) => setClassGroupId(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-bold"
-              >
-                <option value="U6">U-6</option>
-                <option value="U8">U-8</option>
-                <option value="U10">U-10</option>
-                <option value="U11">U-11</option>
-                <option value="U12">U-12</option>
-                <option value="U15">U-15</option>
-                <option value="U17">U-17</option>
-              </select>
+              <span className="text-[10px] text-blue-700 font-bold bg-blue-100 px-2 py-0.5 rounded-md border border-blue-200">
+                {selectedKUs.length} KU Terpilih
+              </span>
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Nama Lapangan
-              </label>
-              <input
-                type="text"
-                required
-                value={courtName}
-                onChange={(e) => setCourtName(e.target.value)}
-                placeholder="Bintang Futsal (Lap B)"
-                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
-              />
+            {/* Display Selected KUs Chips */}
+            <div className="w-full bg-white border border-slate-300 rounded-xl p-2.5 min-h-[42px] flex flex-wrap items-center gap-1.5">
+              {selectedKUs.length === 0 ? (
+                <span className="text-slate-400 text-xs">Silakan klik tombol KU di bawah untuk memilih...</span>
+              ) : (
+                selectedKUs.map((ku) => (
+                  <span
+                    key={ku}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-black shadow-2xs animate-in fade-in"
+                  >
+                    <span>{ku}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleKU(ku)}
+                      className="hover:text-rose-200 text-blue-200 ml-0.5 font-bold"
+                      title={`Hapus ${ku}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+
+            {/* Quick Helper Action Buttons */}
+            <div className="flex items-center justify-between gap-1.5 text-[10px] pt-1">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={selectPopularKUs}
+                  className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition"
+                >
+                  Preset U6 - U17
+                </button>
+                <button
+                  type="button"
+                  onClick={selectAllKUs}
+                  className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold rounded-lg transition"
+                >
+                  Pilih Semua (U3 - U40)
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={clearAllKUs}
+                className="px-2 py-1 text-rose-600 hover:bg-rose-50 font-bold rounded-lg transition"
+              >
+                Reset Pilihan
+              </button>
+            </div>
+
+            {/* Visual KU Selection Matrix (U-3 to U-40) */}
+            <div className="pt-1.5 border-t border-slate-200/80">
+              <span className="text-[10px] text-slate-500 font-bold block mb-1.5">
+                Pilih atau tap kelompok umur untuk menambah/menghapus:
+              </span>
+              <div className="max-h-36 overflow-y-auto p-1 bg-white rounded-xl border border-slate-200 flex flex-wrap gap-1">
+                {ALL_AVAILABLE_KUS.map((ku) => {
+                  const isSelected = selectedKUs.includes(ku);
+                  return (
+                    <button
+                      key={ku}
+                      type="button"
+                      onClick={() => toggleKU(ku)}
+                      className={`px-2 py-1 rounded-md text-[10px] font-black transition active:scale-95 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {ku}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -327,3 +437,4 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
     </div>
   );
 };
+

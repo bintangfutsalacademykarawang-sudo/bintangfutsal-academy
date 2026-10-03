@@ -6,6 +6,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-001', 
     name: 'Andra', 
+    nickname: 'Andra',
     avatar: 'https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Karawang', 
     birthDate: '2015-05-21', // 2026 - 2015 = 11 -> U11
@@ -22,6 +23,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-002', 
     name: 'Bima', 
+    nickname: 'Bima',
     avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Sidoarjo', 
     birthDate: '2016-08-22', // 2026 - 2016 = 10 -> U10
@@ -38,6 +40,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-003', 
     name: 'Raka', 
+    nickname: 'Raka',
     avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Jakarta', 
     birthDate: '2014-07-08', // 2026 - 2014 = 12 -> U12
@@ -54,6 +57,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-004', 
     name: 'Fahmi', 
+    nickname: 'Fahmi',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Karawang', 
     birthDate: '2018-11-19', // 2026 - 2018 = 8 -> U8
@@ -70,6 +74,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-005', 
     name: 'Rizky', 
+    nickname: 'Rizky',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Surabaya', 
     birthDate: '2016-03-03', // 2026 - 2016 = 10 -> U10
@@ -86,6 +91,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-006', 
     name: 'Daffa', 
+    nickname: 'Daffa',
     avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Bekasi', 
     birthDate: '2014-10-11', // 2026 - 2014 = 12 -> U12
@@ -102,6 +108,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-007', 
     name: 'Fajar', 
+    nickname: 'Fajar',
     avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Karawang', 
     birthDate: '2020-01-25', // 2026 - 2020 = 6 -> U6
@@ -118,6 +125,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-008', 
     name: 'Rafi', 
+    nickname: 'Rafi',
     avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Bandung', 
     birthDate: '2016-12-02', // 2026 - 2016 = 10 -> U10
@@ -134,6 +142,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-009', 
     name: 'Ilham', 
+    nickname: 'Ilham',
     avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Karawang', 
     birthDate: '2011-06-16', // 2026 - 2011 = 15 -> U15
@@ -150,6 +159,7 @@ export const INITIAL_STUDENTS: Student[] = [
   { 
     id: 'BFA-010', 
     name: 'Bagas', 
+    nickname: 'Bagas',
     avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=240&auto=format&fit=crop&q=80', 
     birthPlace: 'Purwakarta', 
     birthDate: '2009-02-04', // 2026 - 2009 = 17 -> U17
@@ -169,18 +179,18 @@ export const INITIAL_CASH_MUTATIONS: CashMutation[] = [];
 
 export const INITIAL_SCHEDULES: TrainingSchedule[] = [
   {
-    id: 'SCH-20261002-001',
-    date: '2026-10-02',
-    dayName: 'Jumat, 2 Oktober 2026',
+    id: 'SCH-20261003-001',
+    date: '2026-10-03',
+    dayName: 'Sabtu, 3 Oktober 2026',
     startTime: '14:00',
     endTime: '16:00',
     classGroupId: 'U10',
-    courtName: 'Bintang Futsal (Lap B)',
-    coaches: ['Coach Ilham', 'Coach Hanif'],
-    status: 'Sedang Berjalan'
+    courtName: 'Bintang Futsal (Lap A,B,C)',
+    coaches: ['Coach Hanif', 'Coach Panji', 'Coach Hesky', 'Coach Wirmar'],
+    status: 'Akan Datang'
   },
   {
-    id: 'SCH-20261003-001',
+    id: 'SCH-20261003-002',
     date: '2026-10-03',
     dayName: 'Sabtu, 3 Oktober 2026',
     startTime: '08:00',
@@ -191,7 +201,7 @@ export const INITIAL_SCHEDULES: TrainingSchedule[] = [
     status: 'Akan Datang'
   },
   {
-    id: 'SCH-20261003-002',
+    id: 'SCH-20261003-003',
     date: '2026-10-03',
     dayName: 'Sabtu, 3 Oktober 2026',
     startTime: '15:30',
@@ -257,7 +267,7 @@ export const INITIAL_STUDENT_REPORTS: Record<string, StudentReport> = {
   'BFA-010': createDefaultReport('BFA-010', 'Bagas', 'Pivot'),
 };
 
-export const ALL_KU_CATEGORIES: string[] = Array.from({ length: 28 }, (_, i) => `U${i + 3}`); // U3 to U30
+export const ALL_KU_CATEGORIES: string[] = Array.from({ length: 38 }, (_, i) => `U${i + 3}`); // U3 to U40
 
 export interface KUCategoryInfo {
   code: string;
@@ -289,7 +299,7 @@ export function calculateAgeAndGroup(birthDateStr: string, currentYear = CURRENT
   if (isNaN(birthYear)) return { age: 0, group: 'U10' };
   
   const calculatedAge = currentYear - birthYear;
-  const clampedAge = Math.max(3, Math.min(30, calculatedAge));
+  const clampedAge = Math.max(3, Math.min(40, calculatedAge));
   const groupKey = 'U' + clampedAge;
   return { age: calculatedAge, group: groupKey };
 }

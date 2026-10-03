@@ -31,6 +31,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   const filtered = students.filter((st) => {
     const matchSearch =
       st.name.toLowerCase().includes(search.toLowerCase()) ||
+      (st.nickname && st.nickname.toLowerCase().includes(search.toLowerCase())) ||
       st.id.toLowerCase().includes(search.toLowerCase()) ||
       st.parentName.toLowerCase().includes(search.toLowerCase()) ||
       (st.birthPlace && st.birthPlace.toLowerCase().includes(search.toLowerCase()));
@@ -224,9 +225,16 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                           referrerPolicy="no-referrer"
                         />
                         <div>
-                          <span className="font-extrabold text-slate-900 text-xs block">{st.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-slate-900 text-xs block">{st.name}</span>
+                            {st.nickname && (
+                              <span className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-200">
+                                {st.nickname}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-500">
-                            #{st.jerseyNumber || '-'} • {st.position}
+                            #{st.jerseyNumber || '-'} • {st.position || 'Belum Ditentukan'}
                           </span>
                         </div>
                       </div>

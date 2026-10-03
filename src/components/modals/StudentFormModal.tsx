@@ -27,11 +27,12 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   nextStudentId,
 }) => {
   const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [avatar, setAvatar] = useState('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
   const [birthPlace, setBirthPlace] = useState('Karawang');
   const [birthDate, setBirthDate] = useState('2015-05-21');
   const [classGroupId, setClassGroupId] = useState('U11');
-  const [position, setPosition] = useState<'Flank' | 'Anchor' | 'Pivot' | 'Goalkeeper'>('Flank');
+  const [position, setPosition] = useState<string>('Belum Ditentukan');
   const [jerseyNumber, setJerseyNumber] = useState<number>(10);
   const [gender, setGender] = useState<'L' | 'P'>('L');
   const [parentName, setParentName] = useState('');
@@ -53,11 +54,12 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     if (isOpen && !prevIsOpenRef.current) {
       if (editStudent) {
         setName(editStudent.name);
+        setNickname(editStudent.nickname || editStudent.name.split(' ')[0] || '');
         setAvatar(editStudent.avatar);
         setBirthPlace(editStudent.birthPlace || 'Karawang');
         setBirthDate(editStudent.birthDate);
         setClassGroupId(editStudent.classGroupId);
-        setPosition(editStudent.position);
+        setPosition(editStudent.position || 'Belum Ditentukan');
         setJerseyNumber(editStudent.jerseyNumber);
         setGender(editStudent.gender);
         setParentName(editStudent.parentName);
@@ -72,13 +74,14 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
         setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - ${new Date(editStudent.birthDate).getFullYear()} = ${age} Thn (${group})`);
       } else {
         setName('');
+        setNickname('');
         setAvatar('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
         setBirthPlace('Karawang');
         setBirthDate('2015-05-21');
         const { age, group } = calculateAgeAndGroup('2015-05-21');
         setClassGroupId(group);
         setAgeBadgeText(`${CURRENT_SYSTEM_YEAR} - 2015 = ${age} Thn (${group})`);
-        setPosition('Flank');
+        setPosition('Belum Ditentukan');
         setJerseyNumber(10);
         setGender('L');
         setParentName('');
@@ -159,11 +162,12 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     onSubmit({
       id: assignedId,
       name: name.trim(),
+      nickname: nickname.trim() || name.trim().split(' ')[0] || name.trim(),
       avatar,
       birthPlace: birthPlace.trim(),
       birthDate,
       classGroupId,
-      position,
+      position: position || 'Belum Ditentukan',
       jerseyNumber: Number(jerseyNumber) || 10,
       gender,
       parentName: parentName.trim(),
@@ -296,30 +300,54 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          {/* Nama Lengkap & Nama Panggilan */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
               <label className="block font-bold text-slate-700 mb-1">Nama Lengkap *</label>
               <input
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Contoh: Farhan Pratama"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (!nickname && !editStudent) {
+                    const first = e.target.value.trim().split(' ')[0];
+                    if (first) setNickname(first);
+                  }
+                }}
+                placeholder="Contoh: Muhammad Ziyadatul Khair"
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Nomor Jersey</label>
+              <label className="block font-bold text-blue-900 mb-1 flex items-center justify-between">
+                <span>Nama Panggilan *</span>
+                <span className="text-[9px] text-blue-700 font-bold bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200">Kartu Member</span>
+              </label>
               <input
-                type="number"
-                min="0"
-                max="99"
-                value={jerseyNumber}
-                onChange={(e) => setJerseyNumber(Number(e.target.value))}
-                placeholder="10"
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-mono font-bold"
+                type="text"
+                required
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="Contoh: Ziya"
+                className="w-full bg-blue-50/70 border border-blue-300 rounded-xl px-3 py-2 text-blue-950 focus:outline-none focus:border-blue-600 font-bold shadow-2xs"
               />
+              <p className="text-[9px] text-slate-400 mt-0.5">Nama di Kartu Member</p>
             </div>
+          </div>
+
+          {/* Nomor Jersey */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Nomor Jersey (Opsional)</label>
+            <input
+              type="number"
+              min="0"
+              max="99"
+              value={jerseyNumber}
+              onChange={(e) => setJerseyNumber(Number(e.target.value))}
+              placeholder="10"
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-mono font-bold"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -373,12 +401,16 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Posisi *</label>
+              <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Posisi</span>
+                <span className="text-[9px] text-slate-400 font-normal">Bisa Nanti</span>
+              </label>
               <select
                 value={position}
-                onChange={(e) => setPosition(e.target.value as any)}
+                onChange={(e) => setPosition(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600 font-semibold"
               >
+                <option value="Belum Ditentukan">Bisa Diisi Nanti / Belum Ditentukan</option>
                 <option value="Flank">Flank</option>
                 <option value="Anchor">Anchor</option>
                 <option value="Pivot">Pivot</option>

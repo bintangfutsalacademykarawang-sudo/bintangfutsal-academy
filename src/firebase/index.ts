@@ -10,7 +10,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Student, StudentReport, Invoice, Attendance } from '../types';
+import { Student, StudentReport, Invoice, Attendance, TrainingSchedule } from '../types';
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -39,6 +39,7 @@ const STUDENTS_COLLECTION = 'students';
 const REPORTS_COLLECTION = 'studentReports';
 const INVOICES_COLLECTION = 'invoices';
 const ATTENDANCES_COLLECTION = 'attendances';
+const SCHEDULES_COLLECTION = 'trainingSchedules';
 
 // --- ATTENDANCE OPERATIONS ---
 export async function saveAttendanceToFirestore(attendance: Attendance): Promise<void> {
@@ -193,11 +194,56 @@ export function subscribeToInvoices(
   );
 }
 
+// --- SCHEDULE OPERATIONS ---
+export async function saveScheduleToFirestore(schedule: TrainingSchedule): Promise<void> {
+  try {
+    const schRef = doc(db, SCHEDULES_COLLECTION, schedule.id);
+    await setDoc(schRef, schedule, { merge: true });
+  } catch (error) {
+    console.error('Failed to save schedule to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function deleteScheduleFromFirestore(scheduleId: string): Promise<void> {
+  try {
+    const schRef = doc(db, SCHEDULES_COLLECTION, scheduleId);
+    await deleteDoc(schRef);
+  } catch (error) {
+    console.error('Failed to delete schedule from Firestore:', error);
+    throw error;
+  }
+}
+
+export function subscribeToSchedules(
+  onData: (schedules: TrainingSchedule[]) => void,
+  onError?: (err: Error) => void
+) {
+  const collRef = collection(db, SCHEDULES_COLLECTION);
+  return onSnapshot(
+    collRef,
+    (snapshot) => {
+      const list: TrainingSchedule[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as TrainingSchedule);
+      });
+      // Sort by date then startTime
+      list.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.startTime || '').localeCompare(b.startTime || ''));
+      onData(list);
+    },
+    (err) => {
+      console.warn('Firestore schedules subscription error:', err);
+      onError?.(err);
+    }
+  );
+}
+
 // Initial online data seeding if database is fresh
 export async function seedInitialFirestoreDataIfEmpty(
   defaultStudents: Student[],
   defaultReports: Record<string, StudentReport>,
-  defaultInvoices: Invoice[]
+  defaultInvoices: Invoice[],
+  defaultSchedules?: TrainingSchedule[]
 ): Promise<void> {
   try {
     const studentSnapshot = await getDocs(collection(db, STUDENTS_COLLECTION));
@@ -221,6 +267,16 @@ export async function seedInitialFirestoreDataIfEmpty(
       console.log('Seeding initial invoices to Firestore online...');
       for (const inv of defaultInvoices) {
         await setDoc(doc(db, INVOICES_COLLECTION, inv.id), inv);
+      }
+    }
+
+    if (defaultSchedules && defaultSchedules.length > 0) {
+      const schSnapshot = await getDocs(collection(db, SCHEDULES_COLLECTION));
+      if (schSnapshot.empty) {
+        console.log('Seeding initial training schedules to Firestore online...');
+        for (const sch of defaultSchedules) {
+          await setDoc(doc(db, SCHEDULES_COLLECTION, sch.id), sch);
+        }
       }
     }
   } catch (err) {

@@ -61,10 +61,14 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
   const totalSessions = studentAtts.length;
   const attendanceRate = totalSessions > 0 ? Math.round((hadirCount / totalSessions) * 100) : 100;
 
-  // Relevant upcoming training schedules for this student's KU
-  const relevantSchedules = schedules.filter(
-    (sch) => sch.classGroupId === childGroup || sch.classGroupId === 'Semua'
-  );
+  // Relevant upcoming training schedules for this student's KU (supporting multi-KU like U10, U11)
+  const relevantSchedules = schedules.filter((sch) => {
+    if (!sch.classGroupId) return false;
+    if (sch.classGroupId === 'Semua' || sch.classGroupId === childGroup) return true;
+    if (sch.classGroups && sch.classGroups.includes(childGroup)) return true;
+    const parts = sch.classGroupId.split(',').map((p) => p.trim());
+    return parts.includes(childGroup);
+  });
   const displaySchedules = relevantSchedules.length > 0 ? relevantSchedules : schedules.slice(0, 3);
 
   const handleSavePhoto = (newUrl: string) => {
@@ -184,8 +188,9 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
             <Calendar className="w-4 h-4 text-indigo-600" />
             <span>JADWAL LATIHAN TERJADWAL ({childGroup})</span>
           </h3>
-          <span className="text-[10px] bg-indigo-50 text-indigo-800 font-bold px-2 py-0.5 rounded-md border border-indigo-200">
-            Dikelola Pelatih BFA
+          <span className="text-[10px] bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Live Real-Time Pelatih</span>
           </span>
         </div>
 
@@ -195,48 +200,57 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
           </div>
         ) : (
           <div className="space-y-2.5">
-            {displaySchedules.map((sch) => (
-              <div
-                key={sch.id}
-                className="p-3.5 bg-gradient-to-r from-slate-50 to-white rounded-xl border border-slate-200 hover:border-blue-300 transition text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-black text-slate-900">{sch.dayName}</span>
-                    <span className="px-2 py-0.5 bg-blue-100 text-blue-900 rounded font-black text-[10px]">
-                      {sch.classGroupId}
-                    </span>
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold text-[10px]">
-                      {sch.status}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-slate-600 text-[11px]">
-                    <span className="flex items-center gap-1 font-mono font-bold text-blue-900">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{sch.startTime} - {sch.endTime} WIB</span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-orange-600" />
-                      <span>{sch.courtName}</span>
-                    </span>
-                  </div>
-                </div>
+            {displaySchedules.map((sch) => {
+              const statusColor = 
+                sch.status === 'Sedang Berjalan' 
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                  : sch.status === 'Akan Datang'
+                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                  : 'bg-slate-100 text-slate-600 border border-slate-200';
 
-                <div className="text-left sm:text-right">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Pelatih Bertugas:</span>
-                  <div className="flex flex-wrap sm:justify-end gap-1 mt-0.5">
-                    {sch.coaches.map((c, i) => (
-                      <span
-                        key={i}
-                        className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-[10px] font-bold border border-slate-200"
-                      >
-                        {c}
+              return (
+                <div
+                  key={sch.id}
+                  className="p-3.5 bg-gradient-to-r from-slate-50 to-white rounded-xl border border-slate-200 hover:border-blue-300 transition text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-slate-900">{sch.dayName}</span>
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-900 rounded font-black text-[10px]">
+                        Kelas {sch.classGroupId}
                       </span>
-                    ))}
+                      <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${statusColor}`}>
+                        {sch.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-slate-600 text-[11px]">
+                      <span className="flex items-center gap-1 font-mono font-bold text-blue-900">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{sch.startTime} - {sch.endTime} WIB</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5 text-orange-600" />
+                        <span>{sch.courtName}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-left sm:text-right">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Pelatih Bertugas:</span>
+                    <div className="flex flex-wrap sm:justify-end gap-1 mt-0.5">
+                      {sch.coaches.map((c, i) => (
+                        <span
+                          key={i}
+                          className="px-2 py-0.5 bg-white text-slate-800 rounded text-[10px] font-bold border border-slate-200 shadow-2xs"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

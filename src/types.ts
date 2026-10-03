@@ -24,6 +24,7 @@ export interface StudentDocuments {
 export interface Student {
   id: string;
   name: string;
+  nickname?: string; // Nama Panggilan (digunakan di Kartu Member & panggilan resmi latihan)
   avatar: string;
   birthPlace: string;
   birthDate: string; // YYYY-MM-DD
@@ -33,7 +34,7 @@ export interface Student {
   classGroupId: string; // e.g. 'U6', 'U8', 'U10', 'U11', 'U12', 'U15', 'U17'
   status: 'Aktif' | 'Non-Aktif';
   joinedDate: string;
-  position: 'Flank' | 'Anchor' | 'Pivot' | 'Goalkeeper';
+  position?: 'Flank' | 'Anchor' | 'Pivot' | 'Goalkeeper' | 'Belum Ditentukan' | string;
   jerseyNumber: number;
   documents: StudentDocuments;
   customPassword?: string;
@@ -107,7 +108,8 @@ export interface TrainingSchedule {
   dayName: string; // e.g. 'Jumat, 2 Oktober 2026'
   startTime: string; // e.g. '14:00'
   endTime: string; // e.g. '16:00'
-  classGroupId: string; // e.g. 'U10'
+  classGroupId: string; // e.g. 'U10' or 'U10, U11'
+  classGroups?: string[]; // multi-KU selection (U3 s/d U40)
   courtName: string; // e.g. 'Bintang Futsal (Lap B)'
   coaches: string[]; // multi-coach selection
   status: 'Akan Datang' | 'Sedang Berjalan' | 'Selesai';

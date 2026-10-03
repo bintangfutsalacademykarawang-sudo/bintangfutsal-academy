@@ -68,10 +68,13 @@ import {
   saveInvoiceToFirestore,
   saveAttendanceToFirestore,
   deleteAttendanceFromFirestore,
+  saveScheduleToFirestore,
+  deleteScheduleFromFirestore,
   subscribeToStudents,
   subscribeToReports,
   subscribeToInvoices,
   subscribeToAttendances,
+  subscribeToSchedules,
   wipeDemoDataFromFirestore,
   wipeAllInvoicesFromFirestore
 } from './firebase';
@@ -137,6 +140,12 @@ export default function App() {
 
   const [schedules, setSchedules] = useState<TrainingSchedule[]>(() => {
     try {
+      const resetKey = 'bfa_schedules_realtime_sync_v6';
+      if (!localStorage.getItem(resetKey)) {
+        localStorage.setItem(resetKey, 'true');
+        localStorage.setItem('bfa_training_schedules', JSON.stringify(INITIAL_SCHEDULES));
+        return INITIAL_SCHEDULES;
+      }
       const saved = localStorage.getItem('bfa_training_schedules');
       return saved ? JSON.parse(saved) : INITIAL_SCHEDULES;
     } catch {
@@ -248,7 +257,7 @@ export default function App() {
     }
 
     // 3. Seed initial clean data if Firestore collections are empty
-    seedInitialFirestoreDataIfEmpty(INITIAL_STUDENTS, INITIAL_STUDENT_REPORTS, INITIAL_INVOICES);
+    seedInitialFirestoreDataIfEmpty(INITIAL_STUDENTS, INITIAL_STUDENT_REPORTS, INITIAL_INVOICES, INITIAL_SCHEDULES);
 
     // 4. Listen to real-time changes from Firestore
     const unsubStudents = subscribeToStudents((cloudStudents) => {
@@ -297,11 +306,18 @@ export default function App() {
       }
     });
 
+    const unsubSchedules = subscribeToSchedules((cloudSchedules) => {
+      if (cloudSchedules && cloudSchedules.length > 0) {
+        setSchedules(cloudSchedules);
+      }
+    });
+
     return () => {
       unsubStudents();
       unsubReports();
       unsubInvoices();
       unsubAttendances();
+      unsubSchedules();
     };
   }, []);
 
@@ -446,11 +462,13 @@ export default function App() {
 
   const handleSaveSchedule = (scheduleData: Omit<TrainingSchedule, 'id'>, editId?: string) => {
     if (editId) {
+      const updated: TrainingSchedule = { ...scheduleData, id: editId };
       setSchedules((prev) =>
-        prev.map((s) => (s.id === editId ? { ...s, ...scheduleData, id: editId } : s))
+        prev.map((s) => (s.id === editId ? updated : s))
       );
+      saveScheduleToFirestore(updated).catch((e) => console.warn('Firestore schedule save error:', e));
       showToast(
-        `Jadwal sesi latihan ${scheduleData.classGroupId} (${scheduleData.dayName}) berhasil diperbarui!`,
+        `✓ Jadwal sesi latihan ${scheduleData.classGroupId} (${scheduleData.dayName}) berhasil diperbarui & tersinkron online!`,
         'success'
       );
     } else {
@@ -460,8 +478,9 @@ export default function App() {
         ...scheduleData,
       };
       setSchedules((prev) => [newSchedule, ...prev]);
+      saveScheduleToFirestore(newSchedule).catch((e) => console.warn('Firestore schedule save error:', e));
       showToast(
-        `Jadwal sesi latihan ${newSchedule.classGroupId} (${newSchedule.dayName}) berhasil disimpan!`,
+        `✓ Jadwal sesi latihan ${newSchedule.classGroupId} (${newSchedule.dayName}) berhasil disimpan & disiarkan real-time ke Dashboard Orang Tua!`,
         'success'
       );
     }
@@ -488,7 +507,8 @@ export default function App() {
       }
       return next;
     });
-    showToast('Jadwal sesi latihan berhasil dihapus.', 'info');
+    deleteScheduleFromFirestore(id).catch((e) => console.warn('Firestore schedule delete error:', e));
+    showToast('✓ Jadwal sesi latihan berhasil dihapus.', 'info');
   };
 
   // Fingerprint Attendance Logic

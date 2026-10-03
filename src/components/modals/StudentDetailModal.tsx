@@ -64,9 +64,16 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               referrerPolicy="no-referrer"
             />
             <div>
-              <h3 className="text-lg font-black text-slate-900">{student.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black text-slate-900">{student.name}</h3>
+                {student.nickname && (
+                  <span className="text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-full">
+                    Panggilan: {student.nickname}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500">
-                {student.id} • Kelompok: <strong className="text-blue-700">{student.classGroupId}</strong> • Posisi: <strong className="text-orange-600">{student.position} (#{student.jerseyNumber})</strong>
+                {student.id} • Kelompok: <strong className="text-blue-700">{student.classGroupId}</strong> • Posisi: <strong className="text-orange-600">{student.position || 'Belum Ditentukan'} (#{student.jerseyNumber || '-'})</strong>
               </p>
               <p className="text-[11px] text-blue-700 font-bold mt-0.5">
                 Wali: {student.parentName} ({student.phone})

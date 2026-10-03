@@ -29,10 +29,14 @@ export const ParentAttendanceView: React.FC<ParentAttendanceViewProps> = ({
     (a) => (student?.id && a.studentId === student.id) || a.studentName === childName
   );
 
-  // Relevant October schedules for this student's group
-  const octoberSchedules = schedules.filter(
-    (sch) => sch.classGroupId === childGroup || sch.classGroupId === 'Semua'
-  );
+  // Relevant October schedules for this student's group (supports multi-KU like U10, U11)
+  const octoberSchedules = schedules.filter((sch) => {
+    if (!sch.classGroupId) return false;
+    if (sch.classGroupId === 'Semua' || sch.classGroupId === childGroup) return true;
+    if (sch.classGroups && sch.classGroups.includes(childGroup)) return true;
+    const parts = sch.classGroupId.split(',').map((p) => p.trim());
+    return parts.includes(childGroup);
+  });
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

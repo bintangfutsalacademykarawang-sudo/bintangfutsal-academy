@@ -205,24 +205,32 @@ export const StudentBarcodeModal: React.FC<StudentBarcodeModalProps> = ({
       ctx.font = 'bold 14px sans-serif';
       ctx.fillText('Aktif', detailX + 185, 184);
 
-      // Student Name
+      // Student Name (Menggunakan Nama Panggilan)
+      const memberCardDisplayName = (student.nickname || student.name.split(' ')[0] || student.name).trim().toUpperCase();
       ctx.fillStyle = '#ffffff';
-      ctx.font = '900 36px sans-serif';
-      ctx.fillText(student.name.toUpperCase(), detailX, 240);
+      ctx.font = '900 38px sans-serif';
+      ctx.fillText(memberCardDisplayName, detailX, 235);
+
+      if (student.nickname && student.nickname.toLowerCase() !== student.name.toLowerCase()) {
+        ctx.fillStyle = '#bfdbfe';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(student.name, detailX, 258);
+      }
 
       // ID Badge
       ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
-      ctx.roundRect(detailX, 260, 180, 40, 10);
+      ctx.roundRect(detailX, 275, 180, 38, 10);
       ctx.fill();
       ctx.fillStyle = '#0f172a';
       ctx.font = '900 20px monospace';
-      ctx.fillText('ID: ' + student.id, detailX + 18, 287);
+      ctx.fillText('ID: ' + student.id, detailX + 18, 301);
 
       // Posisi & Jersey
+      const posLabel = student.position && student.position !== 'Belum Ditentukan' ? student.position : 'Player';
       ctx.fillStyle = '#e2e8f0';
       ctx.font = 'bold 18px sans-serif';
-      ctx.fillText(`Posisi: ${student.position} • No. Jersey: #${student.jerseyNumber || '-'}`, detailX, 335);
+      ctx.fillText(`Posisi: ${posLabel} • No. Jersey: #${student.jerseyNumber || '-'}`, detailX, 345);
 
       // Guardian info
       ctx.fillStyle = '#94a3b8';
@@ -448,13 +456,20 @@ export const StudentBarcodeModal: React.FC<StudentBarcodeModalProps> = ({
                 </span>
               </div>
 
-              {/* Nama Siswa */}
-              <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-tight truncate leading-tight mt-1">
-                {student.name}
-              </h2>
+              {/* Nama Siswa (Menggunakan Nama Panggilan) */}
+              <div>
+                <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight truncate leading-tight mt-1">
+                  {student.nickname || student.name.split(' ')[0] || student.name}
+                </h2>
+                {student.nickname && student.nickname.toLowerCase() !== student.name.toLowerCase() && (
+                  <p className="text-[10px] text-blue-200/90 truncate font-semibold leading-none mt-0.5">
+                    {student.name}
+                  </p>
+                )}
+              </div>
 
               {/* ID Siswa with Copy button */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 pt-0.5">
                 <span className="text-[10px] font-mono font-black text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/30">
                   ID: {student.id}
                 </span>
@@ -470,7 +485,7 @@ export const StudentBarcodeModal: React.FC<StudentBarcodeModalProps> = ({
 
               {/* Position & Jersey */}
               <p className="text-[11px] text-blue-200/90 font-medium truncate">
-                Posisi: <strong className="text-white font-bold">{student.position || 'Player'}</strong>
+                Posisi: <strong className="text-white font-bold">{student.position && student.position !== 'Belum Ditentukan' ? student.position : 'Player'}</strong>
                 {student.jerseyNumber ? ` • No. #${student.jerseyNumber}` : ''}
               </p>
             </div>

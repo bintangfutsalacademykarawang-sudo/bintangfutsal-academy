@@ -31,11 +31,11 @@ export const CategoryFilterModal: React.FC<CategoryFilterModalProps> = ({
   });
 
   const brackets = [
-    { id: 'Semua', label: 'Semua (U3 - U30)' },
+    { id: 'Semua', label: 'Semua (U3 - U40)' },
     { id: 'Usia Dini', label: 'Usia Dini (U3 - U7)' },
     { id: 'Grassroots', label: 'Grassroots (U8 - U12)' },
     { id: 'Remaja', label: 'Remaja (U13 - U17)' },
-    { id: 'Senior', label: 'Senior (U18 - U30)' },
+    { id: 'Senior', label: 'Senior (U18 - U40)' },
   ];
 
   const filteredCategories = ALL_KU_CATEGORIES.filter((code) => {

@@ -52,6 +52,23 @@
         "paidAt": { "type": "string" }
       },
       "required": ["id", "studentId", "month", "amount", "status"]
+    },
+    "TrainingSchedule": {
+      "title": "TrainingSchedule",
+      "description": "Real-time training schedule synced between admin and parent portals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "dayName": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "classGroupId": { "type": "string" },
+        "courtName": { "type": "string" },
+        "coaches": { "type": "array" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "date", "classGroupId", "status"]
     }
   },
   "firestore": {
@@ -66,6 +83,10 @@
     "/invoices/{invoiceId}": {
       "schema": "Invoice",
       "description": "Collection of monthly student invoices and payment history"
+    },
+    "/trainingSchedules/{scheduleId}": {
+      "schema": "TrainingSchedule",
+      "description": "Collection of training sessions synced live to parent dashboards"
     }
   }
 }
