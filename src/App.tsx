@@ -66,6 +66,7 @@ import {
   deleteStudentFromFirestore,
   saveReportToFirestore,
   saveInvoiceToFirestore,
+  deleteInvoiceFromFirestore,
   saveAttendanceToFirestore,
   deleteAttendanceFromFirestore,
   saveScheduleToFirestore,
@@ -708,56 +709,77 @@ export default function App() {
     }
   };
 
-  // Mark invoice paid manually (Admin & Keuangan live sync)
+  // Mark invoice paid manually (Admin & Keuangan live sync immediately to Firestore & Dashboard Orang Tua)
   const handleMarkInvoicePaid = (id: string) => {
     const targetInv = invoices.find((inv) => inv.id === id);
     if (!targetInv) return;
 
-    let updatedTarget: Invoice | null = null;
-    setInvoices((prev) =>
-      prev.map((inv) => {
-        if (inv.id === id) {
-          updatedTarget = {
-            ...inv,
-            status: 'LUNAS',
-            paidAt: new Date().toISOString(),
-            transactionId: `BFA-TRX-MANUAL-${Math.floor(100 + Math.random() * 900)}`,
-            paymentMethod: 'Manual Verifikasi Admin',
-          };
-          return updatedTarget;
-        }
-        return inv;
-      })
+    const updatedTarget: Invoice = {
+      ...targetInv,
+      status: 'LUNAS',
+      paidAt: new Date().toISOString(),
+      transactionId: `BFA-TRX-MANUAL-${Math.floor(100 + Math.random() * 900)}`,
+      paymentMethod: 'Manual Verifikasi Admin',
+    };
+
+    setInvoices((prev) => {
+      const next = prev.map((inv) => (inv.id === id ? updatedTarget : inv));
+      try {
+        localStorage.setItem('bfa_invoices', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 1. Immediately save to Firestore online so Parent Dashboard receives update in real-time
+    saveInvoiceToFirestore(updatedTarget).catch((e) =>
+      console.warn('Firestore invoice sync error:', e)
     );
 
-    if (updatedTarget) {
-      saveInvoiceToFirestore(updatedTarget).catch((e) => console.warn('Firestore invoice sync:', e));
+    // 2. Otomatis sinkronisasi masuk ke Buku Kas & Keuangan (Pemasukan)
+    const newCashMutation: CashMutation = {
+      id: `MUT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      date: new Date().toISOString().split('T')[0],
+      type: 'Pemasukan',
+      category: targetInv.type === 'Bulanan' ? 'SPP Bulanan' : 'Iuran Sesi Lapangan',
+      amount: targetInv.amount,
+      note: `Pembayaran ${targetInv.type} (${targetInv.period}) - ${targetInv.studentName} [${targetInv.id}]`,
+      method: 'Tunai / Transfer',
+      staff: currentUser?.name || 'Admin BFA',
+    };
 
-      // Otomatis sinkronisasi masuk ke Buku Kas & Keuangan (Pemasukan)
-      const newCashMutation: CashMutation = {
-        id: `MUT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-        date: new Date().toISOString().split('T')[0],
-        type: 'Pemasukan',
-        category: targetInv.type === 'Bulanan' ? 'SPP Bulanan' : 'Iuran Sesi Lapangan',
-        amount: targetInv.amount,
-        note: `Pembayaran ${targetInv.type} (${targetInv.period}) - ${targetInv.studentName} [${targetInv.id}]`,
-        method: 'Tunai / Transfer',
-        staff: currentUser?.name || 'Admin BFA',
-      };
+    setCashMutations((prev) => {
+      const next = [newCashMutation, ...prev];
+      try {
+        localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
-      setCashMutations((prev) => {
-        const next = [newCashMutation, ...prev];
-        try {
-          localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
-        } catch {}
-        return next;
-      });
+    showToast(
+      `✓ Tagihan ${targetInv.studentName} (${targetInv.type}) LUNAS & otomatis tersinkron ke Dashboard Orang Tua!`,
+      'success'
+    );
+  };
 
-      showToast(
-        `Invoice ${id} (${targetInv.studentName}) LUNAS & Rp${targetInv.amount.toLocaleString('id-ID')} otomatis tercatat masuk ke Kas!`,
-        'success'
-      );
-    }
+  // Delete single invoice
+  const handleDeleteInvoice = (id: string) => {
+    const targetInv = invoices.find((inv) => inv.id === id);
+    setInvoices((prev) => {
+      const next = prev.filter((inv) => inv.id !== id);
+      try {
+        localStorage.setItem('bfa_invoices', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    deleteInvoiceFromFirestore(id).catch((e) =>
+      console.warn('Firestore invoice delete error:', e)
+    );
+
+    showToast(
+      `✓ Tagihan ${targetInv ? `${targetInv.studentName} (${targetInv.type} ${targetInv.period})` : id} berhasil dihapus.`,
+      'info'
+    );
   };
 
   // Wipe all invoices for clean real bookkeeping
@@ -1338,6 +1360,7 @@ Official Performance Report • BFA Karawang
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
                   }}
+                  onDeleteInvoice={handleDeleteInvoice}
                   onClearAllInvoices={handleClearAllInvoices}
                 />
               )}

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Invoice } from '../../types';
-import { CreditCard, Plus, Receipt, CheckCircle, Download, FileSpreadsheet, RotateCcw } from 'lucide-react';
+import { CreditCard, Plus, Receipt, CheckCircle, Download, FileSpreadsheet, RotateCcw, Trash2, AlertTriangle } from 'lucide-react';
 import { exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
 
 interface AdminInvoicesViewProps {
@@ -8,6 +8,7 @@ interface AdminInvoicesViewProps {
   onGenerateInvoices: () => void;
   onMarkInvoicePaid: (id: string) => void;
   onShowReceipt: (invoice: Invoice) => void;
+  onDeleteInvoice?: (id: string) => void;
   onClearAllInvoices?: () => void;
 }
 
@@ -16,8 +17,11 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
   onGenerateInvoices,
   onMarkInvoicePaid,
   onShowReceipt,
+  onDeleteInvoice,
   onClearAllInvoices,
 }) => {
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+
   const totalAmount = invoices.reduce((a, b) => a + b.amount, 0);
   const paidAmount = invoices
     .filter((i) => i.status === 'LUNAS')
@@ -175,23 +179,40 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {isPaid ? (
-                          <button
-                            onClick={() => onShowReceipt(inv)}
-                            className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 inline-flex items-center gap-1 active:scale-95"
-                          >
-                            <Receipt className="w-3.5 h-3.5 text-blue-700" />
-                            <span>Kuitansi</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => onMarkInvoicePaid(inv.id)}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold active:scale-95 shadow-xs inline-flex items-center gap-1"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" />
-                            <span>Tandai Lunas</span>
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isPaid ? (
+                            <button
+                              type="button"
+                              onClick={() => onShowReceipt(inv)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 inline-flex items-center gap-1 active:scale-95"
+                              title="Cetak Kuitansi Resmi"
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-blue-700" />
+                              <span>Kuitansi</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onMarkInvoicePaid(inv.id)}
+                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold active:scale-95 shadow-xs inline-flex items-center gap-1"
+                              title="Tandai Sudah Lunas"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Tandai Lunas</span>
+                            </button>
+                          )}
+
+                          {onDeleteInvoice && (
+                            <button
+                              type="button"
+                              onClick={() => setInvoiceToDelete(inv)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded-lg text-xs font-bold border border-rose-200 inline-flex items-center transition active:scale-95 shadow-2xs"
+                              title="Hapus Tagihan Ini"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -201,6 +222,73 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Delete Invoice Confirmation Modal */}
+      {invoiceToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-black text-slate-900">
+                Hapus Tagihan Siswa?
+              </h3>
+              <p className="text-xs text-slate-500">
+                Data tagihan akan dihapus permanen dari sistem dan buku kas akademi.
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Siswa:</span>
+                <span className="font-extrabold text-slate-900">{invoiceToDelete.studentName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Jenis:</span>
+                <span className="font-bold text-blue-900">{invoiceToDelete.type} ({invoiceToDelete.period})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Nominal:</span>
+                <span className="font-mono font-black text-slate-900">Rp{invoiceToDelete.amount.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Status:</span>
+                <span className={`font-bold ${invoiceToDelete.status === 'LUNAS' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  {invoiceToDelete.status}
+                </span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-200 text-[10px]">
+                <span className="text-slate-400 font-mono">ID Tagihan:</span>
+                <span className="font-mono text-slate-600">{invoiceToDelete.id}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setInvoiceToDelete(null)}
+                className="py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteInvoice) {
+                    onDeleteInvoice(invoiceToDelete.id);
+                  }
+                  setInvoiceToDelete(null);
+                }}
+                className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-rose-600/25 active:scale-95 transition"
+              >
+                Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -274,11 +274,11 @@ export const StudentBarcodeModal: React.FC<StudentBarcodeModalProps> = ({
         curX += w;
       }
 
-      // Barcode text
+      // Barcode text (Nama Panjang Siswa)
       ctx.fillStyle = '#000000';
-      ctx.font = '900 36px monospace';
+      ctx.font = '900 32px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`*${student.id}*`, boxX + boxW / 2, barTop + barH + 50);
+      ctx.fillText(student.name.toUpperCase(), boxX + boxW / 2, barTop + barH + 50);
       ctx.textAlign = 'left';
 
       // Inner Divider
@@ -531,9 +531,9 @@ export const StudentBarcodeModal: React.FC<StudentBarcodeModalProps> = ({
                 ))}
               </svg>
 
-              {/* Formatted Barcode Number */}
-              <span className="font-mono text-xs sm:text-sm font-black tracking-widest text-slate-950 mt-1 block">
-                *{student.id}*
+              {/* Formatted Barcode: Nama Panjang Siswa */}
+              <span className="text-xs sm:text-sm font-black tracking-wide text-slate-950 uppercase mt-1 block">
+                {student.name}
               </span>
             </div>
 

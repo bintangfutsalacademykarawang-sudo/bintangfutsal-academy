@@ -173,6 +173,16 @@ export async function saveInvoiceToFirestore(invoice: Invoice): Promise<void> {
   }
 }
 
+export async function deleteInvoiceFromFirestore(invoiceId: string): Promise<void> {
+  try {
+    const invRef = doc(db, INVOICES_COLLECTION, invoiceId);
+    await deleteDoc(invRef);
+  } catch (error) {
+    console.error('Failed to delete invoice from Firestore:', error);
+    throw error;
+  }
+}
+
 export function subscribeToInvoices(
   onData: (invoices: Invoice[]) => void,
   onError?: (err: Error) => void

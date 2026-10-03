@@ -99,12 +99,12 @@ export const BarcodeDisplay: React.FC<BarcodeDisplayProps> = ({
 
       {showText && (
         <div className="mt-1 text-center">
-          <span className="font-mono text-xs tracking-widest font-black text-slate-900 block">
-            *{value}*
+          <span className="text-xs font-black tracking-wide text-slate-900 uppercase block">
+            {studentName || `*${value}*`}
           </span>
-          {studentName && (
-            <span className="text-[11px] font-bold text-blue-900">
-              {studentName} {classGroup ? `(${classGroup})` : ''}
+          {classGroup && (
+            <span className="text-[10px] font-bold text-blue-700">
+              {classGroup}
             </span>
           )}
         </div>
