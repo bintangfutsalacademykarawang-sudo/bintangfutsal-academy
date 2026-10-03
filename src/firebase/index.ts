@@ -41,11 +41,34 @@ const INVOICES_COLLECTION = 'invoices';
 const ATTENDANCES_COLLECTION = 'attendances';
 const SCHEDULES_COLLECTION = 'trainingSchedules';
 
+/**
+ * Removes undefined properties recursively so Firestore setDoc never throws
+ * "Unsupported field value: undefined".
+ */
+export function cleanForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => cleanForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = cleanForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
 // --- ATTENDANCE OPERATIONS ---
 export async function saveAttendanceToFirestore(attendance: Attendance): Promise<void> {
   try {
     const attRef = doc(db, ATTENDANCES_COLLECTION, attendance.id);
-    await setDoc(attRef, attendance, { merge: true });
+    await setDoc(attRef, cleanForFirestore(attendance), { merge: true });
   } catch (error) {
     console.error('Failed to save attendance to Firestore:', error);
     throw error;
