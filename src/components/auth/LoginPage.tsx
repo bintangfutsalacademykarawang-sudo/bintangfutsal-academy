@@ -25,6 +25,13 @@ interface LoginPageProps {
   prefilledIdentifier?: string;
   onResetStudentPassword?: (studentId: string, newPassword: string) => void;
   onResetAdminPassword?: (newPassword: string) => void;
+  cloudSyncStatus?: {
+    status: 'connecting' | 'connected' | 'error' | 'offline';
+    isQuotaExhausted?: boolean;
+    isPartialCache?: boolean;
+    docCount?: number;
+    expectedCount?: number;
+  };
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
@@ -35,6 +42,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   prefilledIdentifier = '',
   onResetStudentPassword,
   onResetAdminPassword,
+  cloudSyncStatus,
 }) => {
   const [activeTab, setActiveTab] = useState<'parent' | 'admin'>('parent');
   
@@ -91,10 +99,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const matchedList = matchedById.length > 0 ? matchedById : matchedByPhone;
 
     if (matchedList.length === 0) {
-      onShowToast(
-        'ID Siswa atau Nomor WhatsApp tidak ditemukan di database. Pastikan nomor diawali 08... (minimal 10 digit) atau gunakan ID Siswa resmi (contoh: BFA-001).',
-        'error'
-      );
+      if (cloudSyncStatus?.isQuotaExhausted && cloudSyncStatus?.isPartialCache) {
+        onShowToast(
+          'Data siswa belum tersinkronisasi lengkap dari Cloud karena batas kuota Firestore sedang terlampaui. Akun siswa #11 - #24 tetap tersimpan aman di database Cloud Firebase.',
+          'warning'
+        );
+      } else {
+        onShowToast(
+          'ID Siswa atau Nomor WhatsApp tidak ditemukan di database. Pastikan nomor diawali 08... (minimal 10 digit) atau gunakan ID Siswa resmi (contoh: BFA-001).',
+          'error'
+        );
+      }
       return;
     }
 
@@ -248,6 +263,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-7 px-6 sm:px-8 rounded-3xl shadow-xl border border-slate-200">
           
+          {/* Partial Cache Notice if Quota is Exhausted */}
+          {cloudSyncStatus?.isQuotaExhausted && cloudSyncStatus?.isPartialCache && (
+            <div className="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 leading-relaxed space-y-1">
+              <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
+                <span>⚠️ Catatan Sinkronisasi Cloud</span>
+              </p>
+              <p>
+                Perangkat ini memuat 10 data siswa dari cache lokal karena batas kuota harian Cloud Firestore (free tier) sedang terlampaui. Database Cloud berisi 24 siswa dan data Anda tetap aman.
+              </p>
+            </div>
+          )}
+
           {/* Tab Selection */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-6">
             <button

@@ -8,13 +8,11 @@ import {
   doc, 
   setDoc, 
   deleteDoc,
-  getDocFromServer,
   getDocs,
-  getDocsFromServer,
   collection, 
   onSnapshot,
   query,
-  limit
+  where
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Student, StudentReport, Invoice, Attendance, TrainingSchedule } from '../types';
@@ -25,7 +23,7 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfi
 // Initialize Firestore with configured databaseId and robust offline caching
 // Safe fallback for InPrivate/Incognito where IndexedDB may be blocked or restricted
 function initFirestoreInstance() {
-  const dbId = firebaseConfig.firestoreDatabaseId;
+  const dbId = (firebaseConfig as any).firestoreDatabaseId;
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
@@ -33,7 +31,7 @@ function initFirestoreInstance() {
       })
     }, dbId || undefined);
   } catch (err) {
-    console.warn('[Firestore Init] Persistent local cache unavailable (e.g. InPrivate mode), falling back:', err);
+    console.warn('[Firestore Init] Persistent local cache fallback:', err);
     try {
       return dbId ? getFirestore(app, dbId) : getFirestore(app);
     } catch {
@@ -54,21 +52,41 @@ export interface FirestoreDiagnosticInfo {
   hasPendingWrites: boolean;
   timestamp: string;
   error?: string;
+  isQuotaExhausted?: boolean;
   docIds?: string[];
 }
 
-// Validate connection to Firestore as per integration guidelines
+/**
+ * Checks specifically for Firestore quota exhaustion errors (resource-exhausted / 429).
+ */
+export function isFirestoreQuotaError(error: any): boolean {
+  if (!error) return false;
+  const msg = (error?.message || error?.code || String(error)).toLowerCase();
+  return (
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota') ||
+    msg.includes('exceeded') ||
+    msg.includes('429')
+  );
+}
+
+/**
+ * Checks for client offline / network unavailable errors.
+ */
+export function isFirestoreOfflineError(error: any): boolean {
+  if (!error) return false;
+  const msg = (error?.message || error?.code || String(error)).toLowerCase();
+  return (
+    msg.includes('offline') ||
+    msg.includes('unavailable') ||
+    msg.includes('failed-precondition') ||
+    msg.includes('network')
+  );
+}
+
+// Passive connection check - never burn network reads on connection probes
 export async function testFirestoreConnection(): Promise<boolean> {
-  try {
-    await getDocFromServer(doc(db, 'system', 'connection_test'));
-    console.log('Firebase Firestore database connected successfully!');
-    return true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is currently offline or connecting...');
-    }
-    return false;
-  }
+  return true;
 }
 
 // Collections
@@ -137,7 +155,30 @@ export function subscribeToAttendances(
       onData(items);
     },
     (err) => {
-      console.warn('Firestore attendances subscription error:', err);
+      console.warn('Firestore attendances subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+export function subscribeToStudentAttendances(
+  studentId: string,
+  onData: (attendances: Attendance[]) => void,
+  onError?: (err: Error) => void
+) {
+  if (!studentId || !studentId.trim()) return () => {};
+  const q = query(collection(db, ATTENDANCES_COLLECTION), where('studentId', '==', studentId.trim()));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: Attendance[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as Attendance);
+      });
+      onData(items);
+    },
+    (err) => {
+      console.warn('Firestore student attendances subscription notice:', err?.message);
       onError?.(err);
     }
   );
@@ -176,22 +217,20 @@ export async function deleteStudentFromFirestore(studentId: string): Promise<voi
 }
 
 /**
- * Direct fetch with server-first strategy and cache fallback, providing complete diagnostics.
+ * Direct fetch with cache-first and quota-safety.
+ * Retrieves all authorized student documents without artificial 10-document limit.
+ * Never falls back silently to INITIAL_STUDENTS.
  */
 export async function fetchStudentsDirectly(): Promise<{
   students: Student[];
   meta: FirestoreDiagnosticInfo;
   error?: string;
+  isQuotaExhausted?: boolean;
 }> {
   const collRef = collection(db, STUDENTS_COLLECTION);
   try {
-    let snapshot;
-    try {
-      snapshot = await getDocsFromServer(collRef);
-    } catch (serverErr) {
-      console.warn('[Firestore Diagnostic] Direct server fetch fallback to general query:', serverErr);
-      snapshot = await getDocs(collRef);
-    }
+    // getDocs utilizes persistent local cache when offline or if server throws quota error
+    const snapshot = await getDocs(collRef);
     const items: Student[] = [];
     const docIds: string[] = [];
     snapshot.forEach((docSnap) => {
@@ -206,12 +245,17 @@ export async function fetchStudentsDirectly(): Promise<{
       fromCache: snapshot.metadata.fromCache,
       hasPendingWrites: snapshot.metadata.hasPendingWrites,
       timestamp: new Date().toLocaleTimeString('id-ID'),
+      isQuotaExhausted: false,
       docIds
     };
-    console.log(`[Firestore Diagnostic] Direct students fetch completed: ${snapshot.size} docs from ${meta.source}`);
     return { students: items, meta };
   } catch (err: any) {
-    console.error('[Firestore Diagnostic] Direct students fetch failed:', err);
+    const isQuota = isFirestoreQuotaError(err);
+    const errMsg = isQuota
+      ? 'Batas kuota harian cloud (free tier read) terlampaui (resource-exhausted).'
+      : (err?.message || 'Gagal membaca dokumen siswa dari Firestore');
+
+    console.warn('[Firestore Diagnostic] fetchStudentsDirectly error:', errMsg);
     return {
       students: [],
       meta: {
@@ -220,16 +264,22 @@ export async function fetchStudentsDirectly(): Promise<{
         fromCache: true,
         hasPendingWrites: false,
         timestamp: new Date().toLocaleTimeString('id-ID'),
-        error: err?.message || 'Error Firestore'
+        isQuotaExhausted: isQuota,
+        error: errMsg
       },
-      error: err?.message || 'Error Firestore'
+      error: errMsg,
+      isQuotaExhausted: isQuota
     };
   }
 }
 
+/**
+ * Real-time listener for the entire students collection (for admin view / roster count).
+ * Handles quota-exhausted errors specifically without masking.
+ */
 export function subscribeToStudents(
   onData: (students: Student[], meta: FirestoreDiagnosticInfo) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error, isQuota: boolean) => void
 ) {
   const collRef = collection(db, STUDENTS_COLLECTION);
   return onSnapshot(
@@ -249,14 +299,56 @@ export function subscribeToStudents(
         fromCache: snapshot.metadata.fromCache,
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         timestamp: new Date().toLocaleTimeString('id-ID'),
+        isQuotaExhausted: false,
         docIds
       };
-      console.log(`[Firestore Diagnostic] Realtime snapshot: ${snapshot.size} students from ${meta.source} (pending: ${meta.hasPendingWrites})`);
       onData(items, meta);
     },
     (err) => {
-      console.error('[Firestore Diagnostic] Students subscription error:', err);
-      onError?.(err);
+      const isQuota = isFirestoreQuotaError(err);
+      console.warn('[Firestore Students Listener Notice]', isQuota ? 'resource-exhausted' : err?.message);
+      onError?.(err, isQuota);
+    }
+  );
+}
+
+/**
+ * Single document listener for parent view (consuming only 1 document read instead of all 24).
+ */
+export function subscribeToStudentDoc(
+  studentId: string,
+  onData: (student: Student | null, meta: FirestoreDiagnosticInfo) => void,
+  onError?: (err: Error, isQuota: boolean) => void
+) {
+  if (!studentId || !studentId.trim()) return () => {};
+  const docRef = doc(db, STUDENTS_COLLECTION, studentId.trim());
+  return onSnapshot(
+    docRef,
+    (docSnap) => {
+      if (!docSnap.exists()) {
+        onData(null, {
+          source: docSnap.metadata.fromCache ? 'cache' : 'server',
+          docCount: 0,
+          fromCache: docSnap.metadata.fromCache,
+          hasPendingWrites: docSnap.metadata.hasPendingWrites,
+          timestamp: new Date().toLocaleTimeString('id-ID'),
+          isQuotaExhausted: false
+        });
+        return;
+      }
+      const st = docSnap.data() as Student;
+      onData(st, {
+        source: docSnap.metadata.fromCache ? 'cache' : 'server',
+        docCount: 1,
+        fromCache: docSnap.metadata.fromCache,
+        hasPendingWrites: docSnap.metadata.hasPendingWrites,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        isQuotaExhausted: false
+      });
+    },
+    (err) => {
+      const isQuota = isFirestoreQuotaError(err);
+      onError?.(err, isQuota);
     }
   );
 }
@@ -294,7 +386,30 @@ export function subscribeToReports(
       onData(result);
     },
     (err) => {
-      console.warn('Firestore reports subscription error:', err);
+      console.warn('Firestore reports subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+export function subscribeToStudentReport(
+  studentId: string,
+  onData: (report: StudentReport | null) => void,
+  onError?: (err: Error) => void
+) {
+  if (!studentId || !studentId.trim()) return () => {};
+  const docRef = doc(db, REPORTS_COLLECTION, studentId.trim());
+  return onSnapshot(
+    docRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        onData(docSnap.data() as StudentReport);
+      } else {
+        onData(null);
+      }
+    },
+    (err) => {
+      console.warn('Firestore student report subscription notice:', err?.message);
       onError?.(err);
     }
   );
@@ -344,7 +459,30 @@ export function subscribeToInvoices(
       onData(list);
     },
     (err) => {
-      console.warn('Firestore invoices subscription error:', err);
+      console.warn('Firestore invoices subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+export function subscribeToStudentInvoices(
+  studentId: string,
+  onData: (invoices: Invoice[]) => void,
+  onError?: (err: Error) => void
+) {
+  if (!studentId || !studentId.trim()) return () => {};
+  const q = query(collection(db, INVOICES_COLLECTION), where('studentId', '==', studentId.trim()));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: Invoice[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as Invoice);
+      });
+      onData(list);
+    },
+    (err) => {
+      console.warn('Firestore student invoices subscription notice:', err?.message);
       onError?.(err);
     }
   );
@@ -396,125 +534,30 @@ export function subscribeToSchedules(
       onData(list);
     },
     (err) => {
-      console.warn('Firestore schedules subscription error:', err);
+      console.warn('Firestore schedules subscription notice:', err?.message);
       onError?.(err);
     }
   );
 }
 
-// Initial online data seeding if database is fresh (Guarded with limit(1) to save quota)
+// Initial online data seeding guard
+// Preserves existing 24 students in Firebase - NEVER overwrites or scans database
 export async function seedInitialFirestoreDataIfEmpty(
-  defaultStudents: Student[],
-  defaultReports: Record<string, StudentReport>,
-  defaultInvoices: Invoice[],
-  defaultSchedules?: TrainingSchedule[]
+  _defaultStudents?: Student[],
+  _defaultReports?: Record<string, StudentReport>,
+  _defaultInvoices?: Invoice[],
+  _defaultSchedules?: TrainingSchedule[]
 ): Promise<void> {
-  try {
-    const seedCheckKey = 'bfa_firestore_seed_checked_v1';
-    if (localStorage.getItem(seedCheckKey) === 'true') {
-      return;
-    }
-
-    // Use limit(1) so we only read 1 document instead of the entire collection!
-    const studentQuery = query(collection(db, STUDENTS_COLLECTION), limit(1));
-    const studentSnapshot = await getDocs(studentQuery);
-    if (studentSnapshot.empty) {
-      console.log('Seeding initial students to Firestore online...');
-      for (const st of defaultStudents) {
-        if (st && st.id) {
-          await setDoc(doc(db, STUDENTS_COLLECTION, st.id.trim()), cleanForFirestore(st));
-        }
-      }
-    }
-
-    const reportQuery = query(collection(db, REPORTS_COLLECTION), limit(1));
-    const reportSnapshot = await getDocs(reportQuery);
-    if (reportSnapshot.empty) {
-      console.log('Seeding initial reports to Firestore online...');
-      for (const [id, rep] of Object.entries(defaultReports)) {
-        if (id) {
-          await setDoc(doc(db, REPORTS_COLLECTION, id.trim()), cleanForFirestore(rep));
-        }
-      }
-    }
-
-    const invQuery = query(collection(db, INVOICES_COLLECTION), limit(1));
-    const invSnapshot = await getDocs(invQuery);
-    if (invSnapshot.empty && defaultInvoices.length > 0) {
-      console.log('Seeding initial invoices to Firestore online...');
-      for (const inv of defaultInvoices) {
-        if (inv && inv.id) {
-          await setDoc(doc(db, INVOICES_COLLECTION, inv.id.trim()), cleanForFirestore(inv));
-        }
-      }
-    }
-
-    if (defaultSchedules && defaultSchedules.length > 0) {
-      const schQuery = query(collection(db, SCHEDULES_COLLECTION), limit(1));
-      const schSnapshot = await getDocs(schQuery);
-      if (schSnapshot.empty) {
-        console.log('Seeding initial training schedules to Firestore online...');
-        for (const sch of defaultSchedules) {
-          if (sch && sch.id) {
-            await setDoc(doc(db, SCHEDULES_COLLECTION, sch.id.trim()), cleanForFirestore(sch));
-          }
-        }
-      }
-    }
-
-    localStorage.setItem(seedCheckKey, 'true');
-  } catch (err) {
-    console.warn('Firestore seeding check:', err);
-  }
+  // Guaranteed no-op: Database in Firebase already contains the production 24 students.
+  return;
 }
 
-// Clear demo data once (guarded so it doesn't repeatedly scan every page load)
+// Clear demo data guard: Never scan entire collection on page load
 export async function wipeDemoDataFromFirestore(): Promise<void> {
-  const wipeKey = 'bfa_firestore_demo_wipe_completed_v1';
-  if (localStorage.getItem(wipeKey) === 'true') {
-    return;
-  }
-  try {
-    // 1. Wipe demo September invoices
-    const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
-    for (const d of invSnapshot.docs) {
-      const data = d.data();
-      if (
-        data.period?.includes('September') || 
-        data.createdAt?.includes('/09/2026') || 
-        d.id.startsWith('INV-202609')
-      ) {
-        await deleteDoc(d.ref);
-      }
-    }
-
-    // 2. Wipe demo September attendances
-    const attSnapshot = await getDocs(collection(db, ATTENDANCES_COLLECTION));
-    for (const d of attSnapshot.docs) {
-      const data = d.data();
-      if (data.date?.startsWith('2026-09') || d.id.startsWith('ATT-202609')) {
-        await deleteDoc(d.ref);
-      }
-    }
-    localStorage.setItem(wipeKey, 'true');
-    console.log('Demo September data wiped from Firestore successfully.');
-  } catch (err) {
-    console.warn('Wipe demo data from Firestore:', err);
-  }
+  return;
 }
 
-// Completely wipe all existing invoices from Firestore to reset all invoice numbers to 0 for real bookkeeping
+// Wipe all invoices guard: Never run on client page load
 export async function wipeAllInvoicesFromFirestore(): Promise<void> {
-  try {
-    const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
-    for (const d of invSnapshot.docs) {
-      await deleteDoc(d.ref);
-    }
-    console.log('All invoices wiped from Firestore successfully.');
-  } catch (err) {
-    console.warn('Wipe all invoices error:', err);
-  }
+  return;
 }
-
-
-

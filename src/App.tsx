@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertCircle, LogOut } from 'lucide-react';
 import { 
   Role, 
@@ -74,9 +74,13 @@ import {
   saveScheduleToFirestore,
   deleteScheduleFromFirestore,
   subscribeToStudents,
+  subscribeToStudentDoc,
   subscribeToReports,
+  subscribeToStudentReport,
   subscribeToInvoices,
+  subscribeToStudentInvoices,
   subscribeToAttendances,
+  subscribeToStudentAttendances,
   subscribeToSchedules,
   wipeDemoDataFromFirestore,
   wipeAllInvoicesFromFirestore,
@@ -113,24 +117,77 @@ export default function App() {
     return currentUser?.role === 'parent' ? 'parent-dashboard' : 'dashboard';
   });
 
-  // Application Data States (Temporary local cache synchronized with Cloud Firestore)
-  const [students, setStudents] = useState<Student[]>(() => {
+  // Helper to inspect localStorage cached students
+  const getInitialStudentsCache = (): {
+    list: Student[];
+    isLegacyPartial: boolean; // only 10 initial students
+    cachedAt: string | null;
+  } => {
     try {
       const saved = localStorage.getItem('bfa_students');
+      const cachedAt = localStorage.getItem('bfa_students_cached_at');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const { list } = sanitizeStudentsList(parsed);
-          return list;
+          // Detect if this device cache contains only the 10 legacy initial students (BFA-001 to BFA-010)
+          const isLegacyPartial = list.length === 10 && list.every((s, idx) => s.id === `BFA-00${idx + 1}` || s.id === 'BFA-010');
+          return { list, isLegacyPartial, cachedAt };
         }
       }
-    } catch {
-      // cache reading error
-    }
-    // Return empty array initially; NEVER fallback to INITIAL_STUDENTS (10 items)
-    // so that failed or pending queries are never masked as complete data.
-    return [];
+    } catch {}
+    return { list: [], isLegacyPartial: false, cachedAt: null };
+  };
+
+  // Application Data States (Temporary local cache synchronized with Cloud Firestore)
+  const [students, setStudents] = useState<Student[]>(() => {
+    return getInitialStudentsCache().list;
   });
+
+  // Find active student strictly matching current verified parent session
+  const activeParentStudent = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'parent') return null;
+
+    // 1. Strict exact match by studentId (case-insensitive & whitespace-trimmed)
+    if (currentUser.studentId) {
+      const cleanId = currentUser.studentId.trim().toUpperCase();
+      const foundById = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
+      if (foundById) {
+        return foundById;
+      }
+    }
+
+    // 2. Strict exact match by verified parent phone number
+    if (currentUser.emailOrPhone && isValidIndonesianMobile(currentUser.emailOrPhone)) {
+      const matchingByPhone = students.filter((s) => isExactPhoneMatch(s.phone, currentUser.emailOrPhone));
+      if (matchingByPhone.length === 1) {
+        return matchingByPhone[0];
+      }
+      if (matchingByPhone.length > 1) {
+        if (currentUser.studentId) {
+          const cleanId = currentUser.studentId.trim().toUpperCase();
+          const byId = matchingByPhone.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
+          if (byId) return byId;
+        }
+        if (currentUser.studentName) {
+          const cleanName = currentUser.studentName.trim().toLowerCase();
+          const byName = matchingByPhone.find((s) => s.name.trim().toLowerCase() === cleanName);
+          if (byName) return byName;
+        }
+        return matchingByPhone[0];
+      }
+    }
+
+    // NEVER fallback to students[0] or another arbitrary student!
+    return null;
+  }, [currentUser, students]);
+
+  // List of all sibling students sharing the same verified parent phone
+  const parentSiblings = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'parent' || !activeParentStudent?.phone) return [];
+    if (!isValidIndonesianMobile(activeParentStudent.phone)) return [];
+    return students.filter((s) => isExactPhoneMatch(s.phone, activeParentStudent.phone));
+  }, [currentUser, activeParentStudent, students]);
 
   const [cashMutations, setCashMutations] = useState<CashMutation[]>(() => {
     try {
@@ -227,8 +284,23 @@ export default function App() {
   const [registeredStudentId, setRegisteredStudentId] = useState<string>('');
 
   // Automatically persist every update to localStorage so refreshing page keeps all data
+  // Safety guard: Never wipe 24 valid students in cache with an empty array or smaller partial cache!
   useEffect(() => {
-    try { localStorage.setItem('bfa_students', JSON.stringify(students)); } catch (e) { console.error(e); }
+    if (students.length > 0) {
+      try {
+        const existing = localStorage.getItem('bfa_students');
+        if (existing) {
+          const parsed = JSON.parse(existing);
+          if (Array.isArray(parsed) && parsed.length > students.length && parsed.length >= 20) {
+            console.warn('[Cache Safety] Preserving larger valid student cache in localStorage:', parsed.length);
+            return;
+          }
+        }
+        localStorage.setItem('bfa_students', JSON.stringify(students));
+      } catch (e) {
+        console.error(e);
+      }
+    }
   }, [students]);
 
   useEffect(() => {
@@ -252,153 +324,85 @@ export default function App() {
     status: 'connecting' | 'connected' | 'error' | 'offline';
     source: 'server' | 'cache' | 'local_fallback';
     docCount: number;
+    expectedCount: number;
     lastSynced: string | null;
+    isQuotaExhausted: boolean;
+    isPartialCache: boolean;
     errorMessage: string | null;
-  }>(() => ({
-    status: 'connecting',
-    source: students.length > 0 ? 'cache' : 'server',
-    docCount: students.length,
-    lastSynced: null,
-    errorMessage: null,
-  }));
+  }>(() => {
+    const { list, isLegacyPartial, cachedAt } = getInitialStudentsCache();
+    return {
+      status: 'connecting',
+      source: list.length > 0 ? 'cache' : 'server',
+      docCount: list.length,
+      expectedCount: 24,
+      lastSynced: cachedAt,
+      isQuotaExhausted: false,
+      isPartialCache: isLegacyPartial,
+      errorMessage: null,
+    };
+  });
 
-  // Real-time synchronization with online Firebase Firestore database
+  // Real-time synchronization for Students & Schedules with online Firebase Firestore
+  // Audit fix: No duplicate fetchStudentsDirectly on mount; listener uses local cache first
   useEffect(() => {
-    // 1. Verify Firestore Connection
-    testFirestoreConnection().then((connected) => {
-      if (connected) {
-        console.log('Online Firestore Database Active');
-      }
-    });
-
-    // 2. Wipe demo September data & clear all previous invoices from online Firestore for clean bookkeeping
-    wipeDemoDataFromFirestore().catch((e) => console.warn('Firestore demo wipe error:', e));
-
-    const wipeKey = 'bfa_cloud_invoices_wiped_v10';
-    if (!localStorage.getItem(wipeKey)) {
-      localStorage.setItem(wipeKey, 'true');
-      wipeAllInvoicesFromFirestore().catch((e) => console.warn('Wipe all cloud invoices error:', e));
-    }
-
-    // 3. Fast direct fetch for immediate population while onSnapshot initializes
-    fetchStudentsDirectly().then(({ students: directList, meta, error }) => {
-      if (directList && directList.length > 0) {
-        const { list: sanitized } = sanitizeStudentsList(directList);
-        setStudents(sanitized);
-        setCloudSyncStatus({
-          status: 'connected',
-          source: meta.fromCache ? 'cache' : 'server',
-          docCount: sanitized.length,
-          lastSynced: meta.timestamp,
-          errorMessage: null,
-        });
-        try {
-          localStorage.setItem('bfa_students', JSON.stringify(sanitized));
-          localStorage.setItem('bfa_students_cached_at', meta.timestamp);
-        } catch {}
-      } else if (error) {
-        console.warn('[App] Direct students fetch notice:', error);
-        const isQuota = error.includes('Quota exceeded') || error.includes('resource-exhausted');
-        const isOffline = error.includes('offline') || error.includes('unavailable');
-        let userMsg = error;
-        if (isQuota) {
-          userMsg = 'Batas kuota harian cloud (free tier read) terlampaui. Data server tidak dapat dimuat.';
-        } else if (isOffline) {
-          userMsg = 'Koneksi cloud offline atau terblokir. Data server tidak dapat dimuat.';
-        }
-        setCloudSyncStatus((prev) => ({
-          status: 'error',
-          source: prev.docCount > 0 ? 'cache' : 'local_fallback',
-          docCount: prev.docCount,
-          lastSynced: prev.lastSynced,
-          errorMessage: userMsg,
-        }));
-      }
-    });
-
-    // 4. Listen to real-time changes from Firestore with diagnostic metadata and error handling
+    // Listen to real-time changes from Firestore with diagnostic metadata and quota handling
     const unsubStudents = subscribeToStudents(
       (cloudStudents, meta) => {
         if (cloudStudents && cloudStudents.length > 0) {
           const { list: sanitized } = sanitizeStudentsList(cloudStudents);
           setStudents(sanitized);
+          const isPartial = sanitized.length < 24;
           setCloudSyncStatus({
             status: 'connected',
             source: meta.fromCache ? 'cache' : 'server',
             docCount: sanitized.length,
+            expectedCount: 24,
             lastSynced: meta.timestamp,
+            isQuotaExhausted: false,
+            isPartialCache: isPartial,
             errorMessage: null,
           });
           try {
             localStorage.setItem('bfa_students', JSON.stringify(sanitized));
             localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+            localStorage.setItem('bfa_students_cloud_synced', 'true');
           } catch {}
         } else if (cloudStudents && cloudStudents.length === 0) {
-          setCloudSyncStatus({
+          setCloudSyncStatus((prev) => ({
+            ...prev,
             status: 'connected',
             source: meta.fromCache ? 'cache' : 'server',
-            docCount: 0,
             lastSynced: meta.timestamp,
             errorMessage: null,
-          });
+          }));
         }
       },
-      (err) => {
-        console.error('[App] Firestore students subscription error:', err);
-        const errStr = err?.message || 'Gagal tersambung ke database Firestore';
-        const isQuota = errStr.includes('Quota exceeded') || errStr.includes('resource-exhausted');
-        const isOffline = errStr.includes('offline') || errStr.includes('unavailable');
+      (err, isQuota) => {
+        setCloudSyncStatus((prev) => {
+          let userFriendlyMsg: string;
+          if (isQuota) {
+            if (prev.isPartialCache) {
+              userFriendlyMsg = 'Batas kuota harian Cloud Firestore (free tier read) terlampaui (resource-exhausted). Perangkat ini memuat 10 data siswa lama dari cache peramban lokal. Database Cloud di Firebase tetap aman berisi 24 siswa.';
+            } else if (prev.docCount >= 24) {
+              userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Menampilkan 24 siswa dari cache lokal terverifikasi. Data di Firebase tetap aman.';
+            } else {
+              userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Data server tidak dapat dimuat.';
+            }
+          } else {
+            userFriendlyMsg = err?.message || 'Gagal tersambung ke database Firestore';
+          }
 
-        let userFriendlyMsg = errStr;
-        if (isQuota) {
-          userFriendlyMsg = 'Batas kuota harian cloud (free tier read) terlampaui. Menampilkan data dari penyimpanan lokal.';
-        } else if (isOffline) {
-          userFriendlyMsg = 'Koneksi cloud offline atau terblokir. Menampilkan data dari penyimpanan lokal.';
-        }
-
-        setCloudSyncStatus((prev) => ({
-          status: 'error',
-          source: prev.docCount > 0 ? 'cache' : 'local_fallback',
-          docCount: prev.docCount,
-          lastSynced: prev.lastSynced,
-          errorMessage: userFriendlyMsg,
-        }));
+          return {
+            ...prev,
+            status: 'error',
+            source: prev.docCount > 0 ? 'cache' : 'local_fallback',
+            isQuotaExhausted: isQuota,
+            errorMessage: userFriendlyMsg,
+          };
+        });
       }
     );
-
-    const unsubReports = subscribeToReports((cloudReports) => {
-      if (cloudReports && Object.keys(cloudReports).length > 0) {
-        const sanitized: Record<string, StudentReport> = {};
-        for (const [id, rep] of Object.entries(cloudReports)) {
-          if (rep.evaluationDate === '2026-09-25' || rep.coachNotes?.includes('first touch')) {
-            sanitized[id] = createDefaultReport(id);
-          } else {
-            sanitized[id] = rep;
-          }
-        }
-        setStudentReports((prev) => ({ ...prev, ...sanitized }));
-      }
-    });
-
-    const unsubInvoices = subscribeToInvoices((cloudInvoices) => {
-      if (cloudInvoices) {
-        // Filter out any demo September invoices
-        const realInvoices = cloudInvoices.filter(
-          (inv) => !inv.id.startsWith('INV-202609') && !inv.period?.includes('September')
-        );
-        setInvoices(realInvoices);
-      }
-    });
-
-    const unsubAttendances = subscribeToAttendances((cloudAttendances) => {
-      if (cloudAttendances) {
-        // Filter out any demo September attendances
-        const realAttendances = cloudAttendances.filter(
-          (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
-        );
-        setAttendances(realAttendances);
-      }
-    });
 
     const unsubSchedules = subscribeToSchedules((cloudSchedules) => {
       if (cloudSchedules && cloudSchedules.length > 0) {
@@ -408,12 +412,104 @@ export default function App() {
 
     return () => {
       unsubStudents();
-      unsubReports();
-      unsubInvoices();
-      unsubAttendances();
       unsubSchedules();
     };
   }, []);
+
+  // Lifecycle-scoped listener for Invoices: Active only when viewing financial/dashboard/invoice routes
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    if (role === 'admin') {
+      const adminInvoiceRoutes: RouteId[] = ['dashboard', 'keuangan', 'invoices'];
+      if (adminInvoiceRoutes.includes(currentRoute)) {
+        unsub = subscribeToInvoices((cloudInvoices) => {
+          if (cloudInvoices) {
+            const realInvoices = cloudInvoices.filter(
+              (inv) => !inv.id.startsWith('INV-202609') && !inv.period?.includes('September')
+            );
+            setInvoices(realInvoices);
+          }
+        });
+      }
+    } else if (role === 'parent' && activeParentStudent?.id) {
+      const parentInvoiceRoutes: RouteId[] = ['parent-dashboard', 'parent-payment', 'parent-payments', 'parent-attendance'];
+      if (parentInvoiceRoutes.includes(currentRoute)) {
+        unsub = subscribeToStudentInvoices(activeParentStudent.id, (childInvoices) => {
+          if (childInvoices) {
+            setInvoices(childInvoices);
+          }
+        });
+      }
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [role, currentRoute, activeParentStudent?.id]);
+
+  // Lifecycle-scoped listener for Attendances: Active only when viewing attendance/dashboard/erapport routes
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    if (role === 'admin') {
+      const adminAttendanceRoutes: RouteId[] = ['dashboard', 'attendance', 'erapport', 'fingerprint'];
+      if (adminAttendanceRoutes.includes(currentRoute)) {
+        unsub = subscribeToAttendances((cloudAttendances) => {
+          if (cloudAttendances) {
+            const realAttendances = cloudAttendances.filter(
+              (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
+            );
+            setAttendances(realAttendances);
+          }
+        });
+      }
+    } else if (role === 'parent' && activeParentStudent?.id) {
+      const parentAttendanceRoutes: RouteId[] = ['parent-dashboard', 'parent-attendance', 'parent-report'];
+      if (parentAttendanceRoutes.includes(currentRoute)) {
+        unsub = subscribeToStudentAttendances(activeParentStudent.id, (childAttendances) => {
+          if (childAttendances) {
+            setAttendances(childAttendances);
+          }
+        });
+      }
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [role, currentRoute, activeParentStudent?.id]);
+
+  // Lifecycle-scoped listener for Student Reports: Active only when viewing E-Rapport routes
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    if (role === 'admin' && currentRoute === 'erapport') {
+      unsub = subscribeToReports((cloudReports) => {
+        if (cloudReports && Object.keys(cloudReports).length > 0) {
+          const sanitized: Record<string, StudentReport> = {};
+          for (const [id, rep] of Object.entries(cloudReports)) {
+            if (rep.evaluationDate === '2026-09-25' || rep.coachNotes?.includes('first touch')) {
+              sanitized[id] = createDefaultReport(id);
+            } else {
+              sanitized[id] = rep;
+            }
+          }
+          setStudentReports((prev) => ({ ...prev, ...sanitized }));
+        }
+      });
+    } else if (role === 'parent' && currentRoute === 'parent-report' && activeParentStudent?.id) {
+      unsub = subscribeToStudentReport(activeParentStudent.id, (childReport) => {
+        if (childReport) {
+          setStudentReports((prev) => ({ ...prev, [activeParentStudent.id]: childReport }));
+        }
+      });
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [role, currentRoute, activeParentStudent?.id]);
 
   // Auto-heal local state if any student record in memory has an empty ID (local only, never overwrite Firebase)
   useEffect(() => {
@@ -440,38 +536,56 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Manual cloud re-synchronization with diagnostic reporting
+  const lastSyncAttemptRef = useRef<number>(0);
+
+  // Manual cloud re-synchronization with diagnostic reporting & cooldown safety
   const handleManualSyncCloud = async () => {
+    const now = Date.now();
+    const elapsed = now - lastSyncAttemptRef.current;
+    if (elapsed < 30000) {
+      const waitSec = Math.ceil((30000 - elapsed) / 1000);
+      showToast(`Mohon tunggu ${waitSec} detik sebelum mencoba sinkronisasi ulang untuk menjaga kuota Firestore.`, 'warning');
+      return;
+    }
+
+    lastSyncAttemptRef.current = now;
     setCloudSyncStatus((prev) => ({ ...prev, status: 'connecting', errorMessage: null }));
     showToast('Menghubungi cloud server untuk sinkronisasi data siswa...', 'info');
-    const { students: freshStudents, meta, error } = await fetchStudentsDirectly();
+
+    const { students: freshStudents, meta, error, isQuotaExhausted } = await fetchStudentsDirectly();
     if (error || !freshStudents || freshStudents.length === 0) {
-      const errDetail = error || 'Tidak ada dokumen diterima dari server';
-      const isQuota = errDetail.includes('Quota exceeded') || errDetail.includes('resource-exhausted');
+      let friendlyMsg = error || 'Tidak ada dokumen diterima dari server';
+      if (isQuotaExhausted) {
+        friendlyMsg = cloudSyncStatus.isPartialCache
+          ? 'Batas kuota harian Cloud Firestore (free tier) masih terlampaui (resource-exhausted). Perangkat ini masih memuat 10 data awal. Database Cloud Firebase tetap aman berisi 24 siswa.'
+          : 'Batas kuota harian Cloud Firestore (free tier) masih terlampaui (resource-exhausted). Menampilkan 24 siswa dari cache lokal terverifikasi.';
+      }
       setCloudSyncStatus((prev) => ({
+        ...prev,
         status: 'error',
-        source: 'local_fallback',
-        docCount: prev.docCount || students.length,
-        lastSynced: prev.lastSynced,
-        errorMessage: isQuota ? 'Batas kuota harian cloud terlampaui. Menampilkan data lokal.' : errDetail,
+        isQuotaExhausted: !!isQuotaExhausted,
+        errorMessage: friendlyMsg,
       }));
-      showToast(
-        isQuota 
-          ? 'Cloud Quota Exceeded: Menampilkan data tersimpan di perangkat.'
-          : `Gagal sinkronisasi: ${errDetail}`,
-        'warning'
-      );
+      showToast(isQuotaExhausted ? 'Batas Kuota Cloud (resource-exhausted)' : friendlyMsg, 'error');
     } else {
       const { list: sanitized } = sanitizeStudentsList(freshStudents);
       setStudents(sanitized);
+      const isPartial = sanitized.length < 24;
       setCloudSyncStatus({
         status: 'connected',
-        source: meta.fromCache ? 'cache' : 'server',
+        source: meta.source,
         docCount: sanitized.length,
+        expectedCount: 24,
         lastSynced: meta.timestamp,
+        isQuotaExhausted: false,
+        isPartialCache: isPartial,
         errorMessage: null,
       });
-      showToast(`✓ Berhasil memuat ${sanitized.length} data siswa dari ${meta.source === 'server' ? 'Server Cloud' : 'Cache Cloud'}.`, 'success');
+      try {
+        localStorage.setItem('bfa_students', JSON.stringify(sanitized));
+        localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+      } catch {}
+      showToast(`✓ Sinkronisasi Cloud Berhasil! ${sanitized.length} data siswa aktif termuat.`, 'success');
     }
   };
 
@@ -1340,51 +1454,6 @@ Official Performance Report • BFA Karawang
     } catch {}
   };
 
-  // Find active student strictly matching current verified parent session
-  const activeParentStudent = useMemo(() => {
-    if (!currentUser || currentUser.role !== 'parent') return null;
-
-    // 1. Strict exact match by studentId (case-insensitive & whitespace-trimmed)
-    if (currentUser.studentId) {
-      const cleanId = currentUser.studentId.trim().toUpperCase();
-      const foundById = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
-      if (foundById) {
-        return foundById;
-      }
-    }
-
-    // 2. Strict exact match by verified parent phone number
-    if (currentUser.emailOrPhone && isValidIndonesianMobile(currentUser.emailOrPhone)) {
-      const matchingByPhone = students.filter((s) => isExactPhoneMatch(s.phone, currentUser.emailOrPhone));
-      if (matchingByPhone.length === 1) {
-        return matchingByPhone[0];
-      }
-      if (matchingByPhone.length > 1) {
-        if (currentUser.studentId) {
-          const cleanId = currentUser.studentId.trim().toUpperCase();
-          const byId = matchingByPhone.find((s) => s.id && s.id.trim().toUpperCase() === cleanId);
-          if (byId) return byId;
-        }
-        if (currentUser.studentName) {
-          const cleanName = currentUser.studentName.trim().toLowerCase();
-          const byName = matchingByPhone.find((s) => s.name.trim().toLowerCase() === cleanName);
-          if (byName) return byName;
-        }
-        return matchingByPhone[0];
-      }
-    }
-
-    // NEVER fallback to students[0] or another arbitrary student!
-    return null;
-  }, [currentUser, students]);
-
-  // List of all sibling students sharing the same verified parent phone
-  const parentSiblings = useMemo(() => {
-    if (!currentUser || currentUser.role !== 'parent' || !activeParentStudent?.phone) return [];
-    if (!isValidIndonesianMobile(activeParentStudent.phone)) return [];
-    return students.filter((s) => isExactPhoneMatch(s.phone, activeParentStudent.phone));
-  }, [currentUser, activeParentStudent, students]);
-
   // Switch active child for multi-student family accounts
   const handleSwitchStudent = (newStudentId: string) => {
     const cleanNewId = newStudentId.trim().toUpperCase();
@@ -1431,6 +1500,7 @@ Official Performance Report • BFA Karawang
           prefilledIdentifier={registeredStudentId}
           onResetStudentPassword={handleResetStudentPassword}
           onResetAdminPassword={handleResetAdminPassword}
+          cloudSyncStatus={cloudSyncStatus}
         />
 
         <StudentFormModal

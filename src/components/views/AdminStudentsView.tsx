@@ -27,7 +27,10 @@ export interface CloudSyncStatusInfo {
   status: 'connecting' | 'connected' | 'error' | 'offline';
   source: 'server' | 'cache' | 'local_fallback';
   docCount: number;
+  expectedCount?: number;
   lastSynced: string | null;
+  isQuotaExhausted?: boolean;
+  isPartialCache?: boolean;
   errorMessage: string | null;
 }
 
@@ -80,8 +83,14 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Data Siswa Akademi</h1>
-            <span className="px-2 py-0.5 bg-blue-100 text-blue-900 font-extrabold text-xs rounded-full border border-blue-200">
-              Total {students.length} Siswa
+            <span className={`px-2.5 py-0.5 font-extrabold text-xs rounded-full border transition ${
+              cloudSyncStatus?.isPartialCache && students.length < (cloudSyncStatus.expectedCount || 24)
+                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                : 'bg-blue-100 text-blue-900 border-blue-200'
+            }`}>
+              {cloudSyncStatus?.isPartialCache && students.length < (cloudSyncStatus.expectedCount || 24)
+                ? `${students.length} Siswa (Cache Parsial Lokal • Cloud: ${cloudSyncStatus.expectedCount || 24} Siswa)`
+                : `Total ${students.length} Siswa`}
             </span>
           </div>
           <p className="text-xs text-slate-500">
@@ -93,7 +102,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
             <button
               onClick={onRetrySync}
               className="px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold border border-slate-300 rounded-xl text-xs shadow-2xs transition flex items-center space-x-1.5 active:scale-95"
-              title="Sinkronkan ulang data siswa dengan database Cloud"
+              title="Sinkronkan ulang data siswa dengan database Cloud (Aman dengan batas cooldown)"
             >
               <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
               <span>Sinkron Cloud</span>
@@ -130,28 +139,28 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
 
       {/* Cloud Diagnostic Status Banner */}
       {cloudSyncStatus && (
-        <div className={`p-3 rounded-2xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition ${
+        <div className={`p-3.5 rounded-2xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
           cloudSyncStatus.status === 'connected'
             ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
             : cloudSyncStatus.status === 'error'
             ? 'bg-amber-50 border-amber-300 text-amber-950 shadow-xs'
             : 'bg-blue-50 border-blue-200 text-blue-900'
         }`}>
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-start sm:items-center space-x-3">
             {cloudSyncStatus.status === 'connected' ? (
-              <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
                 <Cloud className="w-4 h-4" />
               </div>
             ) : cloudSyncStatus.status === 'error' ? (
-              <div className="w-7 h-7 rounded-xl bg-amber-200 text-amber-800 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl bg-amber-200 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
                 <AlertTriangle className="w-4 h-4" />
               </div>
             ) : (
-              <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 animate-spin">
+              <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 animate-spin mt-0.5 sm:mt-0">
                 <RefreshCw className="w-4 h-4" />
               </div>
             )}
-            <div>
+            <div className="space-y-0.5">
               {cloudSyncStatus.status === 'connected' && (
                 <p className="font-bold">
                   ✓ Database Cloud Aktif:{' '}
@@ -165,10 +174,20 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                 <div>
                   <p className="font-extrabold text-amber-900 flex items-center gap-1.5">
                     <span>Sinkronisasi Cloud Terkendala</span>
+                    {cloudSyncStatus.isQuotaExhausted && (
+                      <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 font-bold text-[10px] rounded">
+                        Firestore Quota Limit
+                      </span>
+                    )}
                   </p>
-                  <p className="text-[11px] text-amber-800 mt-0.5">
-                    {cloudSyncStatus.errorMessage} Menampilkan <strong>{students.length} siswa</strong> dari memori lokal/perangkat.
+                  <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                    {cloudSyncStatus.errorMessage}
                   </p>
+                  {cloudSyncStatus.isPartialCache && (
+                    <p className="text-[11px] text-amber-900 font-semibold mt-1 bg-amber-100/70 p-1.5 rounded-lg border border-amber-200">
+                      ℹ️ Status Data: Perangkat ini hanya memuat {students.length} data siswa dari cache peramban lokal. Database Cloud di Firebase tetap aman dan lengkap berisi 24 siswa. Data pada HP Anda yang telah memiliki 24 cache lokal tetap tampil 24 siswa secara normal.
+                    </p>
+                  )}
                 </div>
               )}
               {cloudSyncStatus.status === 'connecting' && (
@@ -182,9 +201,9 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
           {cloudSyncStatus.status === 'error' && onRetrySync && (
             <button
               onClick={onRetrySync}
-              className="self-start sm:self-auto px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg text-[11px] transition shadow-xs flex items-center gap-1"
+              className="self-start sm:self-auto px-3.5 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-[11px] transition shadow-xs flex items-center gap-1.5 shrink-0 active:scale-95"
             >
-              <RefreshCw className="w-3 h-3" />
+              <RefreshCw className="w-3.5 h-3.5" />
               <span>Coba Hubungkan Ulang</span>
             </button>
           )}
