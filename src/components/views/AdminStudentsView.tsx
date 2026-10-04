@@ -1,10 +1,35 @@
 import React, { useState } from 'react';
 import { Student } from '../../types';
 import { formatDateIndo, getKUCategoryInfo } from '../../data/initialData';
-import { Search, Plus, Eye, Edit3, Filter, X, ChevronDown, CheckCircle2, Download, FileSpreadsheet, QrCode, Trash2, AlertTriangle } from 'lucide-react';
+import { 
+  Search, 
+  Plus, 
+  Eye, 
+  Edit3, 
+  Filter, 
+  X, 
+  ChevronDown, 
+  CheckCircle2, 
+  Download, 
+  FileSpreadsheet, 
+  QrCode, 
+  Trash2, 
+  AlertTriangle,
+  RefreshCw,
+  Cloud,
+  CloudOff
+} from 'lucide-react';
 import { CategoryFilterModal } from '../modals/CategoryFilterModal';
 import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
 import { exportStudentsExcel, exportStudentsPDF } from '../../utils/exportHelpers';
+
+export interface CloudSyncStatusInfo {
+  status: 'connecting' | 'connected' | 'error' | 'offline';
+  source: 'server' | 'cache' | 'local_fallback';
+  docCount: number;
+  lastSynced: string | null;
+  errorMessage: string | null;
+}
 
 interface AdminStudentsViewProps {
   students: Student[];
@@ -12,6 +37,8 @@ interface AdminStudentsViewProps {
   onOpenEditStudent: (student: Student) => void;
   onOpenDetailStudent: (student: Student) => void;
   onDeleteStudent: (student: Student) => void;
+  cloudSyncStatus?: CloudSyncStatusInfo;
+  onRetrySync?: () => void;
 }
 
 export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
@@ -20,6 +47,8 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   onOpenEditStudent,
   onOpenDetailStudent,
   onDeleteStudent,
+  cloudSyncStatus,
+  onRetrySync,
 }) => {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
@@ -49,12 +78,28 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Data Siswa Akademi</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Data Siswa Akademi</h1>
+            <span className="px-2 py-0.5 bg-blue-100 text-blue-900 font-extrabold text-xs rounded-full border border-blue-200">
+              Total {students.length} Siswa
+            </span>
+          </div>
           <p className="text-xs text-slate-500">
-            Daftar atlet BFA, filter kelompok umur (KU U3 - U30), tempat lahir, wali murid, dan berkas.
+            Daftar atlet BFA terdaftar, filter kelompok umur (KU U3 - U30), tempat lahir, wali murid, dan berkas.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {onRetrySync && (
+            <button
+              onClick={onRetrySync}
+              className="px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold border border-slate-300 rounded-xl text-xs shadow-2xs transition flex items-center space-x-1.5 active:scale-95"
+              title="Sinkronkan ulang data siswa dengan database Cloud"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
+              <span>Sinkron Cloud</span>
+            </button>
+          )}
+
           <button
             onClick={() => exportStudentsExcel(filtered)}
             className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 active:scale-95"
@@ -82,6 +127,69 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Cloud Diagnostic Status Banner */}
+      {cloudSyncStatus && (
+        <div className={`p-3 rounded-2xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition ${
+          cloudSyncStatus.status === 'connected'
+            ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+            : cloudSyncStatus.status === 'error'
+            ? 'bg-amber-50 border-amber-300 text-amber-950 shadow-xs'
+            : 'bg-blue-50 border-blue-200 text-blue-900'
+        }`}>
+          <div className="flex items-center space-x-2.5">
+            {cloudSyncStatus.status === 'connected' ? (
+              <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <Cloud className="w-4 h-4" />
+              </div>
+            ) : cloudSyncStatus.status === 'error' ? (
+              <div className="w-7 h-7 rounded-xl bg-amber-200 text-amber-800 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            ) : (
+              <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 animate-spin">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+            )}
+            <div>
+              {cloudSyncStatus.status === 'connected' && (
+                <p className="font-bold">
+                  ✓ Database Cloud Aktif:{' '}
+                  <span className="font-normal">
+                    {cloudSyncStatus.docCount} dokumen siswa ({cloudSyncStatus.source === 'server' ? 'Server Langsung' : 'Cache Cloud Persisten'}).
+                    {cloudSyncStatus.lastSynced && ` Diperbarui: ${cloudSyncStatus.lastSynced}`}
+                  </span>
+                </p>
+              )}
+              {cloudSyncStatus.status === 'error' && (
+                <div>
+                  <p className="font-extrabold text-amber-900 flex items-center gap-1.5">
+                    <span>Sinkronisasi Cloud Terkendala</span>
+                  </p>
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    {cloudSyncStatus.errorMessage} Menampilkan <strong>{students.length} siswa</strong> dari memori lokal/perangkat.
+                  </p>
+                </div>
+              )}
+              {cloudSyncStatus.status === 'connecting' && (
+                <p className="font-bold text-blue-900">
+                  Menghubungkan ke database Firebase Firestore...
+                </p>
+              )}
+            </div>
+          </div>
+
+          {cloudSyncStatus.status === 'error' && onRetrySync && (
+            <button
+              onClick={onRetrySync}
+              className="self-start sm:self-auto px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg text-[11px] transition shadow-xs flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Coba Hubungkan Ulang</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Search & Filter Bar */}
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200 flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between shadow-xs">
@@ -187,19 +295,67 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
-                    <p className="text-sm font-bold text-slate-700">Tidak ada atlet ditemukan</p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Tidak ada data siswa untuk kategori "{classFilter}" atau kata kunci "{search}".
-                    </p>
-                    <button
-                      onClick={() => {
-                        setClassFilter('Semua');
-                        setSearch('');
-                      }}
-                      className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition"
-                    >
-                      Tampilkan Semua Siswa
-                    </button>
+                    {students.length === 0 ? (
+                      cloudSyncStatus?.status === 'connecting' ? (
+                        <div className="space-y-3 py-6 max-w-sm mx-auto">
+                          <div className="w-9 h-9 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                          <p className="text-sm font-extrabold text-slate-800">Menghubungkan ke Cloud Firestore...</p>
+                          <p className="text-xs text-slate-500">Mengambil seluruh dokumen siswa resmi dari database cloud online.</p>
+                        </div>
+                      ) : cloudSyncStatus?.status === 'error' ? (
+                        <div className="space-y-3 py-6 max-w-md mx-auto">
+                          <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mx-auto shadow-2xs">
+                            <CloudOff className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-amber-950">Gagal Mengambil Data Siswa dari Cloud Server</p>
+                            <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                              {cloudSyncStatus.errorMessage || 'Terjadi gangguan saat menghubungkan ke database Firestore.'}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-1 italic">
+                              Sistem tidak menampilkan data awal bawaan (10 siswa) untuk mencegah data palsu/parsial.
+                            </p>
+                          </div>
+                          {onRetrySync && (
+                            <button
+                              type="button"
+                              onClick={onRetrySync}
+                              className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center gap-1.5 mx-auto active:scale-95"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>Coba Hubungkan Ulang</span>
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 py-6">
+                          <p className="text-sm font-bold text-slate-700">Belum Ada Siswa Terdaftar</p>
+                          <p className="text-xs text-slate-500">Database Firestore terhubung tetapi belum memiliki dokumen siswa aktif.</p>
+                          <button
+                            onClick={onOpenAddStudent}
+                            className="mt-3 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl text-xs transition"
+                          >
+                            Tambah Siswa Pertama
+                          </button>
+                        </div>
+                      )
+                    ) : (
+                      <div className="space-y-2 py-4">
+                        <p className="text-sm font-bold text-slate-700">Tidak ada atlet ditemukan</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Tidak ada data siswa untuk kategori "{classFilter}" atau kata kunci "{search}".
+                        </p>
+                        <button
+                          onClick={() => {
+                            setClassFilter('Semua');
+                            setSearch('');
+                          }}
+                          className="mt-3 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition"
+                        >
+                          Tampilkan Semua Siswa ({students.length})
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (

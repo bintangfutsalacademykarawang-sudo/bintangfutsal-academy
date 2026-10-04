@@ -79,7 +79,9 @@ import {
   subscribeToAttendances,
   subscribeToSchedules,
   wipeDemoDataFromFirestore,
-  wipeAllInvoicesFromFirestore
+  wipeAllInvoicesFromFirestore,
+  fetchStudentsDirectly,
+  FirestoreDiagnosticInfo
 } from './firebase';
 
 export default function App() {
@@ -111,19 +113,23 @@ export default function App() {
     return currentUser?.role === 'parent' ? 'parent-dashboard' : 'dashboard';
   });
 
-  // Application Data States (Persisted in localStorage across page refreshes)
+  // Application Data States (Temporary local cache synchronized with Cloud Firestore)
   const [students, setStudents] = useState<Student[]>(() => {
     try {
       const saved = localStorage.getItem('bfa_students');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const { list } = sanitizeStudentsList(parsed);
-        return list;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const { list } = sanitizeStudentsList(parsed);
+          return list;
+        }
       }
     } catch {
-      // fallback
+      // cache reading error
     }
-    return INITIAL_STUDENTS;
+    // Return empty array initially; NEVER fallback to INITIAL_STUDENTS (10 items)
+    // so that failed or pending queries are never masked as complete data.
+    return [];
   });
 
   const [cashMutations, setCashMutations] = useState<CashMutation[]>(() => {
@@ -241,6 +247,21 @@ export default function App() {
     try { localStorage.setItem('bfa_student_reports', JSON.stringify(studentReports)); } catch (e) { console.error(e); }
   }, [studentReports]);
 
+  // Cloud synchronization status & diagnostics (safe, without secrets)
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<{
+    status: 'connecting' | 'connected' | 'error' | 'offline';
+    source: 'server' | 'cache' | 'local_fallback';
+    docCount: number;
+    lastSynced: string | null;
+    errorMessage: string | null;
+  }>(() => ({
+    status: 'connecting',
+    source: students.length > 0 ? 'cache' : 'server',
+    docCount: students.length,
+    lastSynced: null,
+    errorMessage: null,
+  }));
+
   // Real-time synchronization with online Firebase Firestore database
   useEffect(() => {
     // 1. Verify Firestore Connection
@@ -259,21 +280,91 @@ export default function App() {
       wipeAllInvoicesFromFirestore().catch((e) => console.warn('Wipe all cloud invoices error:', e));
     }
 
-    // 3. Seed initial clean data if Firestore collections are empty
-    seedInitialFirestoreDataIfEmpty(INITIAL_STUDENTS, INITIAL_STUDENT_REPORTS, INITIAL_INVOICES, INITIAL_SCHEDULES);
-
-    // 4. Listen to real-time changes from Firestore
-    const unsubStudents = subscribeToStudents((cloudStudents) => {
-      if (cloudStudents && cloudStudents.length > 0) {
-        const { list: sanitized, changed } = sanitizeStudentsList(cloudStudents);
+    // 3. Fast direct fetch for immediate population while onSnapshot initializes
+    fetchStudentsDirectly().then(({ students: directList, meta, error }) => {
+      if (directList && directList.length > 0) {
+        const { list: sanitized } = sanitizeStudentsList(directList);
         setStudents(sanitized);
-        if (changed) {
-          sanitized.forEach((st) => {
-            saveStudentToFirestore(st).catch((e) => console.warn('Firestore student sync:', e));
-          });
+        setCloudSyncStatus({
+          status: 'connected',
+          source: meta.fromCache ? 'cache' : 'server',
+          docCount: sanitized.length,
+          lastSynced: meta.timestamp,
+          errorMessage: null,
+        });
+        try {
+          localStorage.setItem('bfa_students', JSON.stringify(sanitized));
+          localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+        } catch {}
+      } else if (error) {
+        console.warn('[App] Direct students fetch notice:', error);
+        const isQuota = error.includes('Quota exceeded') || error.includes('resource-exhausted');
+        const isOffline = error.includes('offline') || error.includes('unavailable');
+        let userMsg = error;
+        if (isQuota) {
+          userMsg = 'Batas kuota harian cloud (free tier read) terlampaui. Data server tidak dapat dimuat.';
+        } else if (isOffline) {
+          userMsg = 'Koneksi cloud offline atau terblokir. Data server tidak dapat dimuat.';
         }
+        setCloudSyncStatus((prev) => ({
+          status: 'error',
+          source: prev.docCount > 0 ? 'cache' : 'local_fallback',
+          docCount: prev.docCount,
+          lastSynced: prev.lastSynced,
+          errorMessage: userMsg,
+        }));
       }
     });
+
+    // 4. Listen to real-time changes from Firestore with diagnostic metadata and error handling
+    const unsubStudents = subscribeToStudents(
+      (cloudStudents, meta) => {
+        if (cloudStudents && cloudStudents.length > 0) {
+          const { list: sanitized } = sanitizeStudentsList(cloudStudents);
+          setStudents(sanitized);
+          setCloudSyncStatus({
+            status: 'connected',
+            source: meta.fromCache ? 'cache' : 'server',
+            docCount: sanitized.length,
+            lastSynced: meta.timestamp,
+            errorMessage: null,
+          });
+          try {
+            localStorage.setItem('bfa_students', JSON.stringify(sanitized));
+            localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+          } catch {}
+        } else if (cloudStudents && cloudStudents.length === 0) {
+          setCloudSyncStatus({
+            status: 'connected',
+            source: meta.fromCache ? 'cache' : 'server',
+            docCount: 0,
+            lastSynced: meta.timestamp,
+            errorMessage: null,
+          });
+        }
+      },
+      (err) => {
+        console.error('[App] Firestore students subscription error:', err);
+        const errStr = err?.message || 'Gagal tersambung ke database Firestore';
+        const isQuota = errStr.includes('Quota exceeded') || errStr.includes('resource-exhausted');
+        const isOffline = errStr.includes('offline') || errStr.includes('unavailable');
+
+        let userFriendlyMsg = errStr;
+        if (isQuota) {
+          userFriendlyMsg = 'Batas kuota harian cloud (free tier read) terlampaui. Menampilkan data dari penyimpanan lokal.';
+        } else if (isOffline) {
+          userFriendlyMsg = 'Koneksi cloud offline atau terblokir. Menampilkan data dari penyimpanan lokal.';
+        }
+
+        setCloudSyncStatus((prev) => ({
+          status: 'error',
+          source: prev.docCount > 0 ? 'cache' : 'local_fallback',
+          docCount: prev.docCount,
+          lastSynced: prev.lastSynced,
+          errorMessage: userFriendlyMsg,
+        }));
+      }
+    );
 
     const unsubReports = subscribeToReports((cloudReports) => {
       if (cloudReports && Object.keys(cloudReports).length > 0) {
@@ -324,14 +415,13 @@ export default function App() {
     };
   }, []);
 
-  // Auto-heal any student record that has an empty or missing ID
+  // Auto-heal local state if any student record in memory has an empty ID (local only, never overwrite Firebase)
   useEffect(() => {
-    const { list, changed } = sanitizeStudentsList(students);
-    if (changed) {
-      setStudents(list);
-      list.forEach((st) => {
-        saveStudentToFirestore(st).catch((e) => console.warn('Firestore student sync:', e));
-      });
+    if (students.length > 0) {
+      const { list, changed } = sanitizeStudentsList(students);
+      if (changed) {
+        setStudents(list);
+      }
     }
   }, [students]);
 
@@ -348,6 +438,41 @@ export default function App() {
 
   const handleDismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Manual cloud re-synchronization with diagnostic reporting
+  const handleManualSyncCloud = async () => {
+    setCloudSyncStatus((prev) => ({ ...prev, status: 'connecting', errorMessage: null }));
+    showToast('Menghubungi cloud server untuk sinkronisasi data siswa...', 'info');
+    const { students: freshStudents, meta, error } = await fetchStudentsDirectly();
+    if (error || !freshStudents || freshStudents.length === 0) {
+      const errDetail = error || 'Tidak ada dokumen diterima dari server';
+      const isQuota = errDetail.includes('Quota exceeded') || errDetail.includes('resource-exhausted');
+      setCloudSyncStatus((prev) => ({
+        status: 'error',
+        source: 'local_fallback',
+        docCount: prev.docCount || students.length,
+        lastSynced: prev.lastSynced,
+        errorMessage: isQuota ? 'Batas kuota harian cloud terlampaui. Menampilkan data lokal.' : errDetail,
+      }));
+      showToast(
+        isQuota 
+          ? 'Cloud Quota Exceeded: Menampilkan data tersimpan di perangkat.'
+          : `Gagal sinkronisasi: ${errDetail}`,
+        'warning'
+      );
+    } else {
+      const { list: sanitized } = sanitizeStudentsList(freshStudents);
+      setStudents(sanitized);
+      setCloudSyncStatus({
+        status: 'connected',
+        source: meta.fromCache ? 'cache' : 'server',
+        docCount: sanitized.length,
+        lastSynced: meta.timestamp,
+        errorMessage: null,
+      });
+      showToast(`✓ Berhasil memuat ${sanitized.length} data siswa dari ${meta.source === 'server' ? 'Server Cloud' : 'Cache Cloud'}.`, 'success');
+    }
   };
 
   // Auth Handlers
@@ -1388,6 +1513,8 @@ Official Performance Report • BFA Karawang
                     setRole('parent');
                     setCurrentRoute('parent-dashboard');
                   }}
+                  cloudSyncStatus={cloudSyncStatus}
+                  onRetrySync={handleManualSyncCloud}
                 />
               )}
 
@@ -1404,6 +1531,8 @@ Official Performance Report • BFA Karawang
                   }}
                   onOpenDetailStudent={handleOpenDetail}
                   onDeleteStudent={handleDeleteStudent}
+                  cloudSyncStatus={cloudSyncStatus}
+                  onRetrySync={handleManualSyncCloud}
                 />
               )}
 

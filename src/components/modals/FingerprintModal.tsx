@@ -51,7 +51,7 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
     : students;
 
   const [selectedStudentId, setSelectedStudentId] = useState(
-    () => (filteredStudents[0]?.id || students[0]?.id || 'BFA-001')
+    () => (filteredStudents[0]?.id || students[0]?.id || '')
   );
 
   // Barcode Gun / Manual Input State

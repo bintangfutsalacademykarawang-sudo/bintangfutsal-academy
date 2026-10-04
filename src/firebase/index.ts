@@ -1,13 +1,20 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  memoryLocalCache,
   doc, 
   setDoc, 
   deleteDoc,
   getDocFromServer,
   getDocs,
+  getDocsFromServer,
   collection, 
-  onSnapshot
+  onSnapshot,
+  query,
+  limit
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Student, StudentReport, Invoice, Attendance, TrainingSchedule } from '../types';
@@ -15,10 +22,40 @@ import { Student, StudentReport, Invoice, Attendance, TrainingSchedule } from '.
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with configured databaseId
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore with configured databaseId and robust offline caching
+// Safe fallback for InPrivate/Incognito where IndexedDB may be blocked or restricted
+function initFirestoreInstance() {
+  const dbId = firebaseConfig.firestoreDatabaseId;
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    }, dbId || undefined);
+  } catch (err) {
+    console.warn('[Firestore Init] Persistent local cache unavailable (e.g. InPrivate mode), falling back:', err);
+    try {
+      return dbId ? getFirestore(app, dbId) : getFirestore(app);
+    } catch {
+      return initializeFirestore(app, {
+        localCache: memoryLocalCache()
+      }, dbId || undefined);
+    }
+  }
+}
+
+export const db = initFirestoreInstance();
+
+// Diagnostic metadata structure
+export interface FirestoreDiagnosticInfo {
+  source: 'server' | 'cache';
+  docCount: number;
+  fromCache: boolean;
+  hasPendingWrites: boolean;
+  timestamp: string;
+  error?: string;
+  docIds?: string[];
+}
 
 // Validate connection to Firestore as per integration guidelines
 export async function testFirestoreConnection(): Promise<boolean> {
@@ -138,8 +175,60 @@ export async function deleteStudentFromFirestore(studentId: string): Promise<voi
   }
 }
 
+/**
+ * Direct fetch with server-first strategy and cache fallback, providing complete diagnostics.
+ */
+export async function fetchStudentsDirectly(): Promise<{
+  students: Student[];
+  meta: FirestoreDiagnosticInfo;
+  error?: string;
+}> {
+  const collRef = collection(db, STUDENTS_COLLECTION);
+  try {
+    let snapshot;
+    try {
+      snapshot = await getDocsFromServer(collRef);
+    } catch (serverErr) {
+      console.warn('[Firestore Diagnostic] Direct server fetch fallback to general query:', serverErr);
+      snapshot = await getDocs(collRef);
+    }
+    const items: Student[] = [];
+    const docIds: string[] = [];
+    snapshot.forEach((docSnap) => {
+      items.push(docSnap.data() as Student);
+      docIds.push(docSnap.id);
+    });
+    // Natural alphanumeric sorting by ID (BFA-001, BFA-002, ...)
+    items.sort((a, b) => (a.id || '').localeCompare(b.id || '', undefined, { numeric: true }));
+    const meta: FirestoreDiagnosticInfo = {
+      source: snapshot.metadata.fromCache ? 'cache' : 'server',
+      docCount: snapshot.size,
+      fromCache: snapshot.metadata.fromCache,
+      hasPendingWrites: snapshot.metadata.hasPendingWrites,
+      timestamp: new Date().toLocaleTimeString('id-ID'),
+      docIds
+    };
+    console.log(`[Firestore Diagnostic] Direct students fetch completed: ${snapshot.size} docs from ${meta.source}`);
+    return { students: items, meta };
+  } catch (err: any) {
+    console.error('[Firestore Diagnostic] Direct students fetch failed:', err);
+    return {
+      students: [],
+      meta: {
+        source: 'cache',
+        docCount: 0,
+        fromCache: true,
+        hasPendingWrites: false,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        error: err?.message || 'Error Firestore'
+      },
+      error: err?.message || 'Error Firestore'
+    };
+  }
+}
+
 export function subscribeToStudents(
-  onData: (students: Student[]) => void,
+  onData: (students: Student[], meta: FirestoreDiagnosticInfo) => void,
   onError?: (err: Error) => void
 ) {
   const collRef = collection(db, STUDENTS_COLLECTION);
@@ -147,13 +236,26 @@ export function subscribeToStudents(
     collRef,
     (snapshot) => {
       const items: Student[] = [];
+      const docIds: string[] = [];
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as Student);
+        docIds.push(docSnap.id);
       });
-      onData(items);
+      // Natural alphanumeric sorting by ID (BFA-001, BFA-002, ...)
+      items.sort((a, b) => (a.id || '').localeCompare(b.id || '', undefined, { numeric: true }));
+      const meta: FirestoreDiagnosticInfo = {
+        source: snapshot.metadata.fromCache ? 'cache' : 'server',
+        docCount: snapshot.size,
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        docIds
+      };
+      console.log(`[Firestore Diagnostic] Realtime snapshot: ${snapshot.size} students from ${meta.source} (pending: ${meta.hasPendingWrites})`);
+      onData(items, meta);
     },
     (err) => {
-      console.warn('Firestore students subscription error:', err);
+      console.error('[Firestore Diagnostic] Students subscription error:', err);
       onError?.(err);
     }
   );
@@ -300,7 +402,7 @@ export function subscribeToSchedules(
   );
 }
 
-// Initial online data seeding if database is fresh
+// Initial online data seeding if database is fresh (Guarded with limit(1) to save quota)
 export async function seedInitialFirestoreDataIfEmpty(
   defaultStudents: Student[],
   defaultReports: Record<string, StudentReport>,
@@ -308,7 +410,14 @@ export async function seedInitialFirestoreDataIfEmpty(
   defaultSchedules?: TrainingSchedule[]
 ): Promise<void> {
   try {
-    const studentSnapshot = await getDocs(collection(db, STUDENTS_COLLECTION));
+    const seedCheckKey = 'bfa_firestore_seed_checked_v1';
+    if (localStorage.getItem(seedCheckKey) === 'true') {
+      return;
+    }
+
+    // Use limit(1) so we only read 1 document instead of the entire collection!
+    const studentQuery = query(collection(db, STUDENTS_COLLECTION), limit(1));
+    const studentSnapshot = await getDocs(studentQuery);
     if (studentSnapshot.empty) {
       console.log('Seeding initial students to Firestore online...');
       for (const st of defaultStudents) {
@@ -318,7 +427,8 @@ export async function seedInitialFirestoreDataIfEmpty(
       }
     }
 
-    const reportSnapshot = await getDocs(collection(db, REPORTS_COLLECTION));
+    const reportQuery = query(collection(db, REPORTS_COLLECTION), limit(1));
+    const reportSnapshot = await getDocs(reportQuery);
     if (reportSnapshot.empty) {
       console.log('Seeding initial reports to Firestore online...');
       for (const [id, rep] of Object.entries(defaultReports)) {
@@ -328,7 +438,8 @@ export async function seedInitialFirestoreDataIfEmpty(
       }
     }
 
-    const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
+    const invQuery = query(collection(db, INVOICES_COLLECTION), limit(1));
+    const invSnapshot = await getDocs(invQuery);
     if (invSnapshot.empty && defaultInvoices.length > 0) {
       console.log('Seeding initial invoices to Firestore online...');
       for (const inv of defaultInvoices) {
@@ -339,7 +450,8 @@ export async function seedInitialFirestoreDataIfEmpty(
     }
 
     if (defaultSchedules && defaultSchedules.length > 0) {
-      const schSnapshot = await getDocs(collection(db, SCHEDULES_COLLECTION));
+      const schQuery = query(collection(db, SCHEDULES_COLLECTION), limit(1));
+      const schSnapshot = await getDocs(schQuery);
       if (schSnapshot.empty) {
         console.log('Seeding initial training schedules to Firestore online...');
         for (const sch of defaultSchedules) {
@@ -349,13 +461,19 @@ export async function seedInitialFirestoreDataIfEmpty(
         }
       }
     }
+
+    localStorage.setItem(seedCheckKey, 'true');
   } catch (err) {
     console.warn('Firestore seeding check:', err);
   }
 }
 
-// Clear demo data (September demo invoices & attendances) from Firestore to start clean from October
+// Clear demo data once (guarded so it doesn't repeatedly scan every page load)
 export async function wipeDemoDataFromFirestore(): Promise<void> {
+  const wipeKey = 'bfa_firestore_demo_wipe_completed_v1';
+  if (localStorage.getItem(wipeKey) === 'true') {
+    return;
+  }
   try {
     // 1. Wipe demo September invoices
     const invSnapshot = await getDocs(collection(db, INVOICES_COLLECTION));
@@ -378,6 +496,7 @@ export async function wipeDemoDataFromFirestore(): Promise<void> {
         await deleteDoc(d.ref);
       }
     }
+    localStorage.setItem(wipeKey, 'true');
     console.log('Demo September data wiped from Firestore successfully.');
   } catch (err) {
     console.warn('Wipe demo data from Firestore:', err);

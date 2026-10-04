@@ -203,7 +203,7 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className="font-bold text-slate-900">Ananda: {childName}</span>
                 <span>•</span>
-                <span className="font-mono text-[11px] text-slate-500">ID: {student?.id || 'BFA-001'}</span>
+                <span className="font-mono text-[11px] text-slate-500">ID: {student?.id || '-'}</span>
                 {student?.position && (
                   <>
                     <span>•</span>

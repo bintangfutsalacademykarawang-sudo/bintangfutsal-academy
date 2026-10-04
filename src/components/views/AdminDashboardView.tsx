@@ -43,6 +43,14 @@ interface AdminDashboardViewProps {
   onEditSchedule?: (schedule: TrainingSchedule) => void;
   onDeleteSchedule?: (id: string) => void;
   onViewParentDashboard?: () => void;
+  cloudSyncStatus?: {
+    status: 'connecting' | 'connected' | 'error' | 'offline';
+    source: 'server' | 'cache' | 'local_fallback';
+    docCount: number;
+    lastSynced: string | null;
+    errorMessage: string | null;
+  };
+  onRetrySync?: () => void;
 }
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
@@ -59,6 +67,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onEditSchedule,
   onDeleteSchedule,
   onViewParentDashboard,
+  cloudSyncStatus,
+  onRetrySync,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -140,6 +150,31 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Cloud Diagnostic Error Banner */}
+      {cloudSyncStatus && cloudSyncStatus.status === 'error' && (
+        <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-200 text-amber-900 flex items-center justify-center shrink-0 font-bold">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-extrabold text-amber-950">Sinkronisasi Cloud Terkendala</p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                {cloudSyncStatus.errorMessage} Menampilkan <strong>{students.length} data siswa</strong> dari cache memori lokal perangkat ini.
+              </p>
+            </div>
+          </div>
+          {onRetrySync && (
+            <button
+              onClick={onRetrySync}
+              className="px-3.5 py-1.5 bg-amber-800 hover:bg-amber-900 text-white font-bold rounded-lg text-[11px] transition shadow-xs flex items-center gap-1.5 self-start sm:self-auto active:scale-95"
+            >
+              <span>Hubungkan Ulang</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
