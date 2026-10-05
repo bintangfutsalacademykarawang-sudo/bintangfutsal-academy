@@ -95,6 +95,7 @@ import {
   fetchStudentsDirectly,
   getStudentsCount,
   FirestoreDiagnosticInfo,
+  cleanForFirestore,
   db
 } from './firebase';
 
@@ -771,17 +772,18 @@ export default function App() {
 
   // Coach Management Handlers (Safety Guard: WRITE_ENABLED = false by default in Preview)
   const handleSaveCoach = async (coachData: Coach) => {
-    setCoaches((prev) => {
-      const idx = prev.findIndex((c) => c.id === coachData.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = coachData;
-        return next;
-      }
-      return [...prev, coachData];
-    });
-
+    // 1. Preview Mode: Isolate to in-memory state and sessionStorage without touching Firestore
     if (!WRITE_ENABLED) {
+      setCoaches((prev) => {
+        const idx = prev.findIndex((c) => c.id === coachData.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = coachData;
+          return next;
+        }
+        return [...prev, coachData];
+      });
+
       try {
         const currentSim = JSON.parse(sessionStorage.getItem('bfa_coaches_sim') || '[]');
         const idx = currentSim.findIndex((c: Coach) => c.id === coachData.id);
@@ -797,6 +799,7 @@ export default function App() {
       return;
     }
 
+    // 2. Production Mode: Write to Firestore first with sanitized payload
     try {
       // Production Safety Guard: Never write base64/data URL strings to Firestore documents
       const cleanPayload: Partial<Coach> = { ...coachData };
@@ -804,12 +807,27 @@ export default function App() {
         delete cleanPayload.photoUrl;
       }
 
+      // Remove all undefined properties recursively so Firestore setDoc never throws 'Unsupported field value: undefined'
+      const sanitizedPayload = cleanForFirestore(cleanPayload);
+
       const docRef = doc(db, 'coaches', coachData.id);
-      await setDoc(docRef, cleanPayload, { merge: true });
+      await setDoc(docRef, sanitizedPayload, { merge: true });
+
+      // Update local state only after successful Firestore write
+      setCoaches((prev) => {
+        const idx = prev.findIndex((c) => c.id === coachData.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = coachData;
+          return next;
+        }
+        return [...prev, coachData];
+      });
+
       showToast(`Data pelatih ${coachData.name} berhasil disimpan ke database.`, 'success');
     } catch (err: any) {
-      console.warn('[Firestore] Gagal menyimpan pelatih:', err);
-      showToast('Gagal menyimpan pelatih ke cloud.', 'error');
+      console.error('[Firestore] Gagal menyimpan pelatih ke cloud:', err);
+      showToast(`Gagal menyimpan pelatih ke cloud: ${err?.message || 'Error koneksi database'}`, 'error');
     }
   };
 
@@ -820,10 +838,10 @@ export default function App() {
 
     const updatedCoach: Coach = { ...targetCoach, status: newStatus };
 
-    // Soft delete: only toggle status in state
-    setCoaches((prev) => prev.map((c) => (c.id === coachId ? updatedCoach : c)));
-
+    // 1. Preview Mode: Update in-memory state and sessionStorage only
     if (!WRITE_ENABLED) {
+      setCoaches((prev) => prev.map((c) => (c.id === coachId ? updatedCoach : c)));
+
       try {
         const currentSim = JSON.parse(sessionStorage.getItem('bfa_coaches_sim') || '[]');
         const idx = currentSim.findIndex((c: Coach) => c.id === coachId);
@@ -840,13 +858,18 @@ export default function App() {
       return;
     }
 
+    // 2. Production Mode: Write status update to Firestore first
     try {
       const docRef = doc(db, 'coaches', coachId);
       await setDoc(docRef, { status: newStatus }, { merge: true });
+
+      // Update state only after successful write
+      setCoaches((prev) => prev.map((c) => (c.id === coachId ? updatedCoach : c)));
+
       showToast(`Status pelatih ${targetCoach.name} diubah menjadi "${newStatus}".`, 'success');
     } catch (err: any) {
-      console.warn('[Firestore] Gagal memperbarui status pelatih:', err);
-      showToast('Gagal memperbarui status pelatih di cloud.', 'error');
+      console.error('[Firestore] Gagal memperbarui status pelatih di cloud:', err);
+      showToast(`Gagal memperbarui status pelatih: ${err?.message || 'Error koneksi database'}`, 'error');
     }
   };
 
