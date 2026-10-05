@@ -3,6 +3,7 @@ import { Student } from '../../types';
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR, ALL_KU_CATEGORIES } from '../../data/initialData';
 import { normalizePhoneNumber, isValidIndonesianMobile } from '../../utils/phoneUtils';
 import { X, UserCheck, Camera, Image, FileUp, CheckCircle2, Check } from 'lucide-react';
+import { BFALogo } from '../common/BFALogo';
 
 interface StudentFormModalProps {
   isOpen: boolean;
@@ -31,7 +32,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
-  const [avatar, setAvatar] = useState('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
+  const [avatar, setAvatar] = useState('');
   const [birthPlace, setBirthPlace] = useState('Karawang');
   const [birthDate, setBirthDate] = useState('2015-05-21');
   const [classGroupId, setClassGroupId] = useState('U11');
@@ -58,7 +59,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
       if (editStudent) {
         setName(editStudent.name);
         setNickname(editStudent.nickname || editStudent.name.split(' ')[0] || '');
-        setAvatar(editStudent.avatar);
+        setAvatar(editStudent.avatar || '');
         setBirthPlace(editStudent.birthPlace || 'Karawang');
         setBirthDate(editStudent.birthDate);
         setClassGroupId(editStudent.classGroupId);
@@ -78,7 +79,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
       } else {
         setName('');
         setNickname('');
-        setAvatar('https://images.unsplash.com/photo-1543326727-cf6c39e8f84c?w=240&auto=format&fit=crop&q=80');
+        setAvatar('');
         setBirthPlace('Karawang');
         setBirthDate('2015-05-21');
         const { age, group } = calculateAgeAndGroup('2015-05-21');
@@ -163,11 +164,15 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     e.preventDefault();
     const assignedId = editStudent?.id || nextStudentId;
     const cleanPhone = normalizePhoneNumber(phone.trim());
+    const finalAvatar = (avatar && avatar.trim() !== '' && !avatar.includes('unsplash.com'))
+      ? avatar.trim()
+      : (editStudent?.avatar || '');
+
     onSubmit({
       id: assignedId,
       name: name.trim(),
       nickname: nickname.trim() || name.trim().split(' ')[0] || name.trim(),
-      avatar,
+      avatar: finalAvatar,
       birthPlace: birthPlace.trim(),
       birthDate,
       classGroupId,
@@ -242,7 +247,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <label className="block font-bold text-slate-700">Foto Profil Siswa *</label>
-              {avatar.startsWith('data:image') && (
+              {avatar && avatar.startsWith('data:image') && (
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
                   <Check className="w-3 h-3 text-emerald-700" />
                   <span>Foto Kamera Terpasang!</span>
@@ -250,14 +255,20 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
               )}
             </div>
             <div className="flex items-center space-x-3.5">
-              <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white border-2 border-orange-500 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
-                <img
-                  src={avatar}
-                  className="w-full h-full object-cover"
-                  alt="Preview Foto Siswa"
-                  referrerPolicy="no-referrer"
-                />
-                {avatar.startsWith('data:image') && (
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-black border-2 border-slate-700/80 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
+                {avatar && avatar.trim() !== '' && !avatar.includes('unsplash.com') ? (
+                  <img
+                    src={avatar}
+                    className="w-full h-full object-cover"
+                    alt="Preview Foto Siswa"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-black flex items-center justify-center p-1.5 sm:p-2">
+                    <BFALogo className="w-full h-full object-contain drop-shadow" />
+                  </div>
+                )}
+                {avatar && avatar.startsWith('data:image') && (
                   <span className="absolute bottom-0 right-0 bg-emerald-500 text-white p-0.5 rounded-tl-lg shadow-xs" title="Foto Kamera Aktif">
                     <Check className="w-3 h-3" />
                   </span>

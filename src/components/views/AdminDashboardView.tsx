@@ -314,15 +314,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <Plus className="w-4 h-4" />
               <span>Tambah Jadwal Sesi</span>
             </button>
-
-            <button
-              onClick={onViewParentDashboard || (() => onNavigate('parent-dashboard'))}
-              className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs active:scale-95"
-              title="Lihat langsung tampilan jadwal yang dilihat oleh orang tua"
-            >
-              <Eye className="w-3.5 h-3.5 text-amber-400" />
-              <span>Buka Dashboard Orang Tua</span>
-            </button>
           </div>
         </div>
 
@@ -463,20 +454,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           </div>
         )}
 
-        <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-blue-950 font-medium">
-            <Sparkles className="w-4 h-4 text-blue-700 shrink-0" />
-            <span>
-              Jadwal di atas otomatis aktif dan tersiar di Dashboard Orang Tua. Klik link untuk memeriksa langsung tampilan yang dilihat oleh wali murid:
-            </span>
-          </div>
-          <button
-            onClick={onViewParentDashboard || (() => onNavigate('parent-dashboard'))}
-            className="text-xs font-black text-blue-800 hover:text-blue-950 hover:underline flex items-center gap-1 shrink-0 self-start sm:self-auto bg-white px-3 py-1.5 rounded-xl border border-blue-200 shadow-2xs"
-          >
-            <span>Buka Dashboard Orang Tua</span>
-            <ExternalLink className="w-3.5 h-3.5 text-blue-700" />
-          </button>
+        <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl flex items-center gap-2 text-xs">
+          <Sparkles className="w-4 h-4 text-blue-700 shrink-0" />
+          <span className="text-blue-950 font-medium">
+            Jadwal di atas otomatis aktif dan tersiar di Dashboard Orang Tua secara realtime.
+          </span>
         </div>
       </div>
 
