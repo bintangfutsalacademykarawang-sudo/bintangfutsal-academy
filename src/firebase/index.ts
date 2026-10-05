@@ -8,14 +8,22 @@ import {
   doc, 
   setDoc, 
   deleteDoc,
+  getDoc,
   getDocs,
+  getCountFromServer,
   collection, 
   onSnapshot,
   query,
-  where
+  where,
+  orderBy,
+  startAfter,
+  limit,
+  runTransaction,
+  QueryDocumentSnapshot,
+  DocumentSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Student, StudentReport, Invoice, Attendance, TrainingSchedule } from '../types';
+import { Student, StudentReport, Invoice, Attendance, TrainingSchedule, CashMutation, InvoicePayment } from '../types';
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -95,6 +103,23 @@ const REPORTS_COLLECTION = 'studentReports';
 const INVOICES_COLLECTION = 'invoices';
 const ATTENDANCES_COLLECTION = 'attendances';
 const SCHEDULES_COLLECTION = 'trainingSchedules';
+const CASH_MUTATIONS_COLLECTION = 'cashMutations';
+const INVOICE_PAYMENTS_COLLECTION = 'invoicePayments';
+
+/**
+ * Gets exact student count from server with lightweight Firestore Aggregation (costs only 1 read per 1,000 docs).
+ * Returns null if offline or quota exceeded without claiming an unverified total.
+ */
+export async function getStudentsCount(): Promise<number | null> {
+  try {
+    const collRef = collection(db, STUDENTS_COLLECTION);
+    const snapshot = await getCountFromServer(collRef);
+    return snapshot.data().count;
+  } catch (err) {
+    console.warn('[Firestore] getStudentsCount notice (offline or quota limit):', err);
+    return null;
+  }
+}
 
 /**
  * Removes undefined properties recursively so Firestore setDoc never throws
@@ -140,13 +165,18 @@ export async function deleteAttendanceFromFirestore(attendanceId: string): Promi
   }
 }
 
+/**
+ * Subscribe to attendances with query limit protection (defaults to 200 recent records to prevent quota exhaustion at 100-500 students).
+ */
 export function subscribeToAttendances(
   onData: (attendances: Attendance[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  maxLimit: number = 200
 ) {
   const collRef = collection(db, ATTENDANCES_COLLECTION);
+  const q = maxLimit > 0 ? query(collRef, limit(maxLimit)) : collRef;
   return onSnapshot(
-    collRef,
+    q,
     (snapshot) => {
       const items: Attendance[] = [];
       snapshot.forEach((docSnap) => {
@@ -274,7 +304,83 @@ export async function fetchStudentsDirectly(): Promise<{
 }
 
 /**
- * Real-time listener for the entire students collection (for admin view / roster count).
+ * Cursor-based pagination query for 100-500 students.
+ * Supports configurable page size (default: 25) and startAfterId cursor.
+ */
+export async function fetchStudentsPage(options?: {
+  pageSize?: number;
+  startAfterId?: string;
+  classGroupId?: string;
+}): Promise<{
+  students: Student[];
+  hasMore: boolean;
+  lastId?: string;
+  meta: FirestoreDiagnosticInfo;
+  error?: string;
+  isQuotaExhausted?: boolean;
+}> {
+  const pageSize = options?.pageSize || 25;
+  try {
+    let q = query(collection(db, STUDENTS_COLLECTION), orderBy('id'), limit(pageSize));
+
+    if (options?.classGroupId && options.classGroupId !== 'Semua') {
+      q = query(
+        collection(db, STUDENTS_COLLECTION),
+        where('classGroupId', '==', options.classGroupId),
+        orderBy('id'),
+        limit(pageSize)
+      );
+    }
+
+    if (options?.startAfterId) {
+      q = query(q, startAfter(options.startAfterId));
+    }
+
+    const snapshot = await getDocs(q);
+    const items: Student[] = [];
+    const docIds: string[] = [];
+
+    snapshot.forEach((docSnap) => {
+      items.push(docSnap.data() as Student);
+      docIds.push(docSnap.id);
+    });
+
+    const hasMore = items.length === pageSize;
+    const lastId = items.length > 0 ? items[items.length - 1].id : undefined;
+
+    const meta: FirestoreDiagnosticInfo = {
+      source: snapshot.metadata.fromCache ? 'cache' : 'server',
+      docCount: snapshot.size,
+      fromCache: snapshot.metadata.fromCache,
+      hasPendingWrites: snapshot.metadata.hasPendingWrites,
+      timestamp: new Date().toLocaleTimeString('id-ID'),
+      isQuotaExhausted: false,
+      docIds
+    };
+
+    return { students: items, hasMore, lastId, meta };
+  } catch (err: any) {
+    const isQuota = isFirestoreQuotaError(err);
+    return {
+      students: [],
+      hasMore: false,
+      meta: {
+        source: 'cache',
+        docCount: 0,
+        fromCache: true,
+        hasPendingWrites: false,
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        isQuotaExhausted: isQuota,
+        error: err?.message
+      },
+      error: err?.message,
+      isQuotaExhausted: isQuota
+    };
+  }
+}
+
+/**
+ * Real-time listener for the students collection (for admin view / roster count).
  * Handles quota-exhausted errors specifically without masking.
  */
 export function subscribeToStudents(
@@ -313,7 +419,7 @@ export function subscribeToStudents(
 }
 
 /**
- * Single document listener for parent view (consuming only 1 document read instead of all 24).
+ * Single document listener for parent view (consuming only 1 document read instead of all 24-500 students).
  */
 export function subscribeToStudentDoc(
   studentId: string,
@@ -444,17 +550,73 @@ export async function deleteInvoiceFromFirestore(invoiceId: string): Promise<voi
   }
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  lastDoc: QueryDocumentSnapshot | null;
+  hasMore: boolean;
+}
+
+/**
+ * Paginated one-time fetch for invoices with startAfter cursor (default pageSize = 50).
+ * Preserves quota and enables viewing >200 historical records on demand.
+ */
+export async function fetchInvoicesPage(options?: {
+  cursor?: QueryDocumentSnapshot | null;
+  pageSize?: number;
+}): Promise<PaginatedResult<Invoice>> {
+  const pageSize = options?.pageSize || 50;
+  const collRef = collection(db, INVOICES_COLLECTION);
+  const constraints: any[] = [
+    orderBy('dueDate', 'desc'),
+  ];
+
+  if (options?.cursor) {
+    constraints.push(startAfter(options.cursor));
+  }
+
+  // Request pageSize + 1 to authoritatively determine hasMore without count query
+  constraints.push(limit(pageSize + 1));
+
+  const q = query(collRef, ...constraints);
+  const snapshot = await getDocs(q);
+
+  const docs = snapshot.docs;
+  const hasMore = docs.length > pageSize;
+  const pageDocs = hasMore ? docs.slice(0, pageSize) : docs;
+
+  const items: Invoice[] = pageDocs.map((docSnap) => ({
+    ...(docSnap.data() as Invoice),
+    id: docSnap.id,
+  }));
+
+  const lastDoc = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+
+  return {
+    items,
+    lastDoc,
+    hasMore,
+  };
+}
+
+/**
+ * Subscribe to invoices with query limit protection (defaults to 50 records to protect quota at scale).
+ */
 export function subscribeToInvoices(
   onData: (invoices: Invoice[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  maxLimit: number = 50
 ) {
   const collRef = collection(db, INVOICES_COLLECTION);
+  const q = maxLimit > 0 ? query(collRef, orderBy('dueDate', 'desc'), limit(maxLimit)) : collRef;
   return onSnapshot(
-    collRef,
+    q,
     (snapshot) => {
       const list: Invoice[] = [];
       snapshot.forEach((docSnap) => {
-        list.push(docSnap.data() as Invoice);
+        list.push({
+          ...(docSnap.data() as Invoice),
+          id: docSnap.id,
+        });
       });
       onData(list);
     },
@@ -471,7 +633,7 @@ export function subscribeToStudentInvoices(
   onError?: (err: Error) => void
 ) {
   if (!studentId || !studentId.trim()) return () => {};
-  const q = query(collection(db, INVOICES_COLLECTION), where('studentId', '==', studentId.trim()));
+  const q = query(collection(db, INVOICES_COLLECTION), where('studentId', '==', studentId.trim()), limit(100));
   return onSnapshot(
     q,
     (snapshot) => {
@@ -488,7 +650,345 @@ export function subscribeToStudentInvoices(
   );
 }
 
+// --- CASH MUTATION OPERATIONS ---
+export async function saveCashMutationToFirestore(mutation: CashMutation): Promise<void> {
+  try {
+    if (!mutation || !mutation.id || typeof mutation.id !== 'string' || !mutation.id.trim()) {
+      return;
+    }
+    const cleanId = mutation.id.trim();
+    const mutRef = doc(db, CASH_MUTATIONS_COLLECTION, cleanId);
+    await setDoc(mutRef, cleanForFirestore({
+      ...mutation,
+      createdAt: mutation.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
+  } catch (error) {
+    console.error('Failed to save cash mutation to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function deleteCashMutationFromFirestore(mutationId: string): Promise<void> {
+  try {
+    if (!mutationId || typeof mutationId !== 'string' || !mutationId.trim()) {
+      return;
+    }
+    const cleanId = mutationId.trim();
+    const mutRef = doc(db, CASH_MUTATIONS_COLLECTION, cleanId);
+    await deleteDoc(mutRef);
+  } catch (error) {
+    console.error('Failed to delete cash mutation from Firestore:', error);
+    throw error;
+  }
+}
+
+export interface CashMutationFilterOptions {
+  period: 'Semua' | 'Bulan Ini' | 'Hari Ini' | 'Custom';
+  startDate?: string;
+  endDate?: string;
+  cursor?: QueryDocumentSnapshot | null;
+  pageSize?: number;
+}
+
+/**
+ * Paginated one-time fetch for cash mutations (getDocs) with startAfter cursor.
+ * Used for historical modes ('Semua Waktu' and custom historical range).
+ */
+export async function fetchCashMutationsPage(
+  options: CashMutationFilterOptions
+): Promise<PaginatedResult<CashMutation>> {
+  const pageSize = options.pageSize || 50;
+  const collRef = collection(db, CASH_MUTATIONS_COLLECTION);
+  const constraints: any[] = [];
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const yearMonth = todayStr.substring(0, 7);
+  const firstDayOfMonth = `${yearMonth}-01`;
+  const lastDayOfMonth = `${yearMonth}-31`;
+
+  if (options.period === 'Hari Ini') {
+    constraints.push(where('date', '==', todayStr));
+    constraints.push(orderBy('date', 'desc'));
+  } else if (options.period === 'Bulan Ini') {
+    constraints.push(where('date', '>=', firstDayOfMonth));
+    constraints.push(where('date', '<=', lastDayOfMonth));
+    constraints.push(orderBy('date', 'desc'));
+  } else if (options.period === 'Custom' && options.startDate && options.endDate) {
+    constraints.push(where('date', '>=', options.startDate));
+    constraints.push(where('date', '<=', options.endDate));
+    constraints.push(orderBy('date', 'desc'));
+  } else {
+    // 'Semua'
+    constraints.push(orderBy('date', 'desc'));
+  }
+
+  if (options.cursor) {
+    constraints.push(startAfter(options.cursor));
+  }
+
+  // Request pageSize + 1 to determine if hasMore without extra server count
+  constraints.push(limit(pageSize + 1));
+
+  const q = query(collRef, ...constraints);
+  const snapshot = await getDocs(q);
+
+  const docs = snapshot.docs;
+  const hasMore = docs.length > pageSize;
+  const pageDocs = hasMore ? docs.slice(0, pageSize) : docs;
+
+  const items: CashMutation[] = pageDocs.map((docSnap) => ({
+    ...(docSnap.data() as CashMutation),
+    id: docSnap.id,
+  }));
+
+  const lastDoc = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+
+  return {
+    items,
+    lastDoc,
+    hasMore,
+  };
+}
+
+/**
+ * Scoped realtime listener for operational filters ONLY: 'Hari Ini' or 'Bulan Ini'.
+ * Unsubscribed immediately when switching to historical filters or leaving the view.
+ */
+export function subscribeToOperationalCashMutations(
+  period: 'Hari Ini' | 'Bulan Ini',
+  onData: (mutations: CashMutation[]) => void,
+  onError?: (err: Error) => void,
+  pageSize: number = 50
+) {
+  const collRef = collection(db, CASH_MUTATIONS_COLLECTION);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const yearMonth = todayStr.substring(0, 7);
+  const firstDayOfMonth = `${yearMonth}-01`;
+  const lastDayOfMonth = `${yearMonth}-31`;
+
+  let q;
+  if (period === 'Hari Ini') {
+    q = query(
+      collRef,
+      where('date', '==', todayStr),
+      orderBy('date', 'desc'),
+      limit(pageSize)
+    );
+  } else {
+    q = query(
+      collRef,
+      where('date', '>=', firstDayOfMonth),
+      where('date', '<=', lastDayOfMonth),
+      orderBy('date', 'desc'),
+      limit(pageSize)
+    );
+  }
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: CashMutation[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({
+          ...(docSnap.data() as CashMutation),
+          id: docSnap.id,
+        });
+      });
+      onData(list);
+    },
+    (err) => {
+      console.warn(`Firestore cashMutations (${period}) subscription notice:`, err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+/**
+ * Scoped subscription for cash mutations (limited to protect quota, default 50).
+ * Sourced directly from cashMutations collection.
+ */
+export function subscribeToCashMutations(
+  onData: (mutations: CashMutation[]) => void,
+  onError?: (err: Error) => void,
+  maxLimit: number = 50
+) {
+  const collRef = collection(db, CASH_MUTATIONS_COLLECTION);
+  const q = maxLimit > 0 ? query(collRef, orderBy('date', 'desc'), limit(maxLimit)) : collRef;
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: CashMutation[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({
+          ...(docSnap.data() as CashMutation),
+          id: docSnap.id,
+        });
+      });
+      onData(list);
+    },
+    (err) => {
+      console.warn('Firestore cashMutations subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+// --- ATOMIC INVOICE PAYMENT TRANSACTION ---
+export interface ProcessPaymentInput {
+  paymentId: string; // Wajib dibuat SATU KALI sebelum transaction dimulai
+  invoiceId: string;
+  amount: number;
+  paymentMethod: string;
+  paymentDate: string; // YYYY-MM-DD
+  staffName?: string;
+  note?: string;
+  transactionId?: string;
+}
+
+export interface ProcessPaymentResult {
+  success: boolean;
+  alreadyProcessed?: boolean;
+  invoice: Invoice;
+  mutation: CashMutation;
+  payment: InvoicePayment;
+}
+
+export async function processInvoicePaymentTransaction(
+  input: ProcessPaymentInput
+): Promise<ProcessPaymentResult> {
+  const { paymentId, invoiceId, amount, paymentMethod, paymentDate, staffName, note, transactionId } = input;
+  if (!paymentId || !invoiceId || amount <= 0) {
+    throw new Error('Parameter pembayaran tidak valid: paymentId, invoiceId, dan nominal > 0 wajib diisi.');
+  }
+
+  // Authoritative requirement: mutationId wajib MUT_{paymentId}
+  const mutationId = `MUT_${paymentId}`;
+  const nowIso = new Date().toISOString();
+  const timeNow = new Date().toTimeString().slice(0, 8);
+
+  const invoiceDocRef = doc(db, INVOICES_COLLECTION, invoiceId);
+  const paymentDocRef = doc(db, INVOICE_PAYMENTS_COLLECTION, paymentId);
+  const mutationDocRef = doc(db, CASH_MUTATIONS_COLLECTION, mutationId);
+
+  return await runTransaction(db, async (transaction) => {
+    // 1. Transaction membaca invoice terlebih dahulu
+    const invSnap = await transaction.get(invoiceDocRef);
+    if (!invSnap.exists()) {
+      throw new Error(`Tagihan dengan ID "${invoiceId}" tidak ditemukan di database.`);
+    }
+    const currentInv = invSnap.data() as Invoice;
+
+    // 2. Transaction membaca payment doc untuk idempotency check
+    const paySnap = await transaction.get(paymentDocRef);
+    if (paySnap.exists()) {
+      console.warn(`[Anti-Double-Payment] Pembayaran ${paymentId} sudah pernah tercatat.`);
+      const existingPay = paySnap.data() as InvoicePayment;
+      const mutSnap = await transaction.get(mutationDocRef);
+      const existingMut = mutSnap.exists()
+        ? (mutSnap.data() as CashMutation)
+        : ({
+            id: mutationId,
+            date: paymentDate,
+            type: 'Pemasukan',
+            category: currentInv.type === 'Pendaftaran' ? 'Pendaftaran' : 'SPP Bulanan',
+            amount: existingPay.amount,
+            note: `Pembayaran ${currentInv.type} - ${currentInv.studentName}`,
+            method: paymentMethod,
+            staff: staffName || 'Admin BFA',
+            invoiceId,
+            paymentId,
+          } as CashMutation);
+
+      return {
+        success: true,
+        alreadyProcessed: true,
+        invoice: currentInv,
+        mutation: existingMut,
+        payment: existingPay,
+      };
+    }
+
+    // 3. Kalkulasi matematis keuangan
+    const invTotal = currentInv.amount || 0;
+    const currentPaid = currentInv.paidAmount !== undefined 
+      ? currentInv.paidAmount 
+      : (currentInv.status === 'LUNAS' ? invTotal : 0);
+
+    const newPaidAmount = currentPaid + amount;
+    const newRemainingAmount = Math.max(0, invTotal - newPaidAmount);
+    const newStatus: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR' = 
+      newRemainingAmount <= 0 ? 'LUNAS' : (newPaidAmount > 0 ? 'SEBAGIAN' : 'BELUM BAYAR');
+
+    // 4. Dokumen pembayaran
+    const paymentRecord: InvoicePayment = {
+      id: paymentId,
+      paymentId,
+      invoiceId,
+      studentId: currentInv.studentId,
+      amount,
+      date: paymentDate,
+      time: timeNow,
+      paymentMethod,
+      method: paymentMethod,
+      transactionId: transactionId || `TRX-${paymentId}`,
+      staff: staffName || 'Admin BFA',
+      note: note || `Pembayaran ${currentInv.type} (${currentInv.period})`,
+      mutationId,
+      createdAt: nowIso,
+    };
+
+    // 5. Dokumen mutasi kas
+    const cashCategory = currentInv.type === 'Bulanan' 
+      ? 'SPP Bulanan' 
+      : (currentInv.type === 'Latihan' ? 'Iuran Sesi Lapangan' : (currentInv.type || 'SPP Bulanan'));
+
+    const cashMutation: CashMutation = {
+      id: mutationId,
+      date: paymentDate,
+      time: timeNow,
+      type: 'Pemasukan',
+      category: cashCategory,
+      amount,
+      note: `Pembayaran ${currentInv.type} (${currentInv.period}) - ${currentInv.studentName} [${currentInv.id}]`,
+      method: paymentMethod,
+      staff: staffName || 'Admin BFA',
+      source: 'INVOICE_PAYMENT',
+      invoiceId,
+      paymentId,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    // 6. Dokumen invoice yang diperbarui
+    const updatedInvoice: Invoice = {
+      ...currentInv,
+      paidAmount: newPaidAmount,
+      remainingAmount: newRemainingAmount,
+      status: newStatus,
+      paidAt: newStatus === 'LUNAS' ? nowIso : currentInv.paidAt,
+      transactionId: transactionId || currentInv.transactionId || `TRX-${paymentId}`,
+      paymentMethod: paymentMethod,
+      updatedAt: nowIso,
+    };
+
+    // 7. Eksekusi atomik: Invoice + Payment + CashMutation
+    transaction.set(paymentDocRef, cleanForFirestore(paymentRecord));
+    transaction.set(mutationDocRef, cleanForFirestore(cashMutation));
+    transaction.set(invoiceDocRef, cleanForFirestore(updatedInvoice), { merge: true });
+
+    return {
+      success: true,
+      alreadyProcessed: false,
+      invoice: updatedInvoice,
+      mutation: cashMutation,
+      payment: paymentRecord,
+    };
+  });
+}
+
 // --- SCHEDULE OPERATIONS ---
+
 export async function saveScheduleToFirestore(schedule: TrainingSchedule): Promise<void> {
   try {
     if (!schedule || !schedule.id || typeof schedule.id !== 'string' || !schedule.id.trim()) {

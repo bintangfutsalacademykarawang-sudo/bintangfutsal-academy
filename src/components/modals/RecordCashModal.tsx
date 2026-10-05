@@ -18,7 +18,7 @@ export const RecordCashModal: React.FC<RecordCashModalProps> = ({
   const [category, setCategory] = useState('Sewa Lapangan');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState('2026-09-29');
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [staff, setStaff] = useState('Coach Hendra');
 
   if (!isOpen) return null;

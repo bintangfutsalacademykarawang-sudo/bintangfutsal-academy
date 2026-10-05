@@ -3,6 +3,7 @@ export type Role = 'admin' | 'parent';
 export type RouteId = 
   | 'dashboard'
   | 'students'
+  | 'coaches'
   | 'keuangan'
   | 'erapport'
   | 'attendance'
@@ -13,6 +14,8 @@ export type RouteId =
   | 'parent-payment'
   | 'parent-payments'
   | 'parent-report';
+
+export type { Coach } from './types/coach';
 
 export interface StudentDocuments {
   kk?: string;
@@ -40,15 +43,24 @@ export interface Student {
   customPassword?: string;
 }
 
+export type { InvoicePayment, PaymentRecord } from './types/finance';
+
 export interface CashMutation {
   id: string;
   date: string;
+  time?: string;
   type: 'Pemasukan' | 'Pengeluaran';
   category: string;
   note: string;
   method: string;
   amount: number;
   staff: string;
+  source?: 'INVOICE_PAYMENT' | 'MANUAL' | 'SYSTEM' | string;
+  paymentId?: string;
+  invoiceId?: string;
+  idempotencyKey?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Invoice {
@@ -56,16 +68,20 @@ export interface Invoice {
   studentId: string;
   studentName: string;
   classGroupId: string;
-  type: 'Bulanan' | 'Latihan';
+  type: 'Bulanan' | 'Latihan' | 'Pendaftaran' | 'Seragam' | 'Turnamen' | 'Lainnya' | string;
   period: string;
   attendanceDate?: string;
   amount: number;
-  status: 'LUNAS' | 'BELUM BAYAR';
+  paidAmount?: number; // Total terbayar kumulatif
+  remainingAmount?: number; // Sisa tagihan aktif
+  status: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR';
   dueDate: string;
   createdAt: string;
   paidAt?: string;
   transactionId?: string;
   paymentMethod?: string;
+  payments?: import('./types/finance').InvoicePayment[];
+  updatedAt?: string;
 }
 
 export interface Attendance {

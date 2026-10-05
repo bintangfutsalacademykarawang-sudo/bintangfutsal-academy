@@ -45,6 +45,9 @@ import { AdminERapportView } from './components/views/AdminERapportView';
 import { AdminAttendanceView } from './components/views/AdminAttendanceView';
 import { AdminFingerprintView } from './components/views/AdminFingerprintView';
 import { AdminInvoicesView } from './components/views/AdminInvoicesView';
+import { AdminCoachesView } from './components/views/AdminCoachesView';
+import { Coach } from './types/coach';
+import { collection, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 import { ParentDashboardView } from './components/views/ParentDashboardView';
 import { ParentAttendanceView } from './components/views/ParentAttendanceView';
@@ -61,6 +64,8 @@ import { CameraModal } from './components/modals/CameraModal';
 import { GenerateInvoiceModal } from './components/modals/GenerateInvoiceModal';
 import { CreateScheduleModal } from './components/modals/CreateScheduleModal';
 import { StudentBarcodeModal } from './components/modals/StudentBarcodeModal';
+import { PaymentSubmitData } from './components/modals/InvoicePaymentModal';
+import { generateIdempotentPaymentId, generateManualMutationId } from './utils/financeHelpers';
 import { 
   testFirestoreConnection,
   seedInitialFirestoreDataIfEmpty,
@@ -82,11 +87,22 @@ import {
   subscribeToAttendances,
   subscribeToStudentAttendances,
   subscribeToSchedules,
+  saveCashMutationToFirestore,
+  deleteCashMutationFromFirestore,
+  subscribeToCashMutations,
+  processInvoicePaymentTransaction,
   wipeDemoDataFromFirestore,
-  wipeAllInvoicesFromFirestore,
   fetchStudentsDirectly,
-  FirestoreDiagnosticInfo
+  getStudentsCount,
+  FirestoreDiagnosticInfo,
+  db
 } from './firebase';
+
+// Explicit Production Write Guard: Default is strictly FALSE.
+// Writes to Cloud Firestore for coaches are blocked unless explicitly configured in production.
+const WRITE_ENABLED = 
+  import.meta.env.PROD === true && 
+  (import.meta.env as any).VITE_ENABLE_FIRESTORE_WRITE === 'true';
 
 export default function App() {
   // Authentication session state (null = show Login Page)
@@ -191,12 +207,6 @@ export default function App() {
 
   const [cashMutations, setCashMutations] = useState<CashMutation[]>(() => {
     try {
-      const resetFlag = localStorage.getItem('bfa_cash_reset_v4');
-      if (!resetFlag) {
-        localStorage.setItem('bfa_cash_reset_v4', 'true');
-        localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
-        return [];
-      }
       const saved = localStorage.getItem('bfa_cash_mutations');
       return saved ? JSON.parse(saved) : [];
     } catch {
@@ -283,6 +293,16 @@ export default function App() {
 
   const [registeredStudentId, setRegisteredStudentId] = useState<string>('');
 
+  // Coaches state (In Preview mode: simulated safely in memory / sessionStorage)
+  const [coaches, setCoaches] = useState<Coach[]>(() => {
+    try {
+      const sim = sessionStorage.getItem('bfa_coaches_sim');
+      return sim ? JSON.parse(sim) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Automatically persist every update to localStorage so refreshing page keeps all data
   // Safety guard: Never wipe 24 valid students in cache with an empty array or smaller partial cache!
   useEffect(() => {
@@ -346,6 +366,17 @@ export default function App() {
   // Real-time synchronization for Students & Schedules with online Firebase Firestore
   // Audit fix: No duplicate fetchStudentsDirectly on mount; listener uses local cache first
   useEffect(() => {
+    // Passively query verified student count from server using lightweight aggregation (1 read per 1,000 docs)
+    getStudentsCount().then((count) => {
+      if (typeof count === 'number' && count > 0) {
+        setCloudSyncStatus((prev) => ({
+          ...prev,
+          expectedCount: count,
+          isPartialCache: students.length < count && prev.isPartialCache,
+        }));
+      }
+    });
+
     // Listen to real-time changes from Firestore with diagnostic metadata and quota handling
     const unsubStudents = subscribeToStudents(
       (cloudStudents, meta) => {
@@ -353,16 +384,16 @@ export default function App() {
           const { list: sanitized } = sanitizeStudentsList(cloudStudents);
           setStudents(sanitized);
           const isPartial = sanitized.length < 24;
-          setCloudSyncStatus({
+          setCloudSyncStatus((prev) => ({
             status: 'connected',
             source: meta.fromCache ? 'cache' : 'server',
             docCount: sanitized.length,
-            expectedCount: 24,
+            expectedCount: prev.expectedCount || Math.max(sanitized.length, 24),
             lastSynced: meta.timestamp,
             isQuotaExhausted: false,
             isPartialCache: isPartial,
             errorMessage: null,
-          });
+          }));
           try {
             localStorage.setItem('bfa_students', JSON.stringify(sanitized));
             localStorage.setItem('bfa_students_cached_at', meta.timestamp);
@@ -425,12 +456,9 @@ export default function App() {
       if (adminInvoiceRoutes.includes(currentRoute)) {
         unsub = subscribeToInvoices((cloudInvoices) => {
           if (cloudInvoices) {
-            const realInvoices = cloudInvoices.filter(
-              (inv) => !inv.id.startsWith('INV-202609') && !inv.period?.includes('September')
-            );
-            setInvoices(realInvoices);
+            setInvoices(cloudInvoices);
           }
-        });
+        }, undefined, 50);
       }
     } else if (role === 'parent' && activeParentStudent?.id) {
       const parentInvoiceRoutes: RouteId[] = ['parent-dashboard', 'parent-payment', 'parent-payments', 'parent-attendance'];
@@ -448,6 +476,26 @@ export default function App() {
     };
   }, [role, currentRoute, activeParentStudent?.id]);
 
+  // Lifecycle-scoped listener for Cash Mutations: Active only when viewing financial/dashboard routes
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    if (role === 'admin') {
+      const adminCashRoutes: RouteId[] = ['dashboard', 'keuangan'];
+      if (adminCashRoutes.includes(currentRoute)) {
+        unsub = subscribeToCashMutations((cloudMutations) => {
+          if (cloudMutations && cloudMutations.length > 0) {
+            setCashMutations(cloudMutations);
+          }
+        }, undefined, 50);
+      }
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [role, currentRoute]);
+
   // Lifecycle-scoped listener for Attendances: Active only when viewing attendance/dashboard/erapport routes
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -462,7 +510,7 @@ export default function App() {
             );
             setAttendances(realAttendances);
           }
-        });
+        }, undefined, 200);
       }
     } else if (role === 'parent' && activeParentStudent?.id) {
       const parentAttendanceRoutes: RouteId[] = ['parent-dashboard', 'parent-attendance', 'parent-report'];
@@ -668,32 +716,160 @@ export default function App() {
   const [newlyRegisteredStudent, setNewlyRegisteredStudent] = useState<Student | null>(null);
   const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
 
-  // Cash Mutation Operations
-  const handleAddCashMutation = (mutationData: Omit<CashMutation, 'id'>) => {
-    const newId = `MUT-${String(cashMutations.length + 1).padStart(3, '0')}`;
+  // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
+  useEffect(() => {
+    if (role !== 'admin' || (currentRoute !== 'coaches' && !isCreateScheduleOpen)) {
+      return;
+    }
+
+    try {
+      const coachesCol = collection(db, 'coaches');
+      const unsubscribe = onSnapshot(
+        coachesCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const loaded: Coach[] = [];
+            snapshot.forEach((docSnap) => {
+              const data = docSnap.data() as Coach;
+              if (data && data.id && data.name) {
+                loaded.push(data);
+              }
+            });
+            loaded.sort((a, b) => a.id.localeCompare(b.id));
+            setCoaches(loaded);
+          }
+        },
+        (error) => {
+          console.warn('[Firestore] coaches listener notice:', error);
+        }
+      );
+
+      return () => {
+        unsubscribe();
+      };
+    } catch (err) {
+      console.warn('[Firestore] coaches subscription error:', err);
+    }
+  }, [role, currentRoute, isCreateScheduleOpen]);
+
+  // Coach Management Handlers (Safety Guard: WRITE_ENABLED = false by default in Preview)
+  const handleSaveCoach = async (coachData: Coach) => {
+    setCoaches((prev) => {
+      const idx = prev.findIndex((c) => c.id === coachData.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = coachData;
+        return next;
+      }
+      return [...prev, coachData];
+    });
+
+    if (!WRITE_ENABLED) {
+      try {
+        const currentSim = JSON.parse(sessionStorage.getItem('bfa_coaches_sim') || '[]');
+        const idx = currentSim.findIndex((c: Coach) => c.id === coachData.id);
+        if (idx >= 0) currentSim[idx] = coachData;
+        else currentSim.push(coachData);
+        sessionStorage.setItem('bfa_coaches_sim', JSON.stringify(currentSim));
+      } catch {}
+
+      showToast(
+        `Data ${coachData.name} tersimpan di memori sesi (Mode Preview: Cloud write dinonaktifkan)`,
+        'info'
+      );
+      return;
+    }
+
+    try {
+      // Production Safety Guard: Never write base64/data URL strings to Firestore documents
+      const cleanPayload: Partial<Coach> = { ...coachData };
+      if (cleanPayload.photoUrl && cleanPayload.photoUrl.startsWith('data:')) {
+        delete cleanPayload.photoUrl;
+      }
+
+      const docRef = doc(db, 'coaches', coachData.id);
+      await setDoc(docRef, cleanPayload, { merge: true });
+      showToast(`Data pelatih ${coachData.name} berhasil disimpan ke database.`, 'success');
+    } catch (err: any) {
+      console.warn('[Firestore] Gagal menyimpan pelatih:', err);
+      showToast('Gagal menyimpan pelatih ke cloud.', 'error');
+    }
+  };
+
+  const handleToggleCoachStatus = async (coachId: string, currentStatus: 'Aktif' | 'Non-Aktif') => {
+    const newStatus = currentStatus === 'Aktif' ? 'Non-Aktif' : 'Aktif';
+    const targetCoach = coaches.find((c) => c.id === coachId);
+    if (!targetCoach) return;
+
+    const updatedCoach: Coach = { ...targetCoach, status: newStatus };
+
+    // Soft delete: only toggle status in state
+    setCoaches((prev) => prev.map((c) => (c.id === coachId ? updatedCoach : c)));
+
+    if (!WRITE_ENABLED) {
+      try {
+        const currentSim = JSON.parse(sessionStorage.getItem('bfa_coaches_sim') || '[]');
+        const idx = currentSim.findIndex((c: Coach) => c.id === coachId);
+        if (idx >= 0) {
+          currentSim[idx] = updatedCoach;
+          sessionStorage.setItem('bfa_coaches_sim', JSON.stringify(currentSim));
+        }
+      } catch {}
+
+      showToast(
+        `Status ${targetCoach.name} diubah menjadi "${newStatus}" (Mode Preview: Cloud write dinonaktifkan)`,
+        'info'
+      );
+      return;
+    }
+
+    try {
+      const docRef = doc(db, 'coaches', coachId);
+      await setDoc(docRef, { status: newStatus }, { merge: true });
+      showToast(`Status pelatih ${targetCoach.name} diubah menjadi "${newStatus}".`, 'success');
+    } catch (err: any) {
+      console.warn('[Firestore] Gagal memperbarui status pelatih:', err);
+      showToast('Gagal memperbarui status pelatih di cloud.', 'error');
+    }
+  };
+
+  // Cash Mutation Operations (Persistent Firestore Collection)
+  const handleAddCashMutation = async (mutationData: Omit<CashMutation, 'id'>) => {
+    const newId = generateManualMutationId();
     const newMutation: CashMutation = {
       id: newId,
       ...mutationData,
+      source: 'MANUAL',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
+
+    // Optimistic UI update
     setCashMutations((prev) => [newMutation, ...prev]);
-    showToast(
-      `Transaksi ${newMutation.category} (${newMutation.type}) sebesar Rp${newMutation.amount.toLocaleString('id-ID')} berhasil dicatat!`,
-      'success'
-    );
+
+    try {
+      await saveCashMutationToFirestore(newMutation);
+      showToast(
+        `Transaksi ${newMutation.category} (${newMutation.type}) sebesar Rp${newMutation.amount.toLocaleString('id-ID')} berhasil dicatat & tersimpan!`,
+        'success'
+      );
+    } catch (err) {
+      console.warn('Gagal menyimpan mutasi ke cloud:', err);
+      showToast('Gagal menyimpan mutasi kas ke database cloud.', 'error');
+    }
   };
 
-  const handleDeleteMutation = (id: string) => {
+  const handleDeleteMutation = async (id: string) => {
     const item = cashMutations.find((m) => m.id === id);
     setCashMutations((prev) => prev.filter((m) => m.id !== id));
-    showToast(`Mutasi kas ${item?.note || id} berhasil dihapus.`, 'info');
-  };
 
-  const handleResetCash = () => {
-    setCashMutations([]);
     try {
-      localStorage.setItem('bfa_cash_mutations', JSON.stringify([]));
-    } catch {}
-    showToast('Seluruh data buku kas berhasil direset ke Rp0.', 'info');
+      await deleteCashMutationFromFirestore(id);
+      showToast(`Mutasi kas ${item?.note || id} berhasil dihapus.`, 'info');
+    } catch (err) {
+      console.warn('Gagal menghapus mutasi dari cloud:', err);
+      showToast('Gagal menghapus mutasi kas dari database cloud.', 'error');
+    }
   };
 
   // Update Student Photo Handler
@@ -837,6 +1013,8 @@ export default function App() {
           attendanceDate: date,
           period: `Sesi Latihan (${date})`,
           amount: 15000,
+          paidAmount: 0,
+          remainingAmount: 15000,
           status: 'BELUM BAYAR',
           dueDate: date,
           createdAt: formattedCreated,
@@ -942,6 +1120,8 @@ export default function App() {
             type: 'Bulanan',
             period: config.period,
             amount: config.amount,
+            paidAmount: 0,
+            remainingAmount: config.amount,
             status: 'BELUM BAYAR',
             dueDate: config.dueDate,
             createdAt: dateFormatted,
@@ -965,56 +1145,58 @@ export default function App() {
     }
   };
 
-  // Mark invoice paid manually (Admin & Keuangan live sync immediately to Firestore & Dashboard Orang Tua)
-  const handleMarkInvoicePaid = (id: string) => {
+  // Atomic Invoice Payment Processor (runTransaction: Invoice + Payment + CashMutation)
+  const handleProcessPayment = async (data: PaymentSubmitData) => {
+    try {
+      const result = await processInvoicePaymentTransaction({
+        paymentId: data.paymentId,
+        invoiceId: data.invoiceId,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        paymentDate: data.paymentDate,
+        staffName: currentUser?.name || 'Admin BFA',
+        note: data.note,
+      });
+
+      // Optimistic updates
+      setInvoices((prev) =>
+        prev.map((inv) => (inv.id === result.invoice.id ? result.invoice : inv))
+      );
+      setCashMutations((prev) => {
+        const exists = prev.some((m) => m.id === result.mutation.id);
+        return exists ? prev : [result.mutation, ...prev];
+      });
+
+      showToast(
+        `✓ Pembayaran ${result.invoice.studentName} sebesar Rp${data.amount.toLocaleString('id-ID')} berhasil dicatat & masuk ke Buku Kas!`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Gagal memproses pembayaran atomik:', err);
+      showToast(`Gagal memproses pembayaran: ${err?.message || 'Error'}`, 'error');
+      throw err;
+    }
+  };
+
+  // Mark invoice paid manually (Quick action with pre-generated idempotent paymentId)
+  const handleMarkInvoicePaid = async (id: string) => {
     const targetInv = invoices.find((inv) => inv.id === id);
     if (!targetInv) return;
 
-    const updatedTarget: Invoice = {
-      ...targetInv,
-      status: 'LUNAS',
-      paidAt: new Date().toISOString(),
-      transactionId: `BFA-TRX-MANUAL-${Math.floor(100 + Math.random() * 900)}`,
+    const remaining = targetInv.remainingAmount !== undefined 
+      ? targetInv.remainingAmount 
+      : targetInv.amount;
+    const paymentAmount = remaining > 0 ? remaining : targetInv.amount;
+    const paymentId = generateIdempotentPaymentId(id);
+
+    await handleProcessPayment({
+      paymentId,
+      invoiceId: id,
+      amount: paymentAmount,
       paymentMethod: 'Manual Verifikasi Admin',
-    };
-
-    setInvoices((prev) => {
-      const next = prev.map((inv) => (inv.id === id ? updatedTarget : inv));
-      try {
-        localStorage.setItem('bfa_invoices', JSON.stringify(next));
-      } catch {}
-      return next;
+      paymentDate: new Date().toISOString().split('T')[0],
+      note: `Pelunasan ${targetInv.type} (${targetInv.period}) - ${targetInv.studentName}`,
     });
-
-    // 1. Immediately save to Firestore online so Parent Dashboard receives update in real-time
-    saveInvoiceToFirestore(updatedTarget).catch((e) =>
-      console.warn('Firestore invoice sync error:', e)
-    );
-
-    // 2. Otomatis sinkronisasi masuk ke Buku Kas & Keuangan (Pemasukan)
-    const newCashMutation: CashMutation = {
-      id: `MUT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-      date: new Date().toISOString().split('T')[0],
-      type: 'Pemasukan',
-      category: targetInv.type === 'Bulanan' ? 'SPP Bulanan' : 'Iuran Sesi Lapangan',
-      amount: targetInv.amount,
-      note: `Pembayaran ${targetInv.type} (${targetInv.period}) - ${targetInv.studentName} [${targetInv.id}]`,
-      method: 'Tunai / Transfer',
-      staff: currentUser?.name || 'Admin BFA',
-    };
-
-    setCashMutations((prev) => {
-      const next = [newCashMutation, ...prev];
-      try {
-        localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-
-    showToast(
-      `✓ Tagihan ${targetInv.studentName} (${targetInv.type}) LUNAS & otomatis tersinkron ke Dashboard Orang Tua!`,
-      'success'
-    );
   };
 
   // Delete single invoice
@@ -1036,16 +1218,6 @@ export default function App() {
       `✓ Tagihan ${targetInv ? `${targetInv.studentName} (${targetInv.type} ${targetInv.period})` : id} berhasil dihapus.`,
       'info'
     );
-  };
-
-  // Wipe all invoices for clean real bookkeeping
-  const handleClearAllInvoices = async () => {
-    setInvoices([]);
-    try {
-      localStorage.setItem('bfa_invoices', JSON.stringify([]));
-    } catch {}
-    await wipeAllInvoicesFromFirestore();
-    showToast('Seluruh data tagihan iuran berhasil dihapus bersih (Rp0). Siap untuk pembukuan riil!', 'success');
   };
 
   // Student Form Submit (Add or Edit)
@@ -1307,58 +1479,62 @@ Official Performance Report • BFA Karawang
   };
 
   // Parent Payment Success
-  const handleParentPaymentSuccess = (method: string, trxId: string) => {
+  const handleParentPaymentSuccess = async (method: string, trxId: string) => {
     const targetStudent = activeParentStudent;
     if (!targetStudent) return;
     const nowIso = new Date().toISOString();
+    const todayStr = nowIso.slice(0, 10);
+    const paymentMethodName = method === 'QRIS' ? 'QRIS Kasir' : 'Transfer Bank BFA';
+
+    // Find unpaid/partially paid invoices for this child
+    const unpaidChildInvoices = invoices.filter(
+      (inv) => inv.studentId === targetStudent.id && inv.status !== 'LUNAS'
+    );
+
     let paidTotal = 0;
-    const updatedInvoicesToSync: Invoice[] = [];
+    for (const inv of unpaidChildInvoices) {
+      const remaining = inv.remainingAmount !== undefined 
+        ? inv.remainingAmount 
+        : inv.amount;
+      if (remaining <= 0) continue;
 
-    setInvoices((prev) => {
-      return prev.map((inv) => {
-        const isTargetChild = Boolean(targetStudent.id && inv.studentId === targetStudent.id);
+      const paymentId = generateIdempotentPaymentId(inv.id);
+      try {
+        const result = await processInvoicePaymentTransaction({
+          paymentId,
+          invoiceId: inv.id,
+          amount: remaining,
+          paymentMethod: paymentMethodName,
+          paymentDate: todayStr,
+          staffName: 'Sistem Gateway BFA',
+          transactionId: trxId,
+          note: `Pembayaran Online: ${targetStudent.name} via ${method}`,
+        });
 
-        if (isTargetChild && inv.status === 'BELUM BAYAR') {
-          paidTotal += inv.amount;
-          const paidInv: Invoice = {
-            ...inv,
-            status: 'LUNAS',
-            paidAt: nowIso,
-            transactionId: trxId,
-            paymentMethod: method === 'QRIS' ? 'QRIS' : 'Transfer Bank',
-          };
-          updatedInvoicesToSync.push(paidInv);
-          return paidInv;
-        }
-        return inv;
-      });
-    });
-
-    if (paidTotal === 0) {
-      paidTotal = 15000;
+        paidTotal += remaining;
+        setInvoices((prev) =>
+          prev.map((i) => (i.id === result.invoice.id ? result.invoice : i))
+        );
+        setCashMutations((prev) => {
+          const exists = prev.some((m) => m.id === result.mutation.id);
+          return exists ? prev : [result.mutation, ...prev];
+        });
+      } catch (err) {
+        console.warn('Gagal memproses pembayaran anak:', err);
+      }
     }
 
-    const newMut: CashMutation = {
-      id: `MUT-${String(cashMutations.length + 1).padStart(3, '0')}`,
-      date: nowIso.slice(0, 10),
-      type: 'Pemasukan',
-      category: 'Iuran Sesi Lapangan',
-      note: `Pembayaran Online: ${targetStudent.name} via ${method}`,
-      method: method === 'QRIS' ? 'QRIS Kasir' : 'Transfer Bank BFA',
-      amount: paidTotal,
-      staff: 'Sistem Gateway BFA',
-    };
-    setCashMutations((prev) => [newMut, ...prev]);
-
-    // Real-time Firestore sync
-    updatedInvoicesToSync.forEach((inv) => {
-      saveInvoiceToFirestore(inv).catch((e) => console.warn('Firestore invoice sync:', e));
-    });
-
-    showToast(
-      `✓ Pembayaran ananda ${targetStudent.name} sebesar Rp${paidTotal.toLocaleString('id-ID')} berhasil diverifikasi & tagihan otomatis LUNAS!`,
-      'success'
-    );
+    if (paidTotal > 0) {
+      showToast(
+        `✓ Pembayaran ananda ${targetStudent.name} sebesar Rp${paidTotal.toLocaleString('id-ID')} berhasil diverifikasi & tagihan LUNAS!`,
+        'success'
+      );
+    } else {
+      showToast(
+        `Pembayaran ananda ${targetStudent.name} via ${method} terverifikasi.`,
+        'success'
+      );
+    }
   };
 
   // Camera Capture Handler
@@ -1606,14 +1782,23 @@ Official Performance Report • BFA Karawang
                 />
               )}
 
+              {currentRoute === 'coaches' && (
+                <AdminCoachesView
+                  coaches={coaches}
+                  onSaveCoach={handleSaveCoach}
+                  onToggleCoachStatus={handleToggleCoachStatus}
+                  isReadOnlyPreview={!WRITE_ENABLED}
+                />
+              )}
+
               {currentRoute === 'keuangan' && (
                 <AdminKeuanganView
                   cashMutations={cashMutations}
                   invoices={invoices}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onDeleteMutation={handleDeleteMutation}
-                  onResetCash={handleResetCash}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
+                  onProcessPayment={handleProcessPayment}
                   onShowReceipt={(inv) => {
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
@@ -1663,12 +1848,12 @@ Official Performance Report • BFA Karawang
                   invoices={invoices}
                   onGenerateInvoices={handleGenerateMonthlyInvoices}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
+                  onProcessPayment={handleProcessPayment}
                   onShowReceipt={(inv) => {
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
                   }}
                   onDeleteInvoice={handleDeleteInvoice}
-                  onClearAllInvoices={handleClearAllInvoices}
                 />
               )}
             </>
@@ -1873,6 +2058,7 @@ Official Performance Report • BFA Karawang
           setScheduleToEdit(null);
         }}
         onSubmit={handleSaveSchedule}
+        coaches={coaches}
       />
 
       {/* Newly Registered Student Barcode Pass Modal */}

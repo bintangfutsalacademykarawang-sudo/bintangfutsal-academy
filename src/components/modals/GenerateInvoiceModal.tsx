@@ -21,9 +21,17 @@ export const GenerateInvoiceModal: React.FC<GenerateInvoiceModalProps> = ({
   students,
   onConfirm,
 }) => {
-  const [period, setPeriod] = useState('Oktober 2026');
-  const [dueDate, setDueDate] = useState('2026-10-10');
-  const [issueDate, setIssueDate] = useState('2026-10-01');
+  const [period, setPeriod] = useState(() => {
+    const now = new Date();
+    return now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+  });
+  const [dueDate, setDueDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-10`;
+  });
+  const [issueDate, setIssueDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [amount, setAmount] = useState(50000);
   const [selectedGroup, setSelectedGroup] = useState('ALL');
 

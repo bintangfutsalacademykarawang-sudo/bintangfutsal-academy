@@ -31,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const adminLinks = [
     { route: 'dashboard' as RouteId, label: 'Dashboard Admin', icon: Home },
     { route: 'students' as RouteId, label: 'Data Siswa', icon: Users },
+    { route: 'coaches' as RouteId, label: 'Data Pelatih', icon: Award },
     { route: 'keuangan' as RouteId, label: 'Keuangan & Buku Kas', icon: Wallet },
     { route: 'erapport' as RouteId, label: 'E-Rapport Siswa', icon: Award },
     { route: 'attendance' as RouteId, label: 'Absensi Lapangan', icon: CheckCircle },

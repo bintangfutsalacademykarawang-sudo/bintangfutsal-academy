@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrainingSchedule } from '../../types';
+import { TrainingSchedule, Coach } from '../../types';
 import { X, Calendar, Clock, MapPin, Users, Check, Plus, Layers } from 'lucide-react';
 
 interface CreateScheduleModalProps {
@@ -7,6 +7,7 @@ interface CreateScheduleModalProps {
   scheduleToEdit?: TrainingSchedule | null;
   onClose: () => void;
   onSubmit: (schedule: Omit<TrainingSchedule, 'id'>, editId?: string) => void;
+  coaches?: Coach[];
 }
 
 const AVAILABLE_COACHES = [
@@ -26,6 +27,7 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
   scheduleToEdit,
   onClose,
   onSubmit,
+  coaches = [],
 }) => {
   const [date, setDate] = useState('2026-10-02');
   const [startTime, setStartTime] = useState('14:00');
@@ -366,7 +368,10 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
 
             {/* Coach Quick Toggle Chips */}
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {AVAILABLE_COACHES.map((coach) => {
+              {((coaches && coaches.filter((c) => c.status === 'Aktif').length > 0)
+                ? coaches.filter((c) => c.status === 'Aktif').map((c) => c.name)
+                : AVAILABLE_COACHES
+              ).map((coach) => {
                 const isSelected = selectedCoaches.includes(coach);
                 return (
                   <button

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Student } from '../../types';
 import { formatDateIndo, getKUCategoryInfo } from '../../data/initialData';
 import { 
@@ -9,6 +9,8 @@ import {
   Filter, 
   X, 
   ChevronDown, 
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2, 
   Download, 
   FileSpreadsheet, 
@@ -59,17 +61,38 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   const [barcodeModalStudent, setBarcodeModalStudent] = useState<Student | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
 
+  // Pagination state for scaling to 100-500 students
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Reset page when filter, search, or pageSize changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, classFilter, pageSize]);
+
   // Filter students based on search and selected KU
-  const filtered = students.filter((st) => {
-    const matchSearch =
-      st.name.toLowerCase().includes(search.toLowerCase()) ||
-      (st.nickname && st.nickname.toLowerCase().includes(search.toLowerCase())) ||
-      st.id.toLowerCase().includes(search.toLowerCase()) ||
-      st.parentName.toLowerCase().includes(search.toLowerCase()) ||
-      (st.birthPlace && st.birthPlace.toLowerCase().includes(search.toLowerCase()));
-    const matchClass = classFilter === 'Semua' || st.classGroupId === classFilter;
-    return matchSearch && matchClass;
-  });
+  const filtered = useMemo(() => {
+    return students.filter((st) => {
+      const matchSearch =
+        st.name.toLowerCase().includes(search.toLowerCase()) ||
+        (st.nickname && st.nickname.toLowerCase().includes(search.toLowerCase())) ||
+        st.id.toLowerCase().includes(search.toLowerCase()) ||
+        st.parentName.toLowerCase().includes(search.toLowerCase()) ||
+        (st.birthPlace && st.birthPlace.toLowerCase().includes(search.toLowerCase()));
+      const matchClass = classFilter === 'Semua' || st.classGroupId === classFilter;
+      return matchSearch && matchClass;
+    });
+  }, [students, search, classFilter]);
+
+  // Derived pagination metrics
+  const totalFiltered = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+  const validCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalFiltered);
+  const paginatedStudents = useMemo(() => {
+    return filtered.slice(startIndex, endIndex);
+  }, [filtered, startIndex, endIndex]);
 
   const activeCategoryInfo = classFilter !== 'Semua' ? getKUCategoryInfo(classFilter) : null;
 
@@ -378,7 +401,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filtered.map((st) => (
+                paginatedStudents.map((st) => (
                   <tr key={st.id} className="hover:bg-blue-50/40 transition">
                     <td
                       className="px-4 py-3 font-mono font-bold text-blue-700 cursor-pointer whitespace-nowrap"
@@ -474,6 +497,85 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar for 100-500 students */}
+        {totalFiltered > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>
+                Menampilkan <strong>{startIndex + 1}–{endIndex}</strong> dari <strong>{totalFiltered}</strong> siswa
+                {totalFiltered < students.length && (
+                  <span className="text-slate-400"> (difilter dari total {students.length})</span>
+                )}
+              </span>
+              <span className="text-slate-300 hidden sm:inline">|</span>
+              <div className="flex items-center space-x-1 text-[11px]">
+                <span>Tampilkan:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="bg-white border border-slate-300 rounded-lg px-2 py-0.5 text-xs text-slate-700 font-bold focus:outline-none focus:border-blue-500 shadow-2xs"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>/ hal</span>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1.5 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validCurrentPage <= 1}
+                className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 shadow-2xs active:scale-95 text-[11px]"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sebelumnya</span>
+              </button>
+
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) => {
+                    if (totalPages <= 7) return true;
+                    if (page === 1 || page === totalPages) return true;
+                    return Math.abs(page - validCurrentPage) <= 1;
+                  })
+                  .map((page, idx, arr) => {
+                    const prev = arr[idx - 1];
+                    const showEllipsis = prev && page - prev > 1;
+                    return (
+                      <React.Fragment key={page}>
+                        {showEllipsis && <span className="px-1 text-slate-400">...</span>}
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(page)}
+                          className={`w-7 h-7 rounded-lg font-bold text-xs transition flex items-center justify-center ${
+                            validCurrentPage === page
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validCurrentPage >= totalPages}
+                className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 font-bold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 shadow-2xs active:scale-95 text-[11px]"
+              >
+                <span className="hidden sm:inline">Selanjutnya</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Category Filter Popup Modal (U3 - U30) */}
