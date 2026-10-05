@@ -98,11 +98,28 @@ import {
   db
 } from './firebase';
 
-// Explicit Production Write Guard: Default is strictly FALSE.
-// Writes to Cloud Firestore for coaches are blocked unless explicitly configured in production.
-const WRITE_ENABLED = 
-  import.meta.env.PROD === true && 
-  (import.meta.env as any).VITE_ENABLE_FIRESTORE_WRITE === 'true';
+// Explicit Production Write Allowlist:
+// Only official BFA production hostnames ("bfa.my.id" and "www.bfa.my.id") are granted write permission to Cloud Firestore.
+// All preview environments (*.run.app), localhost, 127.0.0.1, or other hostnames are strictly READ-ONLY (WRITE_ENABLED = false).
+const getIsProductionWriteEnabled = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const hostname = window.location.hostname.toLowerCase();
+
+  // Explicit deny checks
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.run.app')) {
+    return false;
+  }
+
+  // Explicit allowlist: only official BFA production domain
+  if (hostname === 'bfa.my.id' || hostname === 'www.bfa.my.id') {
+    return true;
+  }
+
+  // All other hostnames default to false (read-only)
+  return false;
+};
+
+const WRITE_ENABLED = getIsProductionWriteEnabled();
 
 export default function App() {
   // Authentication session state (null = show Login Page)
