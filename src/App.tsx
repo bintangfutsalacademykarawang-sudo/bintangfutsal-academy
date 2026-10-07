@@ -737,11 +737,14 @@ export default function App() {
   const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
   const [candidateNextId, setCandidateNextId] = useState<string>('BFA-039');
 
-  useEffect(() => {
+  // On-demand fetch of candidate preview ID only when opening form to add a new student
+  const handleOpenAddStudent = () => {
+    setStudentToEdit(null);
+    setIsStudentFormOpen(true);
     peekNextStudentId().then((id) => {
       if (id) setCandidateNextId(id);
     });
-  }, [students.length, isStudentFormOpen]);
+  };
 
   // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
   useEffect(() => {
@@ -1741,10 +1744,7 @@ Official Performance Report • BFA Karawang
           students={students}
           onLogin={handleLogin}
           onShowToast={showToast}
-          onOpenRegister={() => {
-            setStudentToEdit(null);
-            setIsStudentFormOpen(true);
-          }}
+          onOpenRegister={handleOpenAddStudent}
           prefilledIdentifier={registeredStudentId}
           onResetStudentPassword={handleResetStudentPassword}
           onResetAdminPassword={handleResetAdminPassword}
@@ -1839,10 +1839,7 @@ Official Performance Report • BFA Karawang
               {currentRoute === 'students' && (
                 <AdminStudentsView
                   students={students}
-                  onOpenAddStudent={() => {
-                    setStudentToEdit(null);
-                    setIsStudentFormOpen(true);
-                  }}
+                  onOpenAddStudent={handleOpenAddStudent}
                   onOpenEditStudent={(st) => {
                     setStudentToEdit(st);
                     setIsStudentFormOpen(true);
