@@ -174,7 +174,7 @@ export function subscribeToAttendances(
   maxLimit: number = 200
 ) {
   const collRef = collection(db, ATTENDANCES_COLLECTION);
-  const q = maxLimit > 0 ? query(collRef, limit(maxLimit)) : collRef;
+  const q = maxLimit > 0 ? query(collRef, orderBy('date', 'desc'), limit(maxLimit)) : collRef;
   return onSnapshot(
     q,
     (snapshot) => {

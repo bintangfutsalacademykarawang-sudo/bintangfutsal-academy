@@ -513,9 +513,10 @@ export default function App() {
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (role === 'admin') {
+    if (currentUser?.role === 'admin') {
       const adminAttendanceRoutes: RouteId[] = ['dashboard', 'attendance', 'erapport', 'fingerprint'];
       if (adminAttendanceRoutes.includes(currentRoute)) {
+        const attendanceLimit = currentRoute === 'dashboard' ? 40 : 200;
         unsub = subscribeToAttendances((cloudAttendances) => {
           if (cloudAttendances) {
             const realAttendances = cloudAttendances.filter(
@@ -523,7 +524,7 @@ export default function App() {
             );
             setAttendances(realAttendances);
           }
-        }, undefined, 200);
+        }, undefined, attendanceLimit);
       }
     } else if (role === 'parent' && activeParentStudent?.id) {
       const parentAttendanceRoutes: RouteId[] = ['parent-dashboard', 'parent-attendance', 'parent-report'];
@@ -539,7 +540,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [role, currentRoute, activeParentStudent?.id]);
+  }, [currentUser, role, currentRoute, activeParentStudent?.id]);
 
   // Lifecycle-scoped listener for Student Reports: Active only when viewing E-Rapport routes
   useEffect(() => {
