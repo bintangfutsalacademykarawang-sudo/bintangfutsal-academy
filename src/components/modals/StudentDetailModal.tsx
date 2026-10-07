@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Student, SkillIndicator, Invoice, Attendance } from '../../types';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
-import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Trash2 } from 'lucide-react';
+import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Archive, RotateCcw } from 'lucide-react';
 import { BarcodeDisplay } from '../common/BarcodeDisplay';
 import { StudentBarcodeModal } from './StudentBarcodeModal';
 
@@ -13,6 +13,8 @@ interface StudentDetailModalProps {
   attendances: Attendance[];
   onClose: () => void;
   onEdit: (student: Student) => void;
+  onArchive?: (student: Student) => void;
+  onReactivate?: (student: Student) => void;
   onDelete?: (student: Student) => void;
 }
 
@@ -24,11 +26,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   attendances,
   onClose,
   onEdit,
+  onArchive,
+  onReactivate,
   onDelete,
 }) => {
   const [subtab, setSubtab] = useState<'overview' | 'barcode' | 'absensi' | 'pembayaran' | 'rapor' | 'berkas'>('overview');
   const [isBarcodeCardOpen, setIsBarcodeCardOpen] = useState(false);
-  const [isConfirmDelete, setIsConfirmDelete] = useState(false);
+  const [isConfirmArchive, setIsConfirmArchive] = useState(false);
+  const [isConfirmReactivate, setIsConfirmReactivate] = useState(false);
 
   if (!isOpen || !student) return null;
 
@@ -71,6 +76,13 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     Panggilan: {student.nickname}
                   </span>
                 )}
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                  student.status === 'Aktif'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-slate-100 text-slate-700 border-slate-300'
+                }`}>
+                  {student.status || 'Aktif'}
+                </span>
               </div>
               <p className="text-xs text-slate-500">
                 {student.id} • Kelompok: <strong className="text-blue-700">{student.classGroupId}</strong> • Posisi: <strong className="text-orange-600">{student.position || 'Belum Ditentukan'} (#{student.jerseyNumber || '-'})</strong>
@@ -100,16 +112,30 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <span>Edit Data</span>
             </button>
 
-            {onDelete && (
-              <button
-                type="button"
-                onClick={() => setIsConfirmDelete(true)}
-                className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
-                title="Hapus Data Atlet Ini"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>Hapus</span>
-              </button>
+            {student.status === 'Aktif' ? (
+              onArchive && (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmArchive(true)}
+                  className="px-3.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-bold border border-amber-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                  title="Arsipkan Data Atlet Ini (Non-Aktif)"
+                >
+                  <Archive className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Arsipkan</span>
+                </button>
+              )
+            ) : (
+              onReactivate && (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmReactivate(true)}
+                  className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                  title="Aktifkan Kembali Atlet Ini"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Aktifkan Kembali</span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -325,23 +351,23 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           onClose={() => setIsBarcodeCardOpen(false)}
         />
 
-        {/* Modal Konfirmasi Hapus Siswa */}
-        {isConfirmDelete && (
+        {/* Modal Konfirmasi Arsipkan Siswa */}
+        {isConfirmArchive && (
           <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
-                <Trash2 className="w-6 h-6" />
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Archive className="w-6 h-6" />
               </div>
               <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
-                Hapus Data Siswa?
+                Arsipkan Siswa?
               </h3>
-              <p className="text-xs text-slate-500 text-center mt-1">
-                Data atlet <strong>{student.name} ({student.id})</strong> akan dihapus permanen dari sistem dan database online.
+              <p className="text-xs text-slate-500 text-center mt-1 leading-relaxed">
+                Siswa <strong>{student.name} ({student.id})</strong> akan menjadi <strong>Non-Aktif</strong> dan tidak akan menerima tagihan SPP baru. Seluruh histori pembayaran, absensi, dan E-Rapor tetap aman tersimpan di BFA HUB.
               </p>
               <div className="grid grid-cols-2 gap-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsConfirmDelete(false)}
+                  onClick={() => setIsConfirmArchive(false)}
                   className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
                 >
                   Batal
@@ -349,14 +375,52 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setIsConfirmDelete(false);
-                    onDelete?.(student);
+                    setIsConfirmArchive(false);
+                    onArchive?.(student);
                     onClose();
                   }}
-                  className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+                  className="py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs shadow-md shadow-amber-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Ya, Hapus</span>
+                  <Archive className="w-3.5 h-3.5" />
+                  <span>Arsipkan Siswa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Konfirmasi Aktifkan Kembali Siswa */}
+        {isConfirmReactivate && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
+                Aktifkan Kembali Siswa?
+              </h3>
+              <p className="text-xs text-slate-500 text-center mt-1 leading-relaxed">
+                Siswa <strong>{student.name} ({student.id})</strong> akan kembali berstatus <strong>Aktif</strong> dan dapat mengikuti sesi latihan serta administrasi akademi secara normal.
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmReactivate(false)}
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsConfirmReactivate(false);
+                    onReactivate?.(student);
+                    onClose();
+                  }}
+                  className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md shadow-emerald-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Aktifkan Kembali</span>
                 </button>
               </div>
             </div>

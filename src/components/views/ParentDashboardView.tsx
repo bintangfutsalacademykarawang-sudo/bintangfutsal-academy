@@ -106,6 +106,18 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
+      {/* Non-Active / Archive Status Notice */}
+      {student?.status === 'Non-Aktif' && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-700 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0"></span>
+            <span>
+              Status Keanggotaan: <strong>Non-Aktif / Alumni</strong>. Seluruh riwayat presensi, tagihan pembayaran, dan E-Rapor ananda tetap tersimpan aman di sistem BFA HUB.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Sibling / Multi-Child Family Switcher Banner */}
       {siblings.length > 1 && (
         <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white rounded-3xl p-4 sm:p-5 shadow-sm border border-blue-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -191,9 +203,19 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
                 <span className="text-[10px] uppercase font-bold tracking-wider text-blue-700 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded-md">
                   WALI ATLET BFA
                 </span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                  Aktif
-                </span>
+                {student?.status === 'Non-Aktif' ? (
+                  <span className="text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-300 px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow-2xs">
+                    <span className="text-slate-500 font-medium">Status Keanggotaan:</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                    <span>Non-Aktif / Alumni</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow-2xs">
+                    <span className="text-emerald-700/80 font-medium">Status Keanggotaan:</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span>Aktif</span>
+                  </span>
+                )}
               </div>
 
               <h1 className="text-lg sm:text-xl font-black text-blue-950 tracking-tight">

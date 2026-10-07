@@ -46,12 +46,13 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
   const [time, setTime] = useState(() => activeSchedule?.startTime || '14:02:15');
   const [status, setStatus] = useState<'HADIR' | 'TIDAK_HADIR'>('HADIR');
 
+  const activeStudentsList = students.filter((s) => s.status === 'Aktif');
   const filteredStudents = activeSchedule
-    ? students.filter((s) => s.classGroupId === activeSchedule.classGroupId)
-    : students;
+    ? activeStudentsList.filter((s) => s.classGroupId === activeSchedule.classGroupId)
+    : activeStudentsList;
 
   const [selectedStudentId, setSelectedStudentId] = useState(
-    () => (filteredStudents[0]?.id || students[0]?.id || '')
+    () => (filteredStudents[0]?.id || activeStudentsList[0]?.id || '')
   );
 
   // Barcode Gun / Manual Input State
@@ -229,8 +230,8 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
     if (!rawText || isCooldownRef.current) return;
     const clean = rawText.trim().replace(/^\*|\*$/g, '').toUpperCase();
     
-    // Match by ID (exact or without BFA prefix) or Name
-    const found = students.find((s) => {
+    // Match by ID (exact or without BFA prefix) or Name (active students only)
+    const found = students.filter((s) => s.status === 'Aktif').find((s) => {
       const studentId = s.id.toUpperCase();
       const studentName = s.name.toUpperCase();
       return (
@@ -338,7 +339,7 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
     if (found) {
       setDate(found.date);
       setTime(`${found.startTime}:05`);
-      const matchedStudents = students.filter((s) => s.classGroupId === found.classGroupId);
+      const matchedStudents = students.filter((s) => s.status === 'Aktif' && s.classGroupId === found.classGroupId);
       if (matchedStudents.length > 0) {
         setSelectedStudentId(matchedStudents[0].id);
       }

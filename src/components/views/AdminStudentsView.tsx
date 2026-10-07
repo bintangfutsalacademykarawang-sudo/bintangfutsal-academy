@@ -19,7 +19,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Cloud,
-  CloudOff
+  CloudOff,
+  Archive,
+  RotateCcw
 } from 'lucide-react';
 import { CategoryFilterModal } from '../modals/CategoryFilterModal';
 import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
@@ -41,7 +43,9 @@ interface AdminStudentsViewProps {
   onOpenAddStudent: () => void;
   onOpenEditStudent: (student: Student) => void;
   onOpenDetailStudent: (student: Student) => void;
-  onDeleteStudent: (student: Student) => void;
+  onArchiveStudent?: (student: Student) => void;
+  onReactivateStudent?: (student: Student) => void;
+  onDeleteStudent?: (student: Student) => void;
   cloudSyncStatus?: CloudSyncStatusInfo;
   onRetrySync?: () => void;
 }
@@ -51,26 +55,35 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   onOpenAddStudent,
   onOpenEditStudent,
   onOpenDetailStudent,
+  onArchiveStudent,
+  onReactivateStudent,
   onDeleteStudent,
   cloudSyncStatus,
   onRetrySync,
 }) => {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('Semua');
+  const [statusFilter, setStatusFilter] = useState<'Aktif' | 'Non-Aktif' | 'Semua'>('Aktif');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [barcodeModalStudent, setBarcodeModalStudent] = useState<Student | null>(null);
-  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [studentToArchive, setStudentToArchive] = useState<Student | null>(null);
+  const [studentToReactivate, setStudentToReactivate] = useState<Student | null>(null);
+
+  // Status counts (100% computed from React memory data)
+  const countTotal = students.length;
+  const countActive = useMemo(() => students.filter((s) => s.status === 'Aktif').length, [students]);
+  const countInactive = useMemo(() => students.filter((s) => s.status === 'Non-Aktif').length, [students]);
 
   // Pagination state for scaling to 100-500 students
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // Reset page when filter, search, or pageSize changes
+  // Reset page when filter, search, status, or pageSize changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, classFilter, pageSize]);
+  }, [search, classFilter, statusFilter, pageSize]);
 
-  // Filter students based on search and selected KU
+  // Filter students based on search, selected KU, and active status
   const filtered = useMemo(() => {
     return students.filter((st) => {
       const matchSearch =
@@ -80,9 +93,10 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
         st.parentName.toLowerCase().includes(search.toLowerCase()) ||
         (st.birthPlace && st.birthPlace.toLowerCase().includes(search.toLowerCase()));
       const matchClass = classFilter === 'Semua' || st.classGroupId === classFilter;
-      return matchSearch && matchClass;
+      const matchStatus = statusFilter === 'Semua' || st.status === statusFilter;
+      return matchSearch && matchClass && matchStatus;
     });
-  }, [students, search, classFilter]);
+  }, [students, search, classFilter, statusFilter]);
 
   // Derived pagination metrics
   const totalFiltered = filtered.length;
@@ -113,11 +127,11 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
             }`}>
               {cloudSyncStatus?.isPartialCache && students.length < (cloudSyncStatus.expectedCount || 24)
                 ? `${students.length} Siswa (Cache Parsial Lokal • Cloud: ${cloudSyncStatus.expectedCount || 24} Siswa)`
-                : `Total ${students.length} Siswa`}
+                : `${countActive} Siswa Aktif • ${countInactive} Arsip (Total ${countTotal})`}
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Daftar atlet BFA terdaftar, filter kelompok umur (KU U3 - U30), tempat lahir, wali murid, dan berkas.
+            Daftar atlet BFA terdaftar, filter status aktif/arsip, kelompok umur (KU U3 - U30), tempat lahir, wali murid, dan berkas.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
@@ -232,6 +246,53 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
           )}
         </div>
       )}
+
+      {/* Status Segmented Filter Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('Semua')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+              statusFilter === 'Semua'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <span>Semua ({countTotal})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter('Aktif')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+              statusFilter === 'Aktif'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${statusFilter === 'Aktif' ? 'bg-white' : 'bg-emerald-500'}`}></span>
+            <span>Aktif ({countActive})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter('Non-Aktif')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+              statusFilter === 'Non-Aktif'
+                ? 'bg-slate-800 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${statusFilter === 'Non-Aktif' ? 'bg-white' : 'bg-slate-400'}`}></span>
+            <span>Arsip / Non-Aktif ({countInactive})</span>
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-500 px-2 font-medium">
+          Menampilkan: <strong className="text-slate-900">{filtered.length}</strong> siswa ({statusFilter === 'Semua' ? 'Semua Status' : statusFilter === 'Aktif' ? 'Siswa Aktif' : 'Arsip Siswa / Non-Aktif'})
+        </div>
+      </div>
 
       {/* Search & Filter Bar */}
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200 flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between shadow-xs">
@@ -482,13 +543,23 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => setStudentToDelete(st)}
-                          title={`Hapus Data ${st.name}`}
-                          className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-slate-200 hover:border-rose-300 transition shadow-xs active:scale-95"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {st.status === 'Aktif' ? (
+                          <button
+                            onClick={() => setStudentToArchive(st)}
+                            title={`Arsipkan Data ${st.name} (Non-Aktifkan)`}
+                            className="p-1.5 bg-white hover:bg-amber-50 text-amber-600 rounded-lg border border-slate-200 hover:border-amber-300 transition shadow-xs active:scale-95"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setStudentToReactivate(st)}
+                            title={`Aktifkan Kembali Siswa ${st.name}`}
+                            className="p-1.5 bg-white hover:bg-emerald-50 text-emerald-600 rounded-lg border border-slate-200 hover:border-emerald-300 transition shadow-xs active:scale-95"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -594,45 +665,45 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
         onClose={() => setBarcodeModalStudent(null)}
       />
 
-      {/* Modal Konfirmasi Hapus Siswa */}
-      {studentToDelete && (
+      {/* Modal Konfirmasi Arsipkan Siswa */}
+      {studentToArchive && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
             <button
-              onClick={() => setStudentToDelete(null)}
+              onClick={() => setStudentToArchive(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-lg"
               title="Tutup"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
-              <Trash2 className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+              <Archive className="w-6 h-6" />
             </div>
 
             <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
-              Hapus Data Siswa?
+              Arsipkan Siswa?
             </h3>
             
-            <p className="text-xs text-slate-500 text-center mt-1">
-              Data atlet ini akan dihapus permanen dari sistem BFA Hub & database online.
+            <p className="text-xs text-slate-500 text-center mt-1 leading-relaxed">
+              Siswa ini akan menjadi <strong>Non-Aktif</strong> dan tidak akan menerima tagihan SPP baru. Seluruh histori pembayaran, absensi, dan E-Rapor tetap aman tersimpan di BFA HUB.
             </p>
 
             <div className="my-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center space-x-3">
               <img
-                src={studentToDelete.avatar}
-                alt={studentToDelete.name}
+                src={studentToArchive.avatar}
+                alt={studentToArchive.name}
                 className="w-11 h-11 rounded-xl object-cover border border-slate-300 shrink-0"
               />
               <div className="overflow-hidden">
                 <span className="font-extrabold text-xs text-slate-900 block truncate">
-                  {studentToDelete.name}
+                  {studentToArchive.name}
                 </span>
                 <span className="text-[10px] text-blue-700 font-mono font-bold block">
-                  {studentToDelete.id} • KU {studentToDelete.classGroupId}
+                  {studentToArchive.id} • KU {studentToArchive.classGroupId}
                 </span>
                 <span className="text-[10px] text-slate-500 block truncate">
-                  Wali: {studentToDelete.parentName}
+                  Wali: {studentToArchive.parentName}
                 </span>
               </div>
             </div>
@@ -640,7 +711,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setStudentToDelete(null)}
+                onClick={() => setStudentToArchive(null)}
                 className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
               >
                 Batal
@@ -648,13 +719,84 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  onDeleteStudent(studentToDelete);
-                  setStudentToDelete(null);
+                  if (onArchiveStudent) {
+                    onArchiveStudent(studentToArchive);
+                  }
+                  setStudentToArchive(null);
                 }}
-                className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+                className="py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl text-xs shadow-md shadow-amber-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Ya, Hapus</span>
+                <Archive className="w-3.5 h-3.5" />
+                <span>Arsipkan Siswa</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Aktifkan Kembali Siswa */}
+      {studentToReactivate && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200">
+            <button
+              onClick={() => setStudentToReactivate(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-lg"
+              title="Tutup"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
+              Aktifkan Kembali Siswa?
+            </h3>
+            
+            <p className="text-xs text-slate-500 text-center mt-1 leading-relaxed">
+              Siswa ini akan kembali menjadi <strong>Aktif</strong> dan dapat mengikuti sesi latihan serta administrasi akademi secara normal.
+            </p>
+
+            <div className="my-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center space-x-3">
+              <img
+                src={studentToReactivate.avatar}
+                alt={studentToReactivate.name}
+                className="w-11 h-11 rounded-xl object-cover border border-slate-300 shrink-0"
+              />
+              <div className="overflow-hidden">
+                <span className="font-extrabold text-xs text-slate-900 block truncate">
+                  {studentToReactivate.name}
+                </span>
+                <span className="text-[10px] text-emerald-700 font-mono font-bold block">
+                  {studentToReactivate.id} • KU {studentToReactivate.classGroupId}
+                </span>
+                <span className="text-[10px] text-slate-500 block truncate">
+                  Wali: {studentToReactivate.parentName}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setStudentToReactivate(null)}
+                className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onReactivateStudent) {
+                    onReactivateStudent(studentToReactivate);
+                  }
+                  setStudentToReactivate(null);
+                }}
+                className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md shadow-emerald-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Aktifkan Kembali</span>
               </button>
             </div>
           </div>

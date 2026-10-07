@@ -70,7 +70,6 @@ import {
   testFirestoreConnection,
   seedInitialFirestoreDataIfEmpty,
   saveStudentToFirestore,
-  deleteStudentFromFirestore,
   saveReportToFirestore,
   saveInvoiceToFirestore,
   deleteInvoiceFromFirestore,
@@ -1671,45 +1670,71 @@ Official Performance Report • BFA Karawang
     setIsStudentFormOpen(true);
   };
 
-  const handleDeleteStudent = (student: Student) => {
-    // 1. Remove from students list
-    setStudents((prev) => {
-      const next = prev.filter((s) => s.id !== student.id);
-      try {
-        localStorage.setItem('bfa_students', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+  // Archive Student Handler (Safe soft-delete: updates status to Non-Aktif, preserving student doc & all history)
+  const handleArchiveStudent = async (student: Student) => {
+    const updatedStudent: Student = {
+      ...student,
+      status: 'Non-Aktif',
+    };
 
-    // 2. Remove associated e-rapport report
-    setStudentReports((prev) => {
-      const copy = { ...prev };
-      delete copy[student.id];
-      try {
-        localStorage.setItem('bfa_student_reports', JSON.stringify(copy));
-      } catch {}
-      return copy;
-    });
-
-    // 3. Remove custom password if stored
     try {
-      const raw = localStorage.getItem('bfa_student_passwords');
-      if (raw) {
-        const map = JSON.parse(raw);
-        delete map[student.id];
-        localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
-      }
-    } catch {}
+      await saveStudentToFirestore(updatedStudent);
 
-    // 4. Remove from online Firestore database
-    deleteStudentFromFirestore(student.id).catch((e) =>
-      console.warn('Firestore student delete error:', e)
-    );
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? updatedStudent : s))
+      );
 
-    // 5. Close detail modal if open
-    setIsStudentDetailOpen(false);
+      try {
+        const saved = localStorage.getItem('bfa_students');
+        if (saved) {
+          const list: Student[] = JSON.parse(saved);
+          const next = list.map((s) => (s.id === student.id ? updatedStudent : s));
+          localStorage.setItem('bfa_students', JSON.stringify(next));
+        }
+      } catch {}
 
-    showToast(`✓ Data siswa ${student.name} (${student.id}) berhasil dihapus.`, 'success');
+      setIsStudentDetailOpen(false);
+      showToast(`✓ Siswa ${student.name} (${student.id}) berhasil diarsipkan (Non-Aktif). Seluruh data & histori tetap tersimpan aman.`, 'success');
+    } catch (err: any) {
+      console.error('[Firestore] Gagal mengarsipkan siswa:', err);
+      showToast(`Gagal mengarsipkan siswa: ${err?.message || 'Error koneksi database'}`, 'error');
+    }
+  };
+
+  // Reactivate Student Handler
+  const handleReactivateStudent = async (student: Student) => {
+    const updatedStudent: Student = {
+      ...student,
+      status: 'Aktif',
+    };
+
+    try {
+      await saveStudentToFirestore(updatedStudent);
+
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? updatedStudent : s))
+      );
+
+      try {
+        const saved = localStorage.getItem('bfa_students');
+        if (saved) {
+          const list: Student[] = JSON.parse(saved);
+          const next = list.map((s) => (s.id === student.id ? updatedStudent : s));
+          localStorage.setItem('bfa_students', JSON.stringify(next));
+        }
+      } catch {}
+
+      setIsStudentDetailOpen(false);
+      showToast(`✓ Siswa ${student.name} (${student.id}) berhasil diaktifkan kembali!`, 'success');
+    } catch (err: any) {
+      console.error('[Firestore] Gagal mengaktifkan kembali siswa:', err);
+      showToast(`Gagal mengaktifkan kembali siswa: ${err?.message || 'Error koneksi database'}`, 'error');
+    }
+  };
+
+  const handleDeleteStudent = (student: Student) => {
+    // Audit Tahap 1: Hard delete diblokir. Alur diarahkan ke arsip aman (status: 'Non-Aktif')
+    handleArchiveStudent(student);
   };
 
   const handleResetStudentPassword = (studentId: string, newPass: string) => {
@@ -1878,6 +1903,8 @@ Official Performance Report • BFA Karawang
                     setIsStudentFormOpen(true);
                   }}
                   onOpenDetailStudent={handleOpenDetail}
+                  onArchiveStudent={handleArchiveStudent}
+                  onReactivateStudent={handleReactivateStudent}
                   onDeleteStudent={handleDeleteStudent}
                   cloudSyncStatus={cloudSyncStatus}
                   onRetrySync={handleManualSyncCloud}
@@ -2099,6 +2126,8 @@ Official Performance Report • BFA Karawang
         attendances={attendances}
         onClose={() => setIsStudentDetailOpen(false)}
         onEdit={handleEditFromDetail}
+        onArchive={role === 'admin' ? handleArchiveStudent : undefined}
+        onReactivate={role === 'admin' ? handleReactivateStudent : undefined}
         onDelete={role === 'admin' ? handleDeleteStudent : undefined}
       />
 
