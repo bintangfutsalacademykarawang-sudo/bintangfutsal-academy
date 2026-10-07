@@ -1077,6 +1077,147 @@ export async function processInvoicePaymentTransaction(
   });
 }
 
+// --- ATOMIC CANCEL INVOICE PAYMENT TRANSACTION ---
+export interface CancelPaymentInput {
+  invoiceId: string;
+  paymentId: string;
+  staffName?: string;
+  reason?: string;
+}
+
+export interface CancelPaymentResult {
+  success: boolean;
+  invoice: Invoice;
+  cancelledPaymentId: string;
+  cancelledAmount: number;
+  cancelledMutationId: string;
+  newPaidAmount: number;
+  newRemainingAmount: number;
+  newStatus: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR';
+}
+
+export async function cancelInvoicePaymentTransaction(
+  input: CancelPaymentInput
+): Promise<CancelPaymentResult> {
+  const { invoiceId, paymentId, staffName, reason } = input;
+
+  if (!invoiceId || typeof invoiceId !== 'string' || !invoiceId.trim()) {
+    throw new Error('Parameter invoiceId wajib diisi.');
+  }
+  if (!paymentId || typeof paymentId !== 'string' || !paymentId.trim()) {
+    throw new Error('Parameter paymentId wajib diisi.');
+  }
+
+  const cleanInvoiceId = invoiceId.trim();
+  const cleanPaymentId = paymentId.trim();
+
+  const invoiceDocRef = doc(db, INVOICES_COLLECTION, cleanInvoiceId);
+  const paymentDocRef = doc(db, INVOICE_PAYMENTS_COLLECTION, cleanPaymentId);
+
+  return await runTransaction(db, async (transaction) => {
+    // 1. Baca invoice berdasarkan invoiceId
+    const invSnap = await transaction.get(invoiceDocRef);
+    if (!invSnap.exists()) {
+      throw new Error(`Tagihan dengan ID "${cleanInvoiceId}" tidak ditemukan di database.`);
+    }
+    const currentInv = invSnap.data() as Invoice;
+
+    // 2. Baca payment berdasarkan paymentId (Proteksi Idempotency & Double Click)
+    const paySnap = await transaction.get(paymentDocRef);
+    if (!paySnap.exists()) {
+      throw new Error(`Data pembayaran dengan ID "${cleanPaymentId}" tidak ditemukan atau sudah dibatalkan.`);
+    }
+    const currentPay = paySnap.data() as InvoicePayment;
+
+    // 3. Validasi kepemilikan pembayaran terhadap invoice
+    if (currentPay.invoiceId !== cleanInvoiceId) {
+      throw new Error(`Pembayaran "${cleanPaymentId}" tidak terdaftar pada tagihan "${cleanInvoiceId}". Transaksi dibatalkan.`);
+    }
+
+    if (currentPay.studentId && currentInv.studentId && currentPay.studentId !== currentInv.studentId) {
+      throw new Error('Data siswa pada pembayaran tidak cocok dengan data siswa pada tagihan.');
+    }
+
+    const cancelledAmount = Number(currentPay.amount) || 0;
+    if (cancelledAmount <= 0) {
+      throw new Error('Nominal pada data pembayaran tidak valid (<= 0).');
+    }
+
+    // 4. Ambil mutationId dari payment (payment.mutationId atau ID MUT_{paymentId})
+    const mutationId = currentPay.mutationId || `MUT_${cleanPaymentId}`;
+    const mutationDocRef = doc(db, CASH_MUTATIONS_COLLECTION, mutationId);
+
+    // 5. Baca cashMutation terkait
+    const mutSnap = await transaction.get(mutationDocRef);
+
+    // 6. Validasi cashMutation jika dokumen ditemukan
+    if (mutSnap.exists()) {
+      const currentMut = mutSnap.data() as CashMutation;
+      if (currentMut.source && currentMut.source !== 'INVOICE_PAYMENT') {
+        throw new Error(`Mutasi kas "${mutationId}" bukan merupakan transaksi yang bersumber dari pembayaran tagihan (source !== INVOICE_PAYMENT).`);
+      }
+      if (currentMut.paymentId && currentMut.paymentId !== cleanPaymentId) {
+        throw new Error(`Relasi paymentId pada mutasi kas (${currentMut.paymentId}) tidak cocok dengan paymentId yang dibatalkan (${cleanPaymentId}).`);
+      }
+      if (currentMut.invoiceId && currentMut.invoiceId !== cleanInvoiceId) {
+        throw new Error(`Relasi invoiceId pada mutasi kas (${currentMut.invoiceId}) tidak cocok dengan invoiceId yang dibatalkan (${cleanInvoiceId}).`);
+      }
+    }
+
+    // 7. Perhitungan matematis pemulihan nilai invoice
+    const invTotal = Number(currentInv.amount) || 0;
+    const oldPaidAmount = currentInv.paidAmount !== undefined
+      ? Number(currentInv.paidAmount) || 0
+      : (currentInv.status === 'LUNAS' ? invTotal : 0);
+
+    const newPaidAmount = Math.max(0, oldPaidAmount - cancelledAmount);
+    const newRemainingAmount = Math.max(0, invTotal - newPaidAmount);
+
+    let newStatus: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR';
+    if (newRemainingAmount <= 0) {
+      newStatus = 'LUNAS';
+    } else if (newPaidAmount > 0) {
+      newStatus = 'SEBAGIAN';
+    } else {
+      newStatus = 'BELUM BAYAR';
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // 8. Dokumen invoice yang dikoreksi (pertahankan seluruh field lain)
+    const updatedInvoice: Invoice = {
+      ...currentInv,
+      paidAmount: newPaidAmount,
+      remainingAmount: newRemainingAmount,
+      status: newStatus,
+      paidAt: newStatus === 'LUNAS' ? (currentInv.paidAt || nowIso) : '',
+      transactionId: newPaidAmount > 0 ? (currentInv.transactionId || '') : '',
+      paymentMethod: newPaidAmount > 0 ? (currentInv.paymentMethod || '') : '',
+      updatedAt: nowIso,
+    };
+
+    // 9. Eksekusi atomik: Hapus Payment + Hapus CashMutation + Update Invoice
+    transaction.delete(paymentDocRef);
+
+    if (mutSnap.exists()) {
+      transaction.delete(mutationDocRef);
+    }
+
+    transaction.set(invoiceDocRef, cleanForFirestore(updatedInvoice), { merge: true });
+
+    return {
+      success: true,
+      invoice: updatedInvoice,
+      cancelledPaymentId: cleanPaymentId,
+      cancelledAmount,
+      cancelledMutationId: mutationId,
+      newPaidAmount,
+      newRemainingAmount,
+      newStatus,
+    };
+  });
+}
+
 // --- SCHEDULE OPERATIONS ---
 
 export async function saveScheduleToFirestore(schedule: TrainingSchedule): Promise<void> {

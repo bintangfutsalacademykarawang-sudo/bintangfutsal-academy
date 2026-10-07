@@ -17,7 +17,9 @@ import {
   Calendar,
   AlertTriangle,
   ChevronDown,
-  Loader2
+  Loader2,
+  RotateCcw,
+  X
 } from 'lucide-react';
 import { exportFinancePDF } from '../../utils/exportFinancePDF';
 import { exportFinanceExcel, exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
@@ -41,6 +43,12 @@ interface AdminKeuanganViewProps {
   onProcessPayment?: (data: PaymentSubmitData) => Promise<void> | void;
   onShowReceipt?: (invoice: Invoice) => void;
   onGenerateInvoices?: () => void;
+  onCancelInvoicePayment?: (data: {
+    invoiceId: string;
+    paymentId: string;
+    staffName?: string;
+    reason: string;
+  }) => Promise<any>;
 }
 
 export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
@@ -52,6 +60,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   onProcessPayment,
   onShowReceipt,
   onGenerateInvoices,
+  onCancelInvoicePayment,
 }) => {
   const [activeTab, setActiveTab] = useState<'buku-kas' | 'tagihan-iuran'>('buku-kas');
 
@@ -63,6 +72,56 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   const [filterCategory, setFilterCategory] = useState('Semua');
   const [search, setSearch] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+
+  // Payment Correction State (Khusus INVOICE_PAYMENT)
+  const [mutationToCorrect, setMutationToCorrect] = useState<CashMutation | null>(null);
+  const [correctionReason, setCorrectionReason] = useState<string>('');
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const [isCancellingPayment, setIsCancellingPayment] = useState<boolean>(false);
+
+  const handleConfirmCorrection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mutationToCorrect || isCancellingPayment) return;
+
+    const trimmedReason = correctionReason.trim();
+    if (!trimmedReason) {
+      setCorrectionError('Alasan koreksi wajib diisi.');
+      return;
+    }
+
+    if (!mutationToCorrect.invoiceId || !mutationToCorrect.paymentId) {
+      setCorrectionError('Data relasi tagihan atau paymentId tidak lengkap.');
+      return;
+    }
+
+    if (!onCancelInvoicePayment) {
+      setCorrectionError('Handler pembatalan pembayaran belum terhubung.');
+      return;
+    }
+
+    try {
+      setIsCancellingPayment(true);
+      setCorrectionError(null);
+
+      await onCancelInvoicePayment({
+        invoiceId: mutationToCorrect.invoiceId,
+        paymentId: mutationToCorrect.paymentId,
+        staffName: 'Admin BFA',
+        reason: trimmedReason,
+      });
+
+      // Sukses: tutup modal dan bersihkan form
+      setMutationToCorrect(null);
+      setCorrectionReason('');
+      setCorrectionError(null);
+    } catch (err: any) {
+      console.error('Gagal memproses koreksi pembayaran dari Buku Kas:', err);
+      // Gagal: modal tetap terbuka, error ditampilkan, tombol konfirmasi re-enabled
+      setCorrectionError(err?.message || 'Gagal membatalkan pembayaran. Silakan coba lagi.');
+    } finally {
+      setIsCancellingPayment(false);
+    }
+  };
 
   // Paginated Cash Mutations State
   const [mutations, setMutations] = useState<CashMutation[]>(() => propCashMutations || []);
@@ -784,17 +843,71 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                             {isIncome ? '+' : '-'}Rp{(Number(m.amount) || 0).toLocaleString('id-ID')}
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`Hapus transaksi ${m.note || m.id}?`)) {
-                                  onDeleteMutation(m.id);
+                            {(() => {
+                              const isInvoicePayment = m.source === 'INVOICE_PAYMENT' || Boolean(m.invoiceId);
+                              const hasValidPaymentRelation = Boolean(m.invoiceId && m.paymentId);
+
+                              if (isInvoicePayment) {
+                                if (hasValidPaymentRelation) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setMutationToCorrect(m);
+                                        setCorrectionReason('');
+                                        setCorrectionError(null);
+                                      }}
+                                      className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition active:scale-95 inline-flex items-center gap-1 text-xs font-bold"
+                                      title="Koreksi Pembayaran"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                                      <span className="hidden sm:inline text-[11px]">Koreksi</span>
+                                    </button>
+                                  );
+                                } else {
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="p-1.5 text-slate-300 cursor-not-allowed rounded-lg"
+                                      title="Pembayaran ini memiliki relasi tagihan tetapi paymentId tidak tersedia. Tidak dapat dikoreksi dari Buku Kas."
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 text-slate-300" />
+                                    </button>
+                                  );
                                 }
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                              title="Hapus transaksi ini"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                              }
+
+                              // Mutasi Manual: Tidak memiliki invoiceId/paymentId
+                              if (!m.invoiceId && !m.paymentId) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm(`Hapus transaksi ${m.note || m.id}?`)) {
+                                        onDeleteMutation(m.id);
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition active:scale-95"
+                                    title="Hapus"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                );
+                              }
+
+                              // Transaksi dengan relasi lain yang tidak aman dihapus langsung
+                              return (
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="p-1.5 text-slate-300 cursor-not-allowed rounded-lg"
+                                  title="Transaksi memiliki relasi yang tidak dapat dikoreksi dari Buku Kas."
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-slate-300" />
+                                </button>
+                              );
+                            })()}
                           </td>
                         </tr>
                       );
@@ -1035,6 +1148,162 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
         onClose={() => setPayingInvoice(null)}
         onSubmit={handlePaymentSubmit}
       />
+
+      {/* Payment Correction Confirmation Modal (Khusus INVOICE_PAYMENT) */}
+      {mutationToCorrect && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isCancellingPayment) {
+                  setMutationToCorrect(null);
+                  setCorrectionReason('');
+                  setCorrectionError(null);
+                }
+              }}
+              disabled={isCancellingPayment}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg transition disabled:opacity-50"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-black text-slate-900">
+                Koreksi Pembayaran dari Buku Kas
+              </h3>
+              <p className="text-xs text-slate-500">
+                Batalkan transaksi pembayaran tagihan dan pulihkan status tagihan siswa secara atomik.
+              </p>
+            </div>
+
+            {/* Warning Notices */}
+            <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1.5">
+              <p className="font-bold flex items-start gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  PERINGATAN: Koreksi pembayaran akan membatalkan pembayaran ini, menghapus mutasi kas terkait, dan menghitung ulang tagihan siswa.
+                </span>
+              </p>
+              <p className="text-[11px] text-amber-800 pl-5.5 font-medium">
+                Pastikan uang tersebut memang tidak diterima.
+              </p>
+            </div>
+
+            {/* Target Details Card */}
+            {(() => {
+              const relInv = invoices.find((inv) => inv.id === mutationToCorrect.invoiceId);
+              return (
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Siswa:</span>
+                    <span className="font-extrabold text-slate-900">
+                      {relInv?.studentName || mutationToCorrect.note || '-'}
+                    </span>
+                  </div>
+                  {relInv?.studentId && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">ID Siswa:</span>
+                      <span className="font-mono text-slate-700">{relInv.studentId}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Nama/Jenis Tagihan:</span>
+                    <span className="font-bold text-blue-900">
+                      {relInv ? `${relInv.type} (${relInv.period})` : mutationToCorrect.category}
+                    </span>
+                  </div>
+                  {mutationToCorrect.invoiceId && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">ID Tagihan:</span>
+                      <span className="font-mono text-slate-700">{mutationToCorrect.invoiceId}</span>
+                    </div>
+                  )}
+                  {mutationToCorrect.paymentId && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">ID Pembayaran:</span>
+                      <span className="font-mono text-slate-700">{mutationToCorrect.paymentId}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Nominal Pembayaran:</span>
+                    <span className="font-mono font-black text-rose-700">
+                      Rp{(Number(mutationToCorrect.amount) || 0).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Tanggal Pembayaran:</span>
+                    <span className="font-medium text-slate-800">{mutationToCorrect.date}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Metode Pembayaran:</span>
+                    <span className="font-medium text-slate-800">{mutationToCorrect.method}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Field: Alasan Koreksi (Wajib) */}
+            <div className="space-y-1.5">
+              <label htmlFor="keuanganCorrectionReason" className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                <span>Alasan Koreksi <span className="text-rose-600">*</span></span>
+                <span className="text-[10px] font-normal text-slate-400">Wajib diisi</span>
+              </label>
+              <textarea
+                id="keuanganCorrectionReason"
+                rows={2}
+                value={correctionReason}
+                onChange={(e) => {
+                  setCorrectionReason(e.target.value);
+                  if (correctionError) setCorrectionError(null);
+                }}
+                disabled={isCancellingPayment}
+                placeholder="Contoh: Salah klik pembayaran, siswa belum melakukan pembayaran."
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-slate-100 resize-none placeholder:text-slate-400"
+              />
+            </div>
+
+            {/* Error Message */}
+            {correctionError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-700 text-xs animate-in fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{correctionError}</span>
+              </div>
+            )}
+
+            {/* Modal Buttons */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isCancellingPayment) {
+                    setMutationToCorrect(null);
+                    setCorrectionReason('');
+                    setCorrectionError(null);
+                  }
+                }}
+                disabled={isCancellingPayment}
+                className="py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl text-xs transition disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCorrection}
+                disabled={isCancellingPayment || !correctionReason.trim()}
+                className="py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-amber-600/25 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {isCancellingPayment && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isCancellingPayment ? 'Memproses Koreksi...' : 'Konfirmasi Koreksi'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

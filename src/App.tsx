@@ -90,6 +90,9 @@ import {
   deleteCashMutationFromFirestore,
   subscribeToCashMutations,
   processInvoicePaymentTransaction,
+  cancelInvoicePaymentTransaction,
+  CancelPaymentInput,
+  CancelPaymentResult,
   wipeDemoDataFromFirestore,
   fetchStudentsDirectly,
   getStudentsCount,
@@ -1262,6 +1265,63 @@ export default function App() {
     }
   };
 
+  // Atomic Invoice Payment Correction / Cancellation
+  const handleCancelInvoicePayment = async (
+    data: CancelPaymentInput
+  ): Promise<{
+    success: boolean;
+    invoiceId: string;
+    paymentId: string;
+    mutationId?: string;
+    invoice?: Invoice;
+    message: string;
+  }> => {
+    try {
+      // 1. Panggil transaksi atomik backend Firestore (tidak ada optimistic update sebelum transaksi sukses)
+      const result = await cancelInvoicePaymentTransaction({
+        invoiceId: data.invoiceId,
+        paymentId: data.paymentId,
+        staffName: data.staffName || currentUser?.name || 'Admin BFA',
+        reason: data.reason,
+      });
+
+      // 2. Update state invoices hanya setelah backend sukses
+      setInvoices((prev) => {
+        const next = prev.map((inv) => (inv.id === result.invoice.id ? result.invoice : inv));
+        try {
+          localStorage.setItem('bfa_invoices', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      // 3. Hapus hanya cash mutation yang dikoreksi berdasarkan cancelledMutationId
+      setCashMutations((prev) => {
+        const next = prev.filter((m) => m.id !== result.cancelledMutationId);
+        try {
+          localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      const successMsg = `✓ Pembayaran ${result.invoice.studentName} sebesar Rp${result.cancelledAmount.toLocaleString('id-ID')} berhasil dibatalkan. Tagihan & Buku Kas telah disesuaikan!`;
+      showToast(successMsg, 'success');
+
+      return {
+        success: true,
+        invoiceId: data.invoiceId,
+        paymentId: data.paymentId,
+        mutationId: result.cancelledMutationId,
+        invoice: result.invoice,
+        message: successMsg,
+      };
+    } catch (err: any) {
+      console.error('Gagal membatalkan pembayaran invoice:', err);
+      const errMsg = err?.message || 'Terjadi kesalahan saat membatalkan pembayaran.';
+      showToast(`Gagal membatalkan pembayaran: ${errMsg}`, 'error');
+      throw err;
+    }
+  };
+
   // Mark invoice paid manually (Quick action with pre-generated idempotent paymentId)
   const handleMarkInvoicePaid = async (id: string) => {
     const targetInv = invoices.find((inv) => inv.id === id);
@@ -1928,6 +1988,7 @@ Official Performance Report • BFA Karawang
                   onDeleteMutation={handleDeleteMutation}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
                   onProcessPayment={handleProcessPayment}
+                  onCancelInvoicePayment={handleCancelInvoicePayment}
                   onShowReceipt={(inv) => {
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
