@@ -47,43 +47,27 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'Semua' | 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR' | 'MENUNGGAK'>('Semua');
   const [search, setSearch] = useState<string>('');
 
-  // Synchronize with incoming props (newly created or updated invoices)
+  // Synchronize with incoming props (newly created or updated invoices from App.tsx listener)
   useEffect(() => {
-    if (propInvoices && propInvoices.length > 0) {
-      setLocalInvoices((prev) => {
-        if (prev.length === 0) return propInvoices;
-        const map = new Map<string, Invoice>();
-        prev.forEach((inv) => map.set(inv.id, inv));
-        propInvoices.forEach((inv) => {
-          map.set(inv.id, inv);
+    if (propInvoices) {
+      if (propInvoices.length < 50) {
+        setHasMore(false);
+      }
+      if (propInvoices.length > 0) {
+        setLocalInvoices((prev) => {
+          if (prev.length === 0) return propInvoices;
+          const map = new Map<string, Invoice>();
+          prev.forEach((inv) => map.set(inv.id, inv));
+          propInvoices.forEach((inv) => {
+            map.set(inv.id, inv);
+          });
+          return Array.from(map.values()).sort(
+            (a, b) => (b.dueDate || '').localeCompare(a.dueDate || '')
+          );
         });
-        return Array.from(map.values()).sort(
-          (a, b) => (b.dueDate || '').localeCompare(a.dueDate || '')
-        );
-      });
+      }
     }
   }, [propInvoices]);
-
-  // Initial fetch if no invoices provided via props
-  useEffect(() => {
-    let isCancelled = false;
-    if (localInvoices.length === 0) {
-      fetchInvoicesPage({ cursor: null, pageSize: 50 })
-        .then((res) => {
-          if (!isCancelled) {
-            setLocalInvoices(res.items);
-            setCursor(res.lastDoc);
-            setHasMore(res.hasMore);
-          }
-        })
-        .catch((err) => {
-          console.warn('Initial fetch invoices page notice:', err);
-        });
-    }
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
 
   // User-demand pagination for next 50 invoices
   const handleLoadMoreInvoices = async () => {

@@ -496,12 +496,12 @@ export default function App() {
     };
   }, [role, currentRoute, activeParentStudent?.id]);
 
-  // Lifecycle-scoped listener for Cash Mutations: Active only when viewing financial/dashboard routes
+  // Lifecycle-scoped listener for Cash Mutations: Active only when viewing dashboard route (AdminKeuanganView manages its own scoped listener & pagination)
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
     if (role === 'admin') {
-      const adminCashRoutes: RouteId[] = ['dashboard', 'keuangan'];
+      const adminCashRoutes: RouteId[] = ['dashboard'];
       if (adminCashRoutes.includes(currentRoute)) {
         unsub = subscribeToCashMutations((cloudMutations) => {
           if (cloudMutations && cloudMutations.length > 0) {
