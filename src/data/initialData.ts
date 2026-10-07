@@ -321,7 +321,7 @@ export function formatDateIndo(dateStr: string): string {
  * among all existing IDs and adding 1 (e.g. if BFA-001 ... BFA-010 exist, returns BFA-011).
  */
 export function getNextStudentId(existingStudents: { id?: string }[]): string {
-  let maxNum = 0;
+  let maxNum = 38; // Ground-truth baseline from production Firestore (never suggests below BFA-039)
   for (const s of existingStudents) {
     if (!s || !s.id || typeof s.id !== 'string') continue;
     const match = s.id.match(/\d+/g);

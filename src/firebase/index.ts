@@ -215,6 +215,96 @@ export function subscribeToStudentAttendances(
 }
 
 // --- STUDENT OPERATIONS ---
+const SYSTEM_COLLECTION = 'system';
+const STUDENT_COUNTER_DOC = 'student_counter';
+export const INITIAL_CONFIRMED_SEQUENCE = 38; // Verified ground-truth from Firestore
+
+/**
+ * Returns candidate next student ID by inspecting system/student_counter.
+ * Baseline minimum is always BFA-039.
+ */
+export async function peekNextStudentId(): Promise<string> {
+  try {
+    const counterRef = doc(db, SYSTEM_COLLECTION, STUDENT_COUNTER_DOC);
+    const snap = await getDoc(counterRef);
+    if (snap.exists()) {
+      const lastSeq = snap.data()?.lastSequence;
+      if (typeof lastSeq === 'number' && lastSeq >= INITIAL_CONFIRMED_SEQUENCE) {
+        return `BFA-${String(lastSeq + 1).padStart(3, '0')}`;
+      }
+    }
+  } catch (err) {
+    console.warn('[Firestore] peekNextStudentId notice:', err);
+  }
+  return `BFA-${String(INITIAL_CONFIRMED_SEQUENCE + 1).padStart(3, '0')}`;
+}
+
+/**
+ * Atomically generates next sequential Student ID from system/student_counter
+ * and writes the new student document in the exact same Firestore transaction.
+ *
+ * Guarantees:
+ * 1. Zero duplicate IDs even if multiple admins create simultaneously.
+ * 2. Never overwrites existing student document.
+ * 3. Never reuses old or deleted IDs.
+ * 4. Ground-truth baseline sequence = 38 (first new student gets BFA-039).
+ */
+export async function saveNewStudentWithAtomicCounter(
+  studentPayload: Omit<Student, 'id' | 'joinedDate'> & { id?: string },
+  joinedDate: string = '2026-09-26'
+): Promise<Student> {
+  const counterRef = doc(db, SYSTEM_COLLECTION, STUDENT_COUNTER_DOC);
+
+  return await runTransaction(db, async (transaction) => {
+    // 1. Read current counter state
+    const counterSnap = await transaction.get(counterRef);
+    let currentSequence = INITIAL_CONFIRMED_SEQUENCE;
+
+    if (counterSnap.exists()) {
+      const dataSeq = counterSnap.data()?.lastSequence;
+      if (typeof dataSeq === 'number' && dataSeq >= INITIAL_CONFIRMED_SEQUENCE) {
+        currentSequence = dataSeq;
+      }
+    }
+
+    const nextSequence = currentSequence + 1;
+    const assignedId = `BFA-${String(nextSequence).padStart(3, '0')}`;
+
+    // 2. Uniqueness guard: ensure students/{assignedId} does NOT already exist
+    const newStudentRef = doc(db, STUDENTS_COLLECTION, assignedId);
+    const existingStudentSnap = await transaction.get(newStudentRef);
+
+    if (existingStudentSnap.exists()) {
+      throw new Error(
+        `Konflik integritas data: ID siswa ${assignedId} sudah ada di Firestore. Transaksi dibatalkan untuk mencegah penimpaan data.`
+      );
+    }
+
+    // 3. Construct clean student record
+    const { id: _ignoreManualId, ...cleanData } = studentPayload;
+    const finalStudent: Student = {
+      ...cleanData,
+      id: assignedId,
+      joinedDate: joinedDate || new Date().toISOString().split('T')[0],
+    } as Student;
+
+    // 4. Atomic commit: update counter and persist new student document
+    transaction.set(
+      counterRef,
+      {
+        lastSequence: nextSequence,
+        updatedAt: new Date().toISOString(),
+        lastAllocatedId: assignedId,
+      },
+      { merge: true }
+    );
+
+    transaction.set(newStudentRef, cleanForFirestore(finalStudent));
+
+    return finalStudent;
+  });
+}
+
 export async function saveStudentToFirestore(student: Student): Promise<void> {
   try {
     if (!student || !student.id || typeof student.id !== 'string' || !student.id.trim()) {

@@ -96,6 +96,8 @@ import {
   getStudentsCount,
   FirestoreDiagnosticInfo,
   cleanForFirestore,
+  saveNewStudentWithAtomicCounter,
+  peekNextStudentId,
   db
 } from './firebase';
 
@@ -733,6 +735,13 @@ export default function App() {
   } | null>(null);
   const [newlyRegisteredStudent, setNewlyRegisteredStudent] = useState<Student | null>(null);
   const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
+  const [candidateNextId, setCandidateNextId] = useState<string>('BFA-039');
+
+  useEffect(() => {
+    peekNextStudentId().then((id) => {
+      if (id) setCandidateNextId(id);
+    });
+  }, [students.length, isStudentFormOpen]);
 
   // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
   useEffect(() => {
@@ -1260,11 +1269,11 @@ export default function App() {
     );
   };
 
-  // Student Form Submit (Add or Edit)
-  const handleSaveStudent = (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
+  // Student Form Submit (Add or Edit) - Database-First with Atomic Counter
+  const handleSaveStudent = async (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
     const isExisting = Boolean(data.id && students.some((s) => s.id === data.id));
     if (isExisting && data.id) {
-      // Edit
+      // Edit mode: Update existing student
       const existing = students.find((s) => s.id === data.id);
       const updatedStudent: Student = {
         ...(existing || {}),
@@ -1273,94 +1282,112 @@ export default function App() {
         joinedDate: existing?.joinedDate || '2024-01-10',
       } as Student;
 
-      setStudents((prev) =>
-        prev.map((s) => (s.id === data.id ? updatedStudent : s))
-      );
+      try {
+        await saveStudentToFirestore(updatedStudent);
 
-      // If parent user is currently logged in, sync active parent session
-      if (currentUser?.role === 'parent' && (currentUser.studentId === data.id || currentUser.studentName === existing?.name)) {
-        const updatedAuthUser: AuthUser = {
-          ...currentUser,
-          studentName: updatedStudent.name,
-          name: updatedStudent.parentName || currentUser.name,
-          emailOrPhone: updatedStudent.phone || currentUser.emailOrPhone,
-        };
-        setCurrentUser(updatedAuthUser);
-        try {
-          localStorage.setItem('bfa_auth_user', JSON.stringify(updatedAuthUser));
-        } catch {}
+        setStudents((prev) =>
+          prev.map((s) => (s.id === data.id ? updatedStudent : s))
+        );
+
+        // If parent user is currently logged in, sync active parent session
+        if (currentUser?.role === 'parent' && (currentUser.studentId === data.id || currentUser.studentName === existing?.name)) {
+          const updatedAuthUser: AuthUser = {
+            ...currentUser,
+            studentName: updatedStudent.name,
+            name: updatedStudent.parentName || currentUser.name,
+            emailOrPhone: updatedStudent.phone || currentUser.emailOrPhone,
+          };
+          setCurrentUser(updatedAuthUser);
+          try {
+            localStorage.setItem('bfa_auth_user', JSON.stringify(updatedAuthUser));
+          } catch {}
+        }
+
+        showToast(`Data siswa ${data.name} (${data.id}) berhasil diperbarui & tersimpan online!`, 'success');
+      } catch (err: any) {
+        console.error('[Firestore] Gagal memperbarui data siswa:', err);
+        showToast(`Gagal menyimpan perubahan siswa: ${err?.message || 'Error koneksi database'}`, 'error');
       }
-
-      saveStudentToFirestore(updatedStudent).catch((e) => console.warn('Firestore student sync:', e));
-      showToast(`Data siswa ${data.name} (${data.id}) berhasil diperbarui & tersimpan online!`, 'success');
     } else {
-      // Add - Generate next sequential ID based on all existing students' IDs
-      const nextId = (data.id && data.id.trim() !== '') ? data.id : getNextStudentId(students);
-      const { id: _ignore, ...studentPayload } = data;
-      const newStudent: Student = {
-        ...studentPayload,
-        id: nextId,
-        joinedDate: '2026-09-26',
-      } as Student;
-      setStudents((prev) => [newStudent, ...prev]);
+      // Add new student: DATABASE-FIRST via Firestore Atomic Counter Transaction
+      try {
+        showToast('Memproses alokasi nomor ID & menyimpan ke cloud...', 'info');
+        const newStudent = await saveNewStudentWithAtomicCounter(data, '2026-09-26');
 
-      // Initialize default report for newly added student
-      const defaultRep = createDefaultReport(nextId, newStudent.name, newStudent.position);
-      setStudentReports((prev) => ({
-        ...prev,
-        [nextId]: defaultRep,
-      }));
+        // Only update local state AFTER Firestore transaction succeeds
+        setStudents((prev) => [newStudent, ...prev]);
+        try {
+          localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
+        } catch {}
 
-      saveStudentToFirestore(newStudent).catch((e) => console.warn('Firestore student sync:', e));
-      saveReportToFirestore(nextId, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
+        // Initialize default report for newly added student
+        const defaultRep = createDefaultReport(newStudent.id, newStudent.name, newStudent.position);
+        setStudentReports((prev) => ({
+          ...prev,
+          [newStudent.id]: defaultRep,
+        }));
+        saveReportToFirestore(newStudent.id, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
 
-      // Automatically trigger the official Athlete Barcode Pass modal for new registration
-      setNewlyRegisteredStudent(newStudent);
-      setIsNewStudentBarcodeOpen(true);
+        // Update candidate preview ID for next registration
+        peekNextStudentId().then((id) => setCandidateNextId(id));
 
-      showToast(
-        `Siswa baru ${newStudent.name} (${nextId} - ${newStudent.classGroupId}) berhasil didaftarkan & kartu barcode resmi otomatis diterbitkan!`,
-        'success'
-      );
+        // Automatically trigger official Athlete Barcode Pass modal
+        setNewlyRegisteredStudent(newStudent);
+        setIsNewStudentBarcodeOpen(true);
+        setIsStudentFormOpen(false);
+        setStudentToEdit(null);
+
+        showToast(
+          `✓ Siswa baru ${newStudent.name} (${newStudent.id} - ${newStudent.classGroupId}) berhasil didaftarkan & tersimpan permanen di cloud!`,
+          'success'
+        );
+      } catch (err: any) {
+        console.error('[Firestore] Gagal membuat siswa baru:', err);
+        showToast(`Gagal mendaftarkan siswa baru: ${err?.message || 'Error alokasi nomor ID'}`, 'error');
+      }
     }
   };
 
-  // Register New Member from Login Page (Auto ID, Auto Save, Direct redirect to Admin Data Siswa)
-  const handleRegisterNewMemberFromLogin = (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
-    const nextId = (data.id && data.id.trim() !== '') ? data.id : getNextStudentId(students);
-    const { id: _ignore, ...studentPayload } = data;
-    const newStudent: Student = {
-      ...studentPayload,
-      id: nextId,
-      joinedDate: new Date().toISOString().split('T')[0],
-    } as Student;
-
-    setStudents((prev) => [newStudent, ...prev]);
+  // Register New Member from Login Page (Database-First via Atomic Counter)
+  const handleRegisterNewMemberFromLogin = async (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
     try {
-      localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
-    } catch {}
+      showToast('Memproses alokasi nomor ID & mendaftarkan ke cloud...', 'info');
+      const newStudent = await saveNewStudentWithAtomicCounter(
+        data,
+        new Date().toISOString().split('T')[0]
+      );
 
-    // Initialize e-rapport for new athlete
-    const defaultRep = createDefaultReport(nextId, newStudent.name, newStudent.position);
-    setStudentReports((prev) => ({
-      ...prev,
-      [nextId]: defaultRep,
-    }));
+      // Only update local state AFTER Firestore transaction succeeds
+      setStudents((prev) => [newStudent, ...prev]);
+      try {
+        localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
+      } catch {}
 
-    saveStudentToFirestore(newStudent).catch((e) => console.warn('Firestore student sync:', e));
-    saveReportToFirestore(nextId, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
+      // Initialize e-rapport for new athlete
+      const defaultRep = createDefaultReport(newStudent.id, newStudent.name, newStudent.position);
+      setStudentReports((prev) => ({
+        ...prev,
+        [newStudent.id]: defaultRep,
+      }));
+      saveReportToFirestore(newStudent.id, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
 
-    setIsStudentFormOpen(false);
+      peekNextStudentId().then((id) => setCandidateNextId(id));
 
-    // Tetap di menu login untuk melakukan login menggunakan ID yang sudah terdaftar
-    setNewlyRegisteredStudent(newStudent);
-    setIsNewStudentBarcodeOpen(true);
-    setRegisteredStudentId(nextId);
+      setIsStudentFormOpen(false);
 
-    showToast(
-      `✓ Registrasi Siswa Baru Berhasil! ID Siswa Anda adalah ${nextId}. Silakan masuk menggunakan ID Siswa ini di form login.`,
-      'success'
-    );
+      // Tetap di menu login untuk melakukan login menggunakan ID yang sudah terdaftar
+      setNewlyRegisteredStudent(newStudent);
+      setIsNewStudentBarcodeOpen(true);
+      setRegisteredStudentId(newStudent.id);
+
+      showToast(
+        `✓ Registrasi Siswa Baru Berhasil! ID Siswa Anda adalah ${newStudent.id}. Silakan masuk menggunakan ID Siswa ini di form login.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('[Firestore] Gagal registrasi siswa baru dari login:', err);
+      showToast(`Gagal mendaftarkan siswa baru: ${err?.message || 'Error alokasi nomor ID'}`, 'error');
+    }
   };
 
   // E-Rapport Open Edit Modal for a specific student
@@ -1418,7 +1445,7 @@ export default function App() {
     handleSaveReportForStudent(studentId, indicators, notes, evaluationDate, attendancePercent, totalSessions);
   };
 
-  // Add new student AND immediately create their E-Rapport
+  // Add new student AND immediately create their E-Rapport - Database-First via Atomic Counter
   const handleAddNewStudentWithReport = (
     studentData: Omit<Student, 'id' | 'joinedDate'> & { id?: string },
     reportData: {
@@ -1429,38 +1456,43 @@ export default function App() {
       totalSessions: number;
     }
   ): string => {
-    const nextId = (studentData.id && studentData.id.trim() !== '') ? studentData.id : getNextStudentId(students);
-    const { id: _ignore, ...studentPayload } = studentData;
-    const newStudent: Student = {
-      ...studentPayload,
-      id: nextId,
-      joinedDate: '2026-09-26',
-    } as Student;
+    const previewAssignedId = candidateNextId;
 
-    const newRep: StudentReport = {
-      studentId: nextId,
-      skillIndicators: reportData.indicators,
-      coachNotes: reportData.notes,
-      evaluationDate: reportData.evaluationDate,
-      attendancePercent: reportData.attendancePercent,
-      totalSessions: reportData.totalSessions,
-    };
+    saveNewStudentWithAtomicCounter(studentData, '2026-09-26')
+      .then((newStudent) => {
+        const newRep: StudentReport = {
+          studentId: newStudent.id,
+          skillIndicators: reportData.indicators,
+          coachNotes: reportData.notes,
+          evaluationDate: reportData.evaluationDate,
+          attendancePercent: reportData.attendancePercent,
+          totalSessions: reportData.totalSessions,
+        };
 
-    setStudents((prev) => [newStudent, ...prev]);
+        setStudents((prev) => [newStudent, ...prev]);
+        try {
+          localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
+        } catch {}
 
-    setStudentReports((prev) => ({
-      ...prev,
-      [nextId]: newRep,
-    }));
+        setStudentReports((prev) => ({
+          ...prev,
+          [newStudent.id]: newRep,
+        }));
 
-    saveStudentToFirestore(newStudent).catch((e) => console.warn('Firestore student sync:', e));
-    saveReportToFirestore(nextId, newRep).catch((e) => console.warn('Firestore report sync:', e));
+        saveReportToFirestore(newStudent.id, newRep).catch((e) => console.warn('Firestore report sync:', e));
+        peekNextStudentId().then((id) => setCandidateNextId(id));
 
-    showToast(
-      `✓ Siswa baru ${newStudent.name} (${nextId}) & E-Rapport berhasil disimpan online!`,
-      'success'
-    );
-    return nextId;
+        showToast(
+          `✓ Siswa baru ${newStudent.name} (${newStudent.id}) & E-Rapport berhasil disimpan online!`,
+          'success'
+        );
+      })
+      .catch((err) => {
+        console.error('[Firestore] Gagal menambahkan siswa baru dengan rapor:', err);
+        showToast(`Gagal mendaftarkan siswa baru: ${err?.message || 'Error alokasi nomor ID'}`, 'error');
+      });
+
+    return previewAssignedId;
   };
 
   // Send WhatsApp Report for a specific student
@@ -1722,7 +1754,7 @@ Official Performance Report • BFA Karawang
         <StudentFormModal
           isOpen={isStudentFormOpen}
           editStudent={null}
-          nextStudentId={getNextStudentId(students)}
+          nextStudentId={candidateNextId || getNextStudentId(students)}
           onClose={() => setIsStudentFormOpen(false)}
           onSubmit={handleRegisterNewMemberFromLogin}
           onOpenLiveCamera={(target) => {
@@ -2011,7 +2043,7 @@ Official Performance Report • BFA Karawang
       <StudentFormModal
         isOpen={isStudentFormOpen}
         editStudent={studentToEdit}
-        nextStudentId={getNextStudentId(students)}
+        nextStudentId={candidateNextId || getNextStudentId(students)}
         onClose={() => {
           setIsStudentFormOpen(false);
           setStudentToEdit(null);

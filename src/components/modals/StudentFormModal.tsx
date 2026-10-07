@@ -162,14 +162,14 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const assignedId = editStudent?.id || nextStudentId;
+    const assignedId = editStudent?.id ? editStudent.id : undefined;
     const cleanPhone = normalizePhoneNumber(phone.trim());
     const finalAvatar = (avatar && avatar.trim() !== '' && !avatar.includes('unsplash.com'))
       ? avatar.trim()
       : (editStudent?.avatar || '');
 
     onSubmit({
-      id: assignedId,
+      ...(assignedId ? { id: assignedId } : {}),
       name: name.trim(),
       nickname: nickname.trim() || name.trim().split(' ')[0] || name.trim(),
       avatar: finalAvatar,
@@ -192,7 +192,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     onClose();
   };
 
-  const assignedStudentId = editStudent?.id || nextStudentId || 'BFA-???';
+  const assignedStudentId = editStudent?.id || nextStudentId || 'BFA-039';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -235,10 +235,10 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
             </div>
             <div className="text-right">
               <span className="inline-flex items-center gap-1 bg-blue-600 text-white font-black text-[10px] px-2.5 py-1 rounded-full shadow-xs">
-                {editStudent ? 'ID Terdaftar' : '✓ Auto Nomor Urut'}
+                {editStudent ? 'ID Terdaftar' : '✓ Auto Nomor Server'}
               </span>
               <p className="text-[9px] text-slate-500 mt-0.5">
-                {editStudent ? 'Nomor identitas atlet' : 'Melanjutkan nomor terakhir terpakai'}
+                {editStudent ? 'Nomor identitas atlet' : 'Nomor resmi dari Cloud Counter'}
               </p>
             </div>
           </div>
