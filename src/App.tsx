@@ -464,7 +464,7 @@ export default function App() {
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (role === 'admin') {
+    if (currentUser?.role === 'admin') {
       const adminInvoiceRoutes: RouteId[] = ['dashboard', 'keuangan', 'invoices'];
       if (adminInvoiceRoutes.includes(currentRoute)) {
         unsub = subscribeToInvoices((cloudInvoices) => {
@@ -487,13 +487,13 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [role, currentRoute, activeParentStudent?.id]);
+  }, [currentUser, role, currentRoute, activeParentStudent?.id]);
 
   // Lifecycle-scoped listener for Cash Mutations: Active only when viewing dashboard route (AdminKeuanganView manages its own scoped listener & pagination)
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (role === 'admin') {
+    if (currentUser?.role === 'admin') {
       const adminCashRoutes: RouteId[] = ['dashboard'];
       if (adminCashRoutes.includes(currentRoute)) {
         unsub = subscribeToCashMutations((cloudMutations) => {
@@ -507,7 +507,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [role, currentRoute]);
+  }, [currentUser, role, currentRoute]);
 
   // Lifecycle-scoped listener for Attendances: Active only when viewing attendance/dashboard/erapport routes
   useEffect(() => {
@@ -745,7 +745,7 @@ export default function App() {
     let unsub: (() => void) | undefined;
 
     const isAdminScheduleView =
-      role === 'admin' &&
+      currentUser?.role === 'admin' &&
       ['dashboard', 'attendance'].includes(currentRoute);
 
     const isParentScheduleView =
@@ -753,7 +753,8 @@ export default function App() {
       ['parent-dashboard', 'parent-attendance'].includes(currentRoute);
 
     const isScheduleModalActive =
-      isFingerprintOpen || isCreateScheduleOpen;
+      currentUser?.role === 'admin' &&
+      (isFingerprintOpen || isCreateScheduleOpen);
 
     if (
       isAdminScheduleView ||
@@ -771,6 +772,7 @@ export default function App() {
       if (unsub) unsub();
     };
   }, [
+    currentUser,
     role,
     currentRoute,
     isFingerprintOpen,
