@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Student } from '../../types';
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR, ALL_KU_CATEGORIES } from '../../data/initialData';
 import { normalizePhoneNumber, isValidIndonesianMobile } from '../../utils/phoneUtils';
-import { X, UserCheck, Camera, Image, FileUp, CheckCircle2, Check } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompressor';
+import { X, UserCheck, Camera, Image, FileUp, CheckCircle2, Check, Loader2, AlertCircle } from 'lucide-react';
 import { BFALogo } from '../common/BFALogo';
 
 interface StudentFormModalProps {
@@ -48,6 +49,9 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   const [docKIA, setDocKIA] = useState('Belum diunggah');
   const [docIjazah, setDocIjazah] = useState('Belum diunggah');
 
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
   const [ageBadgeText, setAgeBadgeText] = useState('Pilih tanggal');
 
   const prevIsOpenRef = useRef(false);
@@ -56,6 +60,8 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
   // Initialize or reset form only when modal transitions from closed to open
   useEffect(() => {
     if (isOpen && !prevIsOpenRef.current) {
+      setPhotoError(null);
+      setIsCompressing(false);
       if (editStudent) {
         setName(editStudent.name);
         setNickname(editStudent.nickname || editStudent.name.split(' ')[0] || '');
@@ -105,6 +111,7 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     if (capturedItem && capturedItem.dataUrl) {
       if (capturedItem.target === 'photo') {
         setAvatar(capturedItem.dataUrl);
+        setPhotoError(null);
       } else if (capturedItem.target === 'kk') {
         setDocKK(capturedItem.dataUrl);
       } else if (capturedItem.target === 'akte') {
@@ -129,16 +136,25 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setAvatar(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsCompressing(true);
+        setPhotoError(null);
+        const result = await compressImage(file, {
+          maxWidth: 500,
+          maxHeight: 500,
+          quality: 0.8,
+        });
+        setAvatar(result.dataUrl);
+      } catch (err: any) {
+        console.warn('Gagal memproses/mengompresi foto:', err);
+        setPhotoError(err?.message || 'Foto gagal diproses. Silakan pilih foto lain atau coba lagi.');
+      } finally {
+        setIsCompressing(false);
+        e.target.value = '';
+      }
     }
   };
 
@@ -247,16 +263,48 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <label className="block font-bold text-slate-700">Foto Profil Siswa *</label>
-              {avatar && avatar.startsWith('data:image') && (
+              {isCompressing ? (
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-100 border border-blue-300 px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                  <Loader2 className="w-3 h-3 text-blue-700 animate-spin" />
+                  <span>Memproses foto...</span>
+                </span>
+              ) : avatar && avatar.startsWith('data:image') ? (
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
                   <Check className="w-3 h-3 text-emerald-700" />
-                  <span>Foto Kamera Terpasang!</span>
+                  <span>Foto Terpasang!</span>
                 </span>
-              )}
+              ) : null}
             </div>
+
+            {/* Error message banner */}
+            {photoError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start justify-between gap-2">
+                <div className="flex items-start gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Gagal Memproses Foto:</span>
+                    <p className="text-[11px] text-rose-700 mt-0.5">{photoError}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPhotoError(null)}
+                  className="text-rose-500 hover:text-rose-800 text-xs font-bold p-1 rounded"
+                  title="Tutup pesan error"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center space-x-3.5">
               <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-black border-2 border-slate-700/80 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
-                {avatar && avatar.trim() !== '' && !avatar.includes('unsplash.com') ? (
+                {isCompressing ? (
+                  <div className="w-full h-full bg-slate-900/90 flex flex-col items-center justify-center text-white p-1">
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-400 mb-1" />
+                    <span className="text-[9px] text-slate-300 text-center leading-tight">Kompresi...</span>
+                  </div>
+                ) : avatar && avatar.trim() !== '' && !avatar.includes('unsplash.com') ? (
                   <img
                     src={avatar}
                     className="w-full h-full object-cover"
@@ -268,36 +316,39 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                     <BFALogo className="w-full h-full object-contain drop-shadow" />
                   </div>
                 )}
-                {avatar && avatar.startsWith('data:image') && (
-                  <span className="absolute bottom-0 right-0 bg-emerald-500 text-white p-0.5 rounded-tl-lg shadow-xs" title="Foto Kamera Aktif">
+                {!isCompressing && avatar && avatar.startsWith('data:image') && (
+                  <span className="absolute bottom-0 right-0 bg-emerald-500 text-white p-0.5 rounded-tl-lg shadow-xs" title="Foto Aktif">
                     <Check className="w-3 h-3" />
                   </span>
                 )}
               </div>
               <div className="flex-1 space-y-1.5">
                 <div className="flex flex-wrap gap-1.5">
-                  <label className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold cursor-pointer border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs">
+                  <label className={`px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs ${isCompressing ? 'opacity-50 pointer-events-none cursor-not-allowed' : 'cursor-pointer'}`}>
                     <Image className="w-3.5 h-3.5 text-orange-600" />
                     <span>Galeri</span>
                     <input
                       type="file"
                       accept="image/*"
                       className="hidden"
+                      disabled={isCompressing}
                       onChange={handlePhotoUpload}
                     />
                   </label>
                   <button
                     type="button"
+                    disabled={isCompressing}
                     onClick={() => onOpenLiveCamera('photo')}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     <span>Live Kamera</span>
                   </button>
                   <button
                     type="button"
+                    disabled={isCompressing}
                     onClick={() => mobileCameraInputRef.current?.click()}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-emerald-700 rounded-xl font-bold border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-emerald-700 rounded-xl font-bold border border-slate-300 flex items-center gap-1.5 shadow-xs transition active:scale-95 text-xs"
                     title="Buka kamera perangkat langsung"
                   >
                     <Camera className="w-3.5 h-3.5 text-emerald-600" />
@@ -309,11 +360,12 @@ export const StudentFormModal: React.FC<StudentFormModalProps> = ({
                     accept="image/*"
                     capture="user"
                     className="hidden"
+                    disabled={isCompressing}
                     onChange={handlePhotoUpload}
                   />
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Format: JPG, PNG maks 3MB. Hasil kamera otomatis tampil langsung di kotak foto.
+                  Foto otomatis dioptimalkan (maks. 500x500 WebP/JPG ~30-50KB) untuk menghemat kuota dan mempercepat upload.
                 </p>
               </div>
             </div>

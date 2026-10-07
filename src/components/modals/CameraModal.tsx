@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Camera, RefreshCw, CheckCircle2, RotateCcw, Image, AlertCircle } from 'lucide-react';
+import { X, Camera, RefreshCw, CheckCircle2, RotateCcw, Image, AlertCircle, Loader2 } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompressor';
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -23,6 +24,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processError, setProcessError] = useState<string | null>(null);
 
   // Initialize or restart camera stream
   useEffect(() => {
@@ -79,6 +82,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     }
     setCapturedPreview(null);
     setCameraError(false);
+    setProcessError(null);
+    setIsProcessing(false);
     onClose();
   };
 
@@ -91,7 +96,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   };
 
   const handleTakeSnapshot = () => {
-    if (!target) return;
+    if (!target || isProcessing) return;
 
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
@@ -110,16 +115,43 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           ctx.scale(-1, 1);
         }
         ctx.drawImage(video, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        
-        // Show preview first before confirming
-        setCapturedPreview(dataUrl);
 
-        // Stop live stream while reviewing photo
-        if (stream) {
-          stream.getTracks().forEach((t) => t.stop());
-          setStream(null);
-        }
+        setIsProcessing(true);
+        setProcessError(null);
+
+        canvas.toBlob(
+          async (blob) => {
+            if (!blob) {
+              setIsProcessing(false);
+              setProcessError('Gagal mengambil snapshot dari kamera.');
+              return;
+            }
+
+            try {
+              const file = new File([blob], `camera_${Date.now()}.jpg`, { type: 'image/jpeg' });
+              const res = await compressImage(file, {
+                maxWidth: 500,
+                maxHeight: 500,
+                quality: 0.8,
+              });
+
+              setCapturedPreview(res.dataUrl);
+
+              // Stop live stream while reviewing photo
+              if (stream) {
+                stream.getTracks().forEach((t) => t.stop());
+                setStream(null);
+              }
+            } catch (err: any) {
+              console.warn('Gagal memproses snapshot kamera:', err);
+              setProcessError(err?.message || 'Foto gagal diproses. Silakan coba lagi.');
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+          'image/jpeg',
+          0.9
+        );
       }
     }
   };
@@ -135,20 +167,35 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   // Retake photo
   const handleRetake = () => {
     setCapturedPreview(null);
+    setProcessError(null);
+    setIsProcessing(false);
   };
 
   // Direct native mobile camera capture
-  const handleNativeMobileCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNativeMobileCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && target) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          const dataUrl = event.target.result as string;
-          setCapturedPreview(dataUrl);
+      try {
+        setIsProcessing(true);
+        setProcessError(null);
+        const res = await compressImage(file, {
+          maxWidth: 500,
+          maxHeight: 500,
+          quality: 0.8,
+        });
+        setCapturedPreview(res.dataUrl);
+
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+          setStream(null);
         }
-      };
-      reader.readAsDataURL(file);
+      } catch (err: any) {
+        console.warn('Gagal memproses foto dari kamera HP:', err);
+        setProcessError(err?.message || 'Foto gagal diproses. Silakan pilih foto lain atau coba lagi.');
+      } finally {
+        setIsProcessing(false);
+        e.target.value = '';
+      }
     }
   };
 
@@ -185,6 +232,14 @@ export const CameraModal: React.FC<CameraModalProps> = ({
 
         {/* Viewfinder or Captured Preview */}
         <div className="mt-3 relative w-full aspect-4/3 sm:aspect-video bg-slate-950 rounded-2xl overflow-hidden border-2 border-slate-300 flex items-center justify-center shadow-inner">
+          {isProcessing && (
+            <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white z-20 p-4 text-center">
+              <Loader2 className="w-8 h-8 animate-spin text-amber-400 mb-2" />
+              <p className="text-xs font-bold">Memproses & Mengompresi Foto...</p>
+              <p className="text-[10px] text-slate-300 mt-1">Mengoptimalkan gambar agar upload cepat</p>
+            </div>
+          )}
+
           {capturedPreview ? (
             // REVIEW PHOTO STATE
             <div className="relative w-full h-full flex items-center justify-center bg-black">
@@ -195,7 +250,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               />
               <span className="absolute top-3 left-3 bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Foto Berhasil Diambil</span>
+                <span>Foto Berhasil Dioptimalkan</span>
               </span>
             </div>
           ) : (
@@ -221,7 +276,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <button
                 type="button"
                 onClick={handleFlipCamera}
-                className="absolute top-3 right-3 bg-slate-900/80 hover:bg-slate-900 text-white p-2 rounded-xl border border-white/20 shadow-md backdrop-blur-xs transition active:scale-95 text-xs flex items-center gap-1.5"
+                disabled={isProcessing}
+                className="absolute top-3 right-3 bg-slate-900/80 hover:bg-slate-900 disabled:opacity-50 text-white p-2 rounded-xl border border-white/20 shadow-md backdrop-blur-xs transition active:scale-95 text-xs flex items-center gap-1.5"
                 title="Ganti Kamera Depan / Belakang"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
@@ -238,8 +294,30 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           accept="image/*"
           capture={facingMode}
           className="hidden"
+          disabled={isProcessing}
           onChange={handleNativeMobileCapture}
         />
+
+        {/* Processing Error Alert */}
+        {processError && (
+          <div className="mt-3 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start justify-between gap-2">
+            <div className="flex items-start gap-1.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Gagal Memproses Foto:</span>
+                <p className="text-[11px] text-rose-700 mt-0.5">{processError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setProcessError(null)}
+              className="text-rose-500 hover:text-rose-800 text-xs font-bold p-1 rounded"
+              title="Tutup pesan error"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Status text or Camera Error Alert */}
         {cameraError && !capturedPreview && (
@@ -262,7 +340,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <button
                 type="button"
                 onClick={handleRetake}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition active:scale-95"
+                disabled={isProcessing}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition active:scale-95"
               >
                 <RotateCcw className="w-4 h-4 text-slate-600" />
                 <span>Foto Ulang</span>
@@ -270,7 +349,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmPhoto}
-                className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/25 transition active:scale-95"
+                disabled={isProcessing}
+                className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/25 transition active:scale-95"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Gunakan Foto Ini</span>
@@ -280,22 +360,30 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             // CAPTURE CONTROLS
             <div className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
-                <span className="text-[11px] text-slate-500 font-mono">{statusText}</span>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {isProcessing ? '⏳ Mengompresi foto...' : statusText}
+                </span>
                 <button
                   type="button"
+                  disabled={isProcessing}
                   onClick={handleTakeSnapshot}
-                  className="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-black rounded-xl text-xs flex items-center gap-2 shadow-md shadow-orange-500/25 active:scale-95 transition"
+                  className="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 disabled:opacity-50 text-white font-black rounded-xl text-xs flex items-center gap-2 shadow-md shadow-orange-500/25 active:scale-95 transition"
                 >
-                  <Camera className="w-4 h-4" />
-                  <span>Ambil Foto</span>
+                  {isProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Camera className="w-4 h-4" />
+                  )}
+                  <span>{isProcessing ? 'Memproses...' : 'Ambil Foto'}</span>
                 </button>
               </div>
 
               {/* Secondary fallback button for direct mobile camera */}
               <button
                 type="button"
+                disabled={isProcessing}
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-blue-700 border border-slate-200 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 transition active:scale-95"
+                className="w-full py-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 text-blue-700 border border-slate-200 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 transition active:scale-95"
               >
                 <Image className="w-3.5 h-3.5" />
                 <span>Atau Buka Kamera Bawaan HP / Unggah Foto</span>
