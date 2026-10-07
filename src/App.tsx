@@ -383,7 +383,7 @@ export default function App() {
     };
   });
 
-  // Real-time synchronization for Students & Schedules with online Firebase Firestore
+  // Real-time synchronization for Students with online Firebase Firestore
   // Audit fix: No duplicate fetchStudentsDirectly on mount; listener uses local cache first
   useEffect(() => {
     // Passively query verified student count from server using lightweight aggregation (1 read per 1,000 docs)
@@ -455,15 +455,8 @@ export default function App() {
       }
     );
 
-    const unsubSchedules = subscribeToSchedules((cloudSchedules) => {
-      if (cloudSchedules && cloudSchedules.length > 0) {
-        setSchedules(cloudSchedules);
-      }
-    });
-
     return () => {
       unsubStudents();
-      unsubSchedules();
     };
   }, []);
 
@@ -745,6 +738,43 @@ export default function App() {
       if (id) setCandidateNextId(id);
     });
   };
+
+  // Lifecycle-scoped listener for Training Schedules: Active only when viewing schedule-related routes or modals
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    const isAdminScheduleView =
+      role === 'admin' &&
+      ['dashboard', 'attendance'].includes(currentRoute);
+
+    const isParentScheduleView =
+      role === 'parent' &&
+      ['parent-dashboard', 'parent-attendance'].includes(currentRoute);
+
+    const isScheduleModalActive =
+      isFingerprintOpen || isCreateScheduleOpen;
+
+    if (
+      isAdminScheduleView ||
+      isParentScheduleView ||
+      isScheduleModalActive
+    ) {
+      unsub = subscribeToSchedules((cloudSchedules) => {
+        if (cloudSchedules && cloudSchedules.length > 0) {
+          setSchedules(cloudSchedules);
+        }
+      });
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [
+    role,
+    currentRoute,
+    isFingerprintOpen,
+    isCreateScheduleOpen
+  ]);
 
   // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
   useEffect(() => {
