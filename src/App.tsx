@@ -2039,6 +2039,7 @@ Official Performance Report • BFA Karawang
                   onGenerateInvoices={handleGenerateMonthlyInvoices}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
                   onProcessPayment={handleProcessPayment}
+                  onCancelInvoicePayment={handleCancelInvoicePayment}
                   onShowReceipt={(inv) => {
                     setInvoiceForReceipt(inv);
                     setIsReceiptOpen(true);
