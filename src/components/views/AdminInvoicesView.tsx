@@ -21,7 +21,8 @@ import {
 import { exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
 import { getDynamicInvoiceStatus, getInvoicePaymentSummary } from '../../utils/financeHelpers';
 import { InvoicePaymentModal, PaymentSubmitData } from '../modals/InvoicePaymentModal';
-import { fetchInvoicesPage } from '../../firebase';
+import { fetchInvoicesPage, fetchInvoicePaymentsByInvoiceId } from '../../firebase';
+import { InvoicePayment } from '../../types/finance';
 
 export interface CancelInvoicePaymentData {
   invoiceId: string;
@@ -143,11 +144,26 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
     }
   };
 
-  // Extract candidate payments from invoice for correction (supports multiple payments if present)
+  // State untuk menyimpan riwayat pembayaran riil yang diambil langsung dari Firestore
+  const [remotePayments, setRemotePayments] = useState<InvoicePayment[]>([]);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false);
+
+  // Extract candidate payments from invoice for correction (supports remote payments, embedded payments array, or fallback)
   const candidatePayments = useMemo(() => {
     if (!invoiceToCorrect) return [];
 
     const totalPaid = Number(invoiceToCorrect.paidAmount) || (invoiceToCorrect.status === 'LUNAS' ? Number(invoiceToCorrect.amount) || 0 : 0);
+
+    // If remote payments are loaded from Firestore
+    if (remotePayments.length > 0) {
+      return remotePayments.map((p, idx) => ({
+        paymentId: p.paymentId || p.id || `PAY_${invoiceToCorrect.id}_${idx}`,
+        amount: Number(p.amount) || 0,
+        date: p.date || (p.createdAt ? p.createdAt.split('T')[0] : ''),
+        method: p.paymentMethod || p.method || 'Manual Verifikasi Admin',
+        note: p.note || `Pembayaran ${invoiceToCorrect.type} (${invoiceToCorrect.period})`,
+      }));
+    }
 
     // If invoice has populated payments array
     if (invoiceToCorrect.payments && Array.isArray(invoiceToCorrect.payments) && invoiceToCorrect.payments.length > 0) {
@@ -162,9 +178,7 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
 
     // Single payment fallback
     const rawTrxId = invoiceToCorrect.transactionId || '';
-    const paymentId = rawTrxId.startsWith('TRX-')
-      ? rawTrxId.replace(/^TRX-/, '')
-      : (rawTrxId || `PAY_${invoiceToCorrect.id}`);
+    const paymentId = rawTrxId || `PAY_${invoiceToCorrect.id}`;
 
     const dateStr = invoiceToCorrect.paidAt
       ? invoiceToCorrect.paidAt.split('T')[0]
@@ -179,7 +193,7 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
         note: `Pembayaran ${invoiceToCorrect.type} (${invoiceToCorrect.period})`,
       },
     ];
-  }, [invoiceToCorrect]);
+  }, [invoiceToCorrect, remotePayments]);
 
   const currentSelectedPayment = useMemo(() => {
     return candidatePayments.find((p) => p.paymentId === selectedPaymentId) || candidatePayments[0] || null;
@@ -189,17 +203,30 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
     setInvoiceToCorrect(inv);
     setCorrectionReason('');
     setCorrectionError(null);
+    setRemotePayments([]);
+    setIsLoadingPayments(true);
 
-    // Set default payment selection
+    fetchInvoicePaymentsByInvoiceId(inv.id)
+      .then((payments) => {
+        setRemotePayments(payments);
+        if (payments.length > 0) {
+          setSelectedPaymentId(payments[0].paymentId || payments[0].id);
+        }
+      })
+      .catch((err) => {
+        console.warn('Gagal memuat pembayaran tagihan:', err);
+      })
+      .finally(() => {
+        setIsLoadingPayments(false);
+      });
+
+    // Set default payment selection sementara
     if (inv.payments && Array.isArray(inv.payments) && inv.payments.length > 0) {
       const lastPayment = inv.payments[inv.payments.length - 1];
       setSelectedPaymentId(lastPayment.paymentId || lastPayment.id);
     } else {
       const rawTrxId = inv.transactionId || '';
-      const fallbackId = rawTrxId.startsWith('TRX-')
-        ? rawTrxId.replace(/^TRX-/, '')
-        : (rawTrxId || `PAY_${inv.id}`);
-      setSelectedPaymentId(fallbackId);
+      setSelectedPaymentId(rawTrxId || `PAY_${inv.id}`);
     }
   };
 

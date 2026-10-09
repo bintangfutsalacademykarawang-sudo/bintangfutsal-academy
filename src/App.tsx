@@ -499,7 +499,7 @@ export default function App() {
       const adminCashRoutes: RouteId[] = ['dashboard'];
       if (adminCashRoutes.includes(currentRoute)) {
         unsub = subscribeToCashMutations((cloudMutations) => {
-          if (cloudMutations && cloudMutations.length > 0) {
+          if (cloudMutations) {
             setCashMutations(cloudMutations);
           }
         }, undefined, 50);
@@ -1294,9 +1294,15 @@ export default function App() {
         return next;
       });
 
-      // 3. Hapus hanya cash mutation yang dikoreksi berdasarkan cancelledMutationId
+      // 3. Hapus cash mutation yang dikoreksi berdasarkan cancelledMutationId atau relasi tagihan/pembayaran
       setCashMutations((prev) => {
-        const next = prev.filter((m) => m.id !== result.cancelledMutationId);
+        const next = prev.filter(
+          (m) =>
+            m.id !== result.cancelledMutationId &&
+            m.invoiceId !== data.invoiceId &&
+            m.paymentId !== data.paymentId &&
+            m.id !== data.paymentId
+        );
         try {
           localStorage.setItem('bfa_cash_mutations', JSON.stringify(next));
         } catch {}

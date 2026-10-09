@@ -25,8 +25,8 @@ export const BFALogo: React.FC<BFALogoProps> = ({
   return (
     <div className={`inline-flex items-center gap-2.5 ${showText ? '' : ''}`}>
       <svg
-        viewBox="0 0 1000 1160"
-        className={className}
+        viewBox="-70 0 1140 1180"
+        className={`overflow-visible ${className}`}
         style={size ? { width: size, height: typeof size === 'number' ? size * 1.16 : size } : undefined}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"

@@ -89,8 +89,8 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
       return;
     }
 
-    if (!mutationToCorrect.invoiceId || !mutationToCorrect.paymentId) {
-      setCorrectionError('Data relasi tagihan atau paymentId tidak lengkap.');
+    if (!mutationToCorrect.invoiceId) {
+      setCorrectionError('Data relasi tagihan tidak lengkap.');
       return;
     }
 
@@ -105,10 +105,13 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
 
       await onCancelInvoicePayment({
         invoiceId: mutationToCorrect.invoiceId,
-        paymentId: mutationToCorrect.paymentId,
+        paymentId: mutationToCorrect.paymentId || mutationToCorrect.id,
         staffName: 'Admin BFA',
         reason: trimmedReason,
       });
+
+      // Sukses: perbarui state mutasi lokal agar langsung terhapus dari Buku Kas
+      setMutations((prev) => prev.filter((m) => m.id !== mutationToCorrect.id));
 
       // Sukses: tutup modal dan bersihkan form
       setMutationToCorrect(null);
@@ -845,7 +848,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                           <td className="px-4 py-3 text-center whitespace-nowrap">
                             {(() => {
                               const isInvoicePayment = m.source === 'INVOICE_PAYMENT' || Boolean(m.invoiceId);
-                              const hasValidPaymentRelation = Boolean(m.invoiceId && m.paymentId);
+                              const hasValidPaymentRelation = Boolean(m.invoiceId);
 
                               if (isInvoicePayment) {
                                 if (hasValidPaymentRelation) {
