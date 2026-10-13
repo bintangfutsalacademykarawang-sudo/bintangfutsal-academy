@@ -31,7 +31,7 @@ import {
   getNextStudentId, 
   sanitizeStudentsList 
 } from './data/initialData';
-import { isExactPhoneMatch, isValidIndonesianMobile } from './utils/phoneUtils';
+import { isExactPhoneMatch, isValidIndonesianMobile, normalizePhoneNumber } from './utils/phoneUtils';
 
 import { LoginPage } from './components/auth/LoginPage';
 import { Header } from './components/Header';
@@ -39,6 +39,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
 
 import { AdminDashboardView } from './components/views/AdminDashboardView';
+import { AdminRegistrationsView } from './components/views/AdminRegistrationsView';
 import { AdminStudentsView } from './components/views/AdminStudentsView';
 import { AdminKeuanganView } from './components/views/AdminKeuanganView';
 import { AdminERapportView } from './components/views/AdminERapportView';
@@ -64,12 +65,15 @@ import { CameraModal } from './components/modals/CameraModal';
 import { GenerateInvoiceModal } from './components/modals/GenerateInvoiceModal';
 import { CreateScheduleModal } from './components/modals/CreateScheduleModal';
 import { StudentBarcodeModal } from './components/modals/StudentBarcodeModal';
+import { RegistrationSubmittedModal } from './components/modals/RegistrationSubmittedModal';
 import { PaymentSubmitData } from './components/modals/InvoicePaymentModal';
 import { generateIdempotentPaymentId, generateManualMutationId } from './utils/financeHelpers';
 import { 
   testFirestoreConnection,
   seedInitialFirestoreDataIfEmpty,
   saveStudentToFirestore,
+  approveStudentRegistration,
+  rejectStudentRegistration,
   saveReportToFirestore,
   saveInvoiceToFirestore,
   fetchMonthlyInvoicesByPeriod,
@@ -656,6 +660,21 @@ export default function App() {
 
   // Auth Handlers
   const handleLogin = (user: AuthUser) => {
+    // Strict registration verification for parent portal access
+    if (user.role === 'parent' && user.studentId) {
+      const targetStudent = students.find((s) => s.id === user.studentId);
+      if (targetStudent) {
+        if (targetStudent.registrationStatus === 'MENUNGGU_VERIFIKASI') {
+          showToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+          return;
+        }
+        if (targetStudent.registrationStatus === 'DITOLAK') {
+          showToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+          return;
+        }
+      }
+    }
+
     // Clear any temporary edit/detail/report states from previous accounts
     setStudentToEdit(null);
     setStudentForDetail(null);
@@ -676,6 +695,26 @@ export default function App() {
       localStorage.setItem('bfa_current_route', nextRoute);
     } catch {}
   };
+
+  // Realtime Session Authorization Guard:
+  // If an active session belongs to a student whose registration is pending or rejected,
+  // immediately revoke the session and purge localStorage.
+  useEffect(() => {
+    if (currentUser?.role === 'parent' && currentUser.studentId && students.length > 0) {
+      const st = students.find((s) => s.id === currentUser.studentId);
+      if (st) {
+        if (st.registrationStatus === 'MENUNGGU_VERIFIKASI') {
+          setCurrentUser(null);
+          try { localStorage.removeItem('bfa_auth_user'); } catch {}
+          showToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+        } else if (st.registrationStatus === 'DITOLAK') {
+          setCurrentUser(null);
+          try { localStorage.removeItem('bfa_auth_user'); } catch {}
+          showToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+        }
+      }
+    }
+  }, [students, currentUser]);
 
   // Logout is the only official way to switch account / role as requested
   const handleLogout = () => {
@@ -732,6 +771,7 @@ export default function App() {
   } | null>(null);
   const [newlyRegisteredStudent, setNewlyRegisteredStudent] = useState<Student | null>(null);
   const [isNewStudentBarcodeOpen, setIsNewStudentBarcodeOpen] = useState(false);
+  const [isRegistrationSubmittedOpen, setIsRegistrationSubmittedOpen] = useState(false);
   const [candidateNextId, setCandidateNextId] = useState<string>('BFA-039');
 
   // On-demand fetch of candidate preview ID only when opening form to add a new student
@@ -1569,7 +1609,15 @@ export default function App() {
       // Add new student: DATABASE-FIRST via Firestore Atomic Counter Transaction
       try {
         showToast('Memproses alokasi nomor ID & menyimpan ke cloud...', 'info');
-        const newStudent = await saveNewStudentWithAtomicCounter(data, '2026-09-26');
+        const payload: Omit<Student, 'id' | 'joinedDate'> & { id?: string } = {
+          ...data,
+          status: data.status || 'Aktif',
+          registrationStatus: 'DISETUJUI',
+          registrationDate: new Date().toISOString(),
+          verifiedAt: new Date().toISOString(),
+          verifiedBy: currentUser?.name || 'Admin BFA',
+        };
+        const newStudent = await saveNewStudentWithAtomicCounter(payload, '2026-09-26');
 
         // Only update local state AFTER Firestore transaction succeeds
         setStudents((prev) => [newStudent, ...prev]);
@@ -1605,12 +1653,62 @@ export default function App() {
     }
   };
 
-  // Register New Member from Login Page (Database-First via Atomic Counter)
+  // Register New Member from Login Page (Strict MENUNGGU_VERIFIKASI & De-duplication)
   const handleRegisterNewMemberFromLogin = async (data: Omit<Student, 'id' | 'joinedDate'> & { id?: string }) => {
     try {
-      showToast('Memproses alokasi nomor ID & mendaftarkan ke cloud...', 'info');
+      const cleanPhone = (data.phone || '').trim();
+      const normPhone = normalizePhoneNumber(cleanPhone);
+      const cleanName = (data.name || '').trim().toLowerCase();
+      const cleanBirthDate = (data.birthDate || '').trim();
+
+      // 1. Guard Duplicate: Check if there is already a pending registration with the same phone and student name
+      const existingPending = students.find((s) => {
+        if (s.registrationStatus !== 'MENUNGGU_VERIFIKASI') return false;
+        const matchPhone = isExactPhoneMatch(s.phone, cleanPhone) || normalizePhoneNumber(s.phone || '') === normPhone;
+        const matchName = (s.name || '').trim().toLowerCase() === cleanName;
+        return matchPhone && matchName;
+      });
+
+      if (existingPending) {
+        showToast(
+          `Pendaftaran untuk ananda ${data.name} dengan nomor WhatsApp ini sudah ada di antrean (ID: ${existingPending.id}) dan sedang menunggu verifikasi Admin BFA.`,
+          'warning'
+        );
+        setNewlyRegisteredStudent(existingPending);
+        setIsRegistrationSubmittedOpen(true);
+        setIsStudentFormOpen(false);
+        return;
+      }
+
+      // 2. Guard Duplicate: Check if student is already an active approved student
+      const existingApproved = students.find((s) => {
+        if (s.registrationStatus === 'MENUNGGU_VERIFIKASI' || s.registrationStatus === 'DITOLAK') return false;
+        const matchName = (s.name || '').trim().toLowerCase() === cleanName;
+        const matchBirth = (s.birthDate || '').trim() === cleanBirthDate;
+        return matchName && matchBirth;
+      });
+
+      if (existingApproved) {
+        showToast(
+          `Ananda ${data.name} sudah terdaftar aktif dengan ID ${existingApproved.id}. Silakan masuk menggunakan form login.`,
+          'info'
+        );
+        setIsStudentFormOpen(false);
+        return;
+      }
+
+      showToast('Memproses alokasi nomor ID resmi & menyimpan berkas ke cloud...', 'info');
+
+      // 3. Strictly enforce MENUNGGU_VERIFIKASI and Non-Aktif
+      const payload: Omit<Student, 'id' | 'joinedDate'> & { id?: string } = {
+        ...data,
+        status: 'Non-Aktif', // Not active until approved by admin
+        registrationStatus: 'MENUNGGU_VERIFIKASI',
+        registrationDate: new Date().toISOString(),
+      };
+
       const newStudent = await saveNewStudentWithAtomicCounter(
-        data,
+        payload,
         new Date().toISOString().split('T')[0]
       );
 
@@ -1620,30 +1718,85 @@ export default function App() {
         localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
       } catch {}
 
-      // Initialize e-rapport for new athlete
-      const defaultRep = createDefaultReport(newStudent.id, newStudent.name, newStudent.position);
-      setStudentReports((prev) => ({
-        ...prev,
-        [newStudent.id]: defaultRep,
-      }));
-      saveReportToFirestore(newStudent.id, defaultRep).catch((e) => console.warn('Firestore report sync:', e));
-
       peekNextStudentId().then((id) => setCandidateNextId(id));
 
       setIsStudentFormOpen(false);
 
-      // Tetap di menu login untuk melakukan login menggunakan ID yang sudah terdaftar
+      // Open dedicated RegistrationSubmittedModal
       setNewlyRegisteredStudent(newStudent);
-      setIsNewStudentBarcodeOpen(true);
-      setRegisteredStudentId(newStudent.id);
+      setIsRegistrationSubmittedOpen(true);
 
       showToast(
-        `✓ Registrasi Siswa Baru Berhasil! ID Siswa Anda adalah ${newStudent.id}. Silakan masuk menggunakan ID Siswa ini di form login.`,
+        `✓ Pendaftaran berhasil dikirim! ID Pendaftaran Anda adalah ${newStudent.id}. Sedang menunggu persetujuan Admin BFA.`,
         'success'
       );
     } catch (err: any) {
       console.error('[Firestore] Gagal registrasi siswa baru dari login:', err);
       showToast(`Gagal mendaftarkan siswa baru: ${err?.message || 'Error alokasi nomor ID'}`, 'error');
+    }
+  };
+
+  // Admin Action: Setujui Pendaftaran Calon Siswa Baru
+  const handleApproveRegistration = async (studentId: string) => {
+    try {
+      const adminName = currentUser?.name || 'Admin BFA';
+      await approveStudentRegistration(studentId, adminName);
+
+      // Update state in memory
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentId
+            ? {
+                ...s,
+                registrationStatus: 'DISETUJUI',
+                status: 'Aktif',
+                verifiedAt: new Date().toISOString(),
+                verifiedBy: adminName,
+              }
+            : s
+        )
+      );
+
+      // Initialize default report if not already present
+      const target = students.find((s) => s.id === studentId);
+      if (target && !studentReports[studentId]) {
+        const defaultRep = createDefaultReport(target.id, target.name, target.position);
+        setStudentReports((prev) => ({
+          ...prev,
+          [target.id]: defaultRep,
+        }));
+        saveReportToFirestore(target.id, defaultRep).catch((e) => console.warn('Report sync on approval:', e));
+      }
+    } catch (err: any) {
+      console.error('Gagal menyetujui pendaftaran:', err);
+      throw err;
+    }
+  };
+
+  // Admin Action: Tolak Pendaftaran Calon Siswa Baru
+  const handleRejectRegistration = async (studentId: string, reason: string) => {
+    try {
+      const adminName = currentUser?.name || 'Admin BFA';
+      await rejectStudentRegistration(studentId, adminName, reason);
+
+      // Update state in memory
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentId
+            ? {
+                ...s,
+                registrationStatus: 'DITOLAK',
+                status: 'Non-Aktif',
+                rejectionReason: reason,
+                verifiedAt: new Date().toISOString(),
+                verifiedBy: adminName,
+              }
+            : s
+        )
+      );
+    } catch (err: any) {
+      console.error('Gagal menolak pendaftaran:', err);
+      throw err;
     }
   };
 
@@ -1807,61 +1960,31 @@ Official Performance Report • BFA Karawang
     showToast(`Membuka WhatsApp ke wali ${student.name} (${student.phone})...`, 'success');
   };
 
-  // Parent Payment Success
+  // Parent Payment Confirmation (Awaiting Admin Verification - No direct Firestore mutations)
   const handleParentPaymentSuccess = async (method: string, trxId: string) => {
     const targetStudent = activeParentStudent;
     if (!targetStudent) return;
-    const nowIso = new Date().toISOString();
-    const todayStr = nowIso.slice(0, 10);
-    const paymentMethodName = method === 'QRIS' ? 'QRIS Kasir' : 'Transfer Bank BFA';
 
-    // Find unpaid/partially paid invoices for this child
+    // Hitung total tagihan aktif yang diajukan konfirmasi
     const unpaidChildInvoices = invoices.filter(
       (inv) => inv.studentId === targetStudent.id && inv.status !== 'LUNAS'
     );
+    const totalSubmitted = unpaidChildInvoices.reduce((sum, inv) => {
+      const remaining = inv.remainingAmount !== undefined ? inv.remainingAmount : inv.amount;
+      return sum + Math.max(0, remaining);
+    }, 0);
 
-    let paidTotal = 0;
-    for (const inv of unpaidChildInvoices) {
-      const remaining = inv.remainingAmount !== undefined 
-        ? inv.remainingAmount 
-        : inv.amount;
-      if (remaining <= 0) continue;
-
-      const paymentId = generateIdempotentPaymentId(inv.id);
-      try {
-        const result = await processInvoicePaymentTransaction({
-          paymentId,
-          invoiceId: inv.id,
-          amount: remaining,
-          paymentMethod: paymentMethodName,
-          paymentDate: todayStr,
-          staffName: 'Sistem Gateway BFA',
-          transactionId: trxId,
-          note: `Pembayaran Online: ${targetStudent.name} via ${method}`,
-        });
-
-        paidTotal += remaining;
-        setInvoices((prev) =>
-          prev.map((i) => (i.id === result.invoice.id ? result.invoice : i))
-        );
-        setCashMutations((prev) => {
-          const exists = prev.some((m) => m.id === result.mutation.id);
-          return exists ? prev : [result.mutation, ...prev];
-        });
-      } catch (err) {
-        console.warn('Gagal memproses pembayaran anak:', err);
-      }
-    }
-
-    if (paidTotal > 0) {
+    // Keamanan: TIDAK memanggil processInvoicePaymentTransaction dan TIDAK memutasi invoices/cashMutations.
+    // Tagihan tetap berstatus BELUM BAYAR / SEBAGIAN sampai Admin memverifikasi dana masuk di menu Keuangan.
+    if (totalSubmitted > 0) {
       showToast(
-        `✓ Pembayaran ananda ${targetStudent.name} sebesar Rp${paidTotal.toLocaleString('id-ID')} berhasil diverifikasi & tagihan LUNAS!`,
-        'success'
+        `✓ Konfirmasi pembayaran (${method} - Ref: ${trxId}) ananda ${targetStudent.name} sebesar Rp${totalSubmitted.toLocaleString('id-ID')} terkirim. Menunggu verifikasi Admin BFA.`,
+        'info'
       );
     } else {
       showToast(
-        `Pembayaran ananda ${targetStudent.name} via ${method} terverifikasi.`,
-        'success'
+        `Seluruh tagihan ananda ${targetStudent.name} sudah berstatus LUNAS.`,
+        'info'
       );
     }
   };
@@ -2051,12 +2174,11 @@ Official Performance Report • BFA Karawang
           onCapture={handleCameraCapture}
         />
 
-        <StudentBarcodeModal
-          isOpen={isNewStudentBarcodeOpen}
+        <RegistrationSubmittedModal
+          isOpen={isRegistrationSubmittedOpen}
           student={newlyRegisteredStudent}
-          isNewRegistration={true}
           onClose={() => {
-            setIsNewStudentBarcodeOpen(false);
+            setIsRegistrationSubmittedOpen(false);
           }}
         />
 
@@ -2087,6 +2209,7 @@ Official Performance Report • BFA Karawang
           onNavigate={handleNavigate}
           onOpenRecordCash={() => setIsRecordCashOpen(true)}
           onOpenFingerprint={() => setIsFingerprintOpen(true)}
+          pendingRegistrationsCount={students.filter((s) => s.registrationStatus === 'MENUNGGU_VERIFIKASI').length}
         />
 
         {/* Main Content Viewport */}
@@ -2113,6 +2236,16 @@ Official Performance Report • BFA Karawang
                   }}
                   cloudSyncStatus={cloudSyncStatus}
                   onRetrySync={handleManualSyncCloud}
+                />
+              )}
+
+              {currentRoute === 'registrations' && (
+                <AdminRegistrationsView
+                  students={students}
+                  onApprove={handleApproveRegistration}
+                  onReject={handleRejectRegistration}
+                  onShowToast={showToast}
+                  adminName={currentUser?.name || 'Admin BFA'}
                 />
               )}
 

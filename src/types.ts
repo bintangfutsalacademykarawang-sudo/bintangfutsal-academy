@@ -2,6 +2,7 @@ export type Role = 'admin' | 'parent';
 
 export type RouteId = 
   | 'dashboard'
+  | 'registrations'
   | 'students'
   | 'coaches'
   | 'keuangan'
@@ -16,6 +17,8 @@ export type RouteId =
   | 'parent-report';
 
 export type { Coach } from './types/coach';
+
+export type RegistrationStatus = 'MENUNGGU_VERIFIKASI' | 'DISETUJUI' | 'DITOLAK';
 
 export interface StudentDocuments {
   kk?: string;
@@ -41,6 +44,11 @@ export interface Student {
   jerseyNumber: number;
   documents: StudentDocuments;
   customPassword?: string;
+  registrationStatus?: RegistrationStatus;
+  registrationDate?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  rejectionReason?: string;
 }
 
 export type { InvoicePayment, PaymentRecord } from './types/finance';

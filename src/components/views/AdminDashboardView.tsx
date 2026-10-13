@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { RouteId, Student, CashMutation, Invoice, Attendance, TrainingSchedule } from '../../types';
 import { 
   Users, 
@@ -148,8 +148,40 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   });
 
+  const pendingRegistrationsCount = useMemo(
+    () => students.filter((s) => s.registrationStatus === 'MENUNGGU_VERIFIKASI').length,
+    [students]
+  );
+
   return (
     <div className="space-y-6">
+      {/* Pending New Member Verification Banner */}
+      {pendingRegistrationsCount > 0 && (
+        <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
+              <UserCheck className="w-5 h-5 text-amber-100" />
+            </div>
+            <div>
+              <p className="font-black text-amber-950 text-sm flex items-center gap-2">
+                <span>{pendingRegistrationsCount} Pendaftaran Siswa Baru Menunggu Verifikasi</span>
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              </p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Calon atlet telah mengisi formulir registrasi online. Akun belum aktif dan belum dapat login sebelum disetujui Admin.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('registrations')}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black rounded-xl text-xs shadow-sm transition flex items-center space-x-1.5 self-start sm:self-auto shrink-0"
+          >
+            <span>Verifikasi Sekarang</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Cloud Diagnostic Error Banner */}
       {cloudSyncStatus && cloudSyncStatus.status === 'error' && (
         <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">

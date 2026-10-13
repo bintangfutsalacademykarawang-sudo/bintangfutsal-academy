@@ -113,7 +113,44 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    // Check if password is valid for each matched student
+    // ---------------- STRICT REGISTRATION STATUS VERIFICATION GUARD ----------------
+    // Skenario 1: Pencocokan langsung dengan ID Siswa / ID Pendaftaran
+    if (matchedById.length > 0) {
+      const targetById = matchedById[0];
+      if (targetById.registrationStatus === 'MENUNGGU_VERIFIKASI') {
+        onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+        return;
+      }
+      if (targetById.registrationStatus === 'DITOLAK') {
+        onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+        return;
+      }
+    }
+
+    // Skenario 2: Pencocokan dengan Nomor WhatsApp
+    // Saring akun yang telah disetujui / aktif vs yang masih menunggu verifikasi / ditolak
+    const pendingByPhone = matchedByPhone.filter((s) => s.registrationStatus === 'MENUNGGU_VERIFIKASI');
+    const rejectedByPhone = matchedByPhone.filter((s) => s.registrationStatus === 'DITOLAK');
+    const approvedByPhone = matchedByPhone.filter(
+      (s) => s.registrationStatus !== 'MENUNGGU_VERIFIKASI' && s.registrationStatus !== 'DITOLAK'
+    );
+
+    // Jika seluruh pendaftaran untuk nomor WhatsApp ini belum disetujui
+    if (matchedById.length === 0 && approvedByPhone.length === 0) {
+      if (pendingByPhone.length > 0) {
+        onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+        return;
+      }
+      if (rejectedByPhone.length > 0) {
+        onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+        return;
+      }
+    }
+
+    // Daftar siswa yang memenuhi syarat otorisasi (eligible)
+    const eligibleStudents = matchedById.length > 0 ? matchedById : approvedByPhone;
+
+    // Check if password is valid for each eligible student
     let savedCustomPasswords: Record<string, string> = {};
     try {
       const raw = localStorage.getItem('bfa_student_passwords');
@@ -131,7 +168,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       );
     };
 
-    const validStudents = matchedList.filter(isStudentPasswordValid);
+    const validStudents = eligibleStudents.filter(isStudentPasswordValid);
 
     if (validStudents.length === 0) {
       onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
@@ -144,7 +181,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       } catch {}
     }
 
-    // Scenario A: Exactly 1 valid student matched
+    // Scenario A: Exactly 1 valid approved student matched
     if (validStudents.length === 1) {
       const target = validStudents[0];
       onLogin({
@@ -159,12 +196,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     // Scenario B: 1 Phone number registered for multiple children (Family / Siblings)
-    // Present clear, unambiguous selection modal as per Requirement 4
+    // Present clear, unambiguous selection modal with only approved children
     setCandidateStudents(validStudents);
     setIsSelectChildModalOpen(true);
   };
 
   const handleSelectChild = (child: Student) => {
+    // Secondary authorization check
+    if (child.registrationStatus === 'MENUNGGU_VERIFIKASI') {
+      onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+      return;
+    }
+    if (child.registrationStatus === 'DITOLAK') {
+      onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+      return;
+    }
+
     setIsSelectChildModalOpen(false);
     setCandidateStudents([]);
     onLogin({

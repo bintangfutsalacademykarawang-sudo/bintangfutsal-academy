@@ -69,10 +69,16 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
   const [studentToArchive, setStudentToArchive] = useState<Student | null>(null);
   const [studentToReactivate, setStudentToReactivate] = useState<Student | null>(null);
 
-  // Status counts (100% computed from React memory data)
-  const countTotal = students.length;
-  const countActive = useMemo(() => students.filter((s) => s.status === 'Aktif').length, [students]);
-  const countInactive = useMemo(() => students.filter((s) => s.status === 'Non-Aktif').length, [students]);
+  // Status counts (100% computed from React memory data - exclude unverified online registrants)
+  const officialStudents = useMemo(() => {
+    return students.filter(
+      (s) => s.registrationStatus !== 'MENUNGGU_VERIFIKASI' && s.registrationStatus !== 'DITOLAK'
+    );
+  }, [students]);
+
+  const countTotal = officialStudents.length;
+  const countActive = useMemo(() => officialStudents.filter((s) => s.status === 'Aktif').length, [officialStudents]);
+  const countInactive = useMemo(() => officialStudents.filter((s) => s.status === 'Non-Aktif').length, [officialStudents]);
 
   // Pagination state for scaling to 100-500 students
   const [currentPage, setCurrentPage] = useState(1);
@@ -85,7 +91,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
 
   // Filter students based on search, selected KU, and active status
   const filtered = useMemo(() => {
-    return students.filter((st) => {
+    return officialStudents.filter((st) => {
       const matchSearch =
         st.name.toLowerCase().includes(search.toLowerCase()) ||
         (st.nickname && st.nickname.toLowerCase().includes(search.toLowerCase())) ||
@@ -96,7 +102,7 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
       const matchStatus = statusFilter === 'Semua' || st.status === statusFilter;
       return matchSearch && matchClass && matchStatus;
     });
-  }, [students, search, classFilter, statusFilter]);
+  }, [officialStudents, search, classFilter, statusFilter]);
 
   // Derived pagination metrics
   const totalFiltered = filtered.length;

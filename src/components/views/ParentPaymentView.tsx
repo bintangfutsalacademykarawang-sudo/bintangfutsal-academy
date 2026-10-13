@@ -36,13 +36,30 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
   const [selectedMethod, setSelectedMethod] = useState<'QRIS' | 'Transfer Bank'>('QRIS');
   const [lastTrxId, setLastTrxId] = useState('');
 
+  // Helper perhitungan sisa tagihan aktif (anti nilai negatif & anti double count)
+  const getInvoiceRemaining = (inv: Invoice): number => {
+    if (inv.status === 'LUNAS') return 0;
+    const total = Number(inv.amount) || 0;
+    const paid = inv.paidAmount !== undefined 
+      ? Number(inv.paidAmount) || 0 
+      : 0;
+    const remaining = inv.remainingAmount !== undefined 
+      ? Number(inv.remainingAmount) || 0 
+      : Math.max(0, total - paid);
+    return Math.max(0, remaining);
+  };
+
   // Dynamic invoices & amounts strictly for active verified student
   const childInvoices = student?.id 
     ? invoices.filter((i) => i.studentId === student.id)
     : [];
-  const unpaidInvoices = childInvoices.filter((i) => i.status === 'BELUM BAYAR');
-  const totalUnpaidAmount = unpaidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
-  const isAllPaid = unpaidInvoices.length === 0;
+
+  // Tagihan yang masih memiliki sisa tunggakan aktif (BELUM BAYAR maupun SEBAGIAN)
+  const unpaidInvoices = childInvoices.filter((i) => i.status !== 'LUNAS' && getInvoiceRemaining(i) > 0);
+
+  // Total akumulasi sisa tagihan yang benar-benar belum lunas
+  const totalUnpaidAmount = unpaidInvoices.reduce((sum, inv) => sum + getInvoiceRemaining(inv), 0);
+  const isAllPaid = unpaidInvoices.length === 0 || totalUnpaidAmount === 0;
 
   // Copy state feedbacks
   const [copiedAccount, setCopiedAccount] = useState(false);
@@ -103,8 +120,8 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
     onShowToast?.('✓ Gambar barcode QRIS berhasil diunduh ke galeri!', 'success');
   };
 
-  const handleSimulateSuccess = () => {
-    const trx = `BFA-TRX-20260912-${Math.floor(100 + Math.random() * 900)}`;
+  const handleConfirmPaymentSubmitted = () => {
+    const trx = `CONF-BFA-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     setLastTrxId(trx);
     setStep('success');
     onPaymentSuccess(selectedMethod, trx);
@@ -139,20 +156,32 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
                 </p>
               </div>
             ) : (
-              childInvoices.map((inv) => (
-                <div key={inv.id} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-b-0">
-                  <span className={inv.status === 'LUNAS' ? 'text-slate-600' : 'font-bold text-slate-900'}>
-                    {inv.type === 'Bulanan' ? `Iuran SPP (${inv.period})` : `${inv.period} (Kehadiran Tap)`}
-                  </span>
-                  <span className={`font-mono font-bold ${inv.status === 'LUNAS' ? 'text-emerald-700' : 'text-orange-600'}`}>
-                    Rp{inv.amount.toLocaleString('id-ID')} {inv.status === 'LUNAS' ? '(Lunas ✓)' : '(Belum Bayar)'}
-                  </span>
-                </div>
-              ))
+              childInvoices.map((inv) => {
+                const remaining = getInvoiceRemaining(inv);
+                const isPaid = inv.status === 'LUNAS' || remaining <= 0;
+                const isPartial = !isPaid && (inv.status === 'SEBAGIAN' || (inv.paidAmount !== undefined && inv.paidAmount > 0));
+
+                return (
+                  <div key={inv.id} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-b-0">
+                    <span className={isPaid ? 'text-slate-600' : 'font-bold text-slate-900'}>
+                      {inv.type === 'Bulanan' ? `Iuran SPP (${inv.period})` : `${inv.period || 'Iuran Latihan'}`}
+                      {isPartial && (
+                        <span className="ml-1.5 text-[9px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                          Cicilan
+                        </span>
+                      )}
+                    </span>
+                    <span className={`font-mono font-bold ${isPaid ? 'text-emerald-700' : isPartial ? 'text-amber-600' : 'text-orange-600'}`}>
+                      Rp{isPaid ? (Number(inv.amount) || 0).toLocaleString('id-ID') : remaining.toLocaleString('id-ID')}{' '}
+                      {isPaid ? '(Lunas ✓)' : isPartial ? '(Sisa Tagihan)' : '(Belum Bayar)'}
+                    </span>
+                  </div>
+                );
+              })
             )}
 
             <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-slate-900">
-              <span>Total yang Harus Dibayar:</span>
+              <span>Total Sisa Tagihan:</span>
               <span className={`font-mono text-base font-black ${isAllPaid ? 'text-emerald-600' : 'text-orange-600'}`}>
                 Rp{totalUnpaidAmount.toLocaleString('id-ID')}
               </span>
@@ -284,7 +313,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
               Menunggu Pembayaran
             </h2>
             <p className="text-xs text-slate-500">
-              Total Tagihan Siswa: <strong className="text-orange-600 font-mono text-sm">Rp{totalUnpaidAmount.toLocaleString('id-ID')}</strong>
+              Total Sisa Tagihan Siswa: <strong className="text-orange-600 font-mono text-sm">Rp{totalUnpaidAmount.toLocaleString('id-ID')}</strong>
             </p>
           </div>
 
@@ -485,14 +514,25 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
             </div>
           )}
 
+          {/* Verification Notice */}
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 max-w-sm mx-auto space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-amber-950">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Verifikasi Kasir Resmi BFA:</span>
+            </div>
+            <p className="leading-relaxed text-amber-800">
+              Setelah Anda mentransfer atau scan QRIS, klik tombol di bawah untuk mengajukan konfirmasi pembayaran. Status tagihan akan diubah menjadi <strong>LUNAS</strong> setelah diverifikasi oleh Admin BFA.
+            </p>
+          </div>
+
           {/* Verification Trigger Button */}
           <div className="pt-2 space-y-2 max-w-sm mx-auto">
             <button
-              onClick={handleSimulateSuccess}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md shadow-emerald-600/20 transition active:scale-95 flex items-center justify-center space-x-2"
+              onClick={handleConfirmPaymentSubmitted}
+              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-600/20 transition active:scale-95 flex items-center justify-center space-x-2"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>SAYA SUDAH BAYAR (VERIFIKASI SEKARANG)</span>
+              <span>SAYA SUDAH BAYAR (KIRIM KONFIRMASI KE ADMIN)</span>
             </button>
 
             <button
@@ -508,50 +548,79 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
     );
   }
 
-  // STEP 3: PAYMENT VERIFIED & SUCCESS
+  // STEP 3: PAYMENT CONFIRMATION SUBMITTED & PENDING ADMIN VERIFICATION
+  const handleSendWaProof = () => {
+    const waText = encodeURIComponent(
+      `Halo Admin BFA, saya orang tua dari ananda *${childName}* (${student?.id || '-'}).\n` +
+      `Saya mengonfirmasi pembayaran via *${selectedMethod === 'QRIS' ? 'QRIS Standar BFA' : 'Transfer Bank BCA'}* untuk pelunasan sisa tagihan sebesar *Rp${totalUnpaidAmount.toLocaleString('id-ID')}*.\n` +
+      `No. Referensi Konfirmasi: *${lastTrxId}*\n\n` +
+      `Berikut saya lampirkan bukti transfer. Mohon dicocokkan dengan mutasi rekening/kasir dan diverifikasi pada sistem BFA Hub agar status tagihan diperbarui menjadi Lunas. Terima kasih.`
+    );
+    window.open(`https://wa.me/6281399201983?text=${waText}`, '_blank');
+  };
+
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs text-center space-y-5">
-        <div className="w-14 h-14 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
-          <CheckCircle2 className="w-8 h-8" />
+        <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
+          <Clock className="w-8 h-8 animate-pulse" />
         </div>
         <div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-black uppercase tracking-wider mb-2">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Menunggu Verifikasi Admin</span>
+          </div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight">
-            ✓ Pembayaran Berhasil Diverifikasi!
+            Konfirmasi Pembayaran Diterima!
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Status tagihan siswa telah otomatis diubah menjadi{' '}
-            <strong className="text-emerald-700">LUNAS</strong> dan tercatat resmi di buku kas akademi.
+          <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+            Terima kasih! Bukti transfer/pembayaran Anda sedang dalam antrean verifikasi Admin BFA. Tagihan akan diperbarui menjadi <strong className="text-emerald-700">LUNAS</strong> setelah dana diverifikasi oleh kasir/manajemen.
           </p>
         </div>
 
-        <div className="p-4 bg-slate-50 rounded-2xl text-xs space-y-2 text-left border border-slate-200">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Nomor Transaksi:</span>
-            <span className="font-mono font-bold text-slate-900">{lastTrxId}</span>
+        <div className="p-4 bg-slate-50 rounded-2xl text-xs space-y-2.5 text-left border border-slate-200">
+          <div className="flex justify-between items-center">
+            <span className="text-slate-500">No. Referensi Konfirmasi:</span>
+            <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">{lastTrxId}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-slate-500">Nama Siswa:</span>
             <span className="font-bold text-slate-900">{childName} (Kelompok {childGroup})</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Jumlah Bayar:</span>
-            <span className="font-black text-emerald-700 font-mono">Rp{totalUnpaidAmount.toLocaleString('id-ID')}</span>
+          <div className="flex justify-between items-center">
+            <span className="text-slate-500">Total Sisa Tagihan Terkait:</span>
+            <span className="font-black text-orange-600 font-mono text-sm">Rp{totalUnpaidAmount.toLocaleString('id-ID')}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-slate-500">Kanal Pembayaran:</span>
             <span className="font-bold text-slate-900">
               {selectedMethod === 'QRIS' ? 'QRIS Standar Nasional (BFA Karawang)' : `Transfer Bank BCA (${BCA_ACCOUNT_HOLDER})`}
             </span>
           </div>
+          <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+            <span className="text-slate-500">Status Pembukuan:</span>
+            <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
+              Menunggu Pencocokan Kasir BFA
+            </span>
+          </div>
         </div>
+
+        {/* WhatsApp Button to send receipt */}
+        <button
+          type="button"
+          onClick={handleSendWaProof}
+          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition active:scale-95 flex items-center justify-center space-x-2 shadow-xs"
+        >
+          <Smartphone className="w-4 h-4" />
+          <span>Kirim Bukti Transfer via WhatsApp Admin</span>
+        </button>
 
         <div className="flex gap-2">
           <button
             onClick={() => onNavigate('parent-payments')}
             className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs border border-slate-300 transition active:scale-95"
           >
-            Riwayat Pembayaran
+            Lihat Status Tagihan
           </button>
           <button
             onClick={() => onNavigate('parent-dashboard')}

@@ -10,7 +10,8 @@ import {
   CreditCard, 
   CalendarDays, 
   Receipt,
-  PlusCircle
+  PlusCircle,
+  UserCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -19,6 +20,14 @@ interface SidebarProps {
   onNavigate: (route: RouteId) => void;
   onOpenRecordCash: () => void;
   onOpenFingerprint: () => void;
+  pendingRegistrationsCount?: number;
+}
+
+interface SidebarLink {
+  route: RouteId;
+  label: string;
+  icon: any;
+  badge?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,27 +36,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   onOpenRecordCash,
   onOpenFingerprint,
+  pendingRegistrationsCount = 0,
 }) => {
-  const adminLinks = [
-    { route: 'dashboard' as RouteId, label: 'Dashboard Admin', icon: Home },
-    { route: 'students' as RouteId, label: 'Data Siswa', icon: Users },
-    { route: 'coaches' as RouteId, label: 'Data Pelatih', icon: Award },
-    { route: 'keuangan' as RouteId, label: 'Keuangan & Buku Kas', icon: Wallet },
-    { route: 'erapport' as RouteId, label: 'E-Rapport Siswa', icon: Award },
-    { route: 'attendance' as RouteId, label: 'Absensi Lapangan', icon: CheckCircle },
-    { route: 'fingerprint' as RouteId, label: 'Hardware Fingerprint', icon: Fingerprint },
-    { route: 'invoices' as RouteId, label: 'Sistem Tagihan & SPP', icon: CreditCard },
+  const adminLinks: SidebarLink[] = [
+    { route: 'dashboard', label: 'Dashboard Admin', icon: Home },
+    { 
+      route: 'registrations', 
+      label: 'Verifikasi Pendaftaran', 
+      icon: UserCheck, 
+      badge: pendingRegistrationsCount 
+    },
+    { route: 'students', label: 'Data Siswa', icon: Users },
+    { route: 'coaches', label: 'Data Pelatih', icon: Award },
+    { route: 'keuangan', label: 'Keuangan & Buku Kas', icon: Wallet },
+    { route: 'erapport', label: 'E-Rapport Siswa', icon: Award },
+    { route: 'attendance', label: 'Absensi Lapangan', icon: CheckCircle },
+    { route: 'fingerprint', label: 'Hardware Fingerprint', icon: Fingerprint },
+    { route: 'invoices', label: 'Sistem Tagihan & SPP', icon: CreditCard },
   ];
 
-  const parentLinks = [
-    { route: 'parent-dashboard' as RouteId, label: 'Dashboard Orang Tua', icon: Home },
-    { route: 'parent-attendance' as RouteId, label: 'Kalender Absensi', icon: CalendarDays },
-    { route: 'parent-payment' as RouteId, label: 'Bayar Tagihan', icon: CreditCard },
-    { route: 'parent-payments' as RouteId, label: 'Riwayat Pembayaran', icon: Receipt },
-    { route: 'parent-report' as RouteId, label: 'Rapor Perkembangan', icon: Award },
+  const parentLinks: SidebarLink[] = [
+    { route: 'parent-dashboard', label: 'Dashboard Orang Tua', icon: Home },
+    { route: 'parent-attendance', label: 'Kalender Absensi', icon: CalendarDays },
+    { route: 'parent-payment', label: 'Bayar Tagihan', icon: CreditCard },
+    { route: 'parent-payments', label: 'Riwayat Pembayaran', icon: Receipt },
+    { route: 'parent-report', label: 'Rapor Perkembangan', icon: Award },
   ];
 
-  const links = role === 'admin' ? adminLinks : parentLinks;
+  const links: SidebarLink[] = role === 'admin' ? adminLinks : parentLinks;
 
   return (
     <>
@@ -64,14 +80,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={link.route}
                   onClick={() => onNavigate(link.route)}
-                  className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
                     isActive 
                       ? 'bg-blue-600 text-white shadow-sm' 
                       : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700'
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{link.label}</span>
+                  <div className="flex items-center space-x-3 truncate">
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{link.label}</span>
+                  </div>
+                  {Boolean(link.badge && link.badge > 0) && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs shrink-0">
+                      {link.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

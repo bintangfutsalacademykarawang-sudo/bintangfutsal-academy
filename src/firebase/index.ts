@@ -321,6 +321,77 @@ export async function saveStudentToFirestore(student: Student): Promise<void> {
   }
 }
 
+/**
+ * Persetujuan pendaftaran calon siswa oleh Admin BFA.
+ * Mengubah status pendaftaran menjadi DISETUJUI, mengaktifkan status siswa (Aktif),
+ * dan mencatat waktu serta nama admin yang menyetujui.
+ * Menggunakan transaksi Firestore fail-closed agar status tidak berubah semu jika jaringan terputus.
+ */
+export async function approveStudentRegistration(
+  studentId: string,
+  adminName: string = 'Admin BFA'
+): Promise<void> {
+  if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
+    throw new Error('ID Siswa tidak valid untuk proses persetujuan.');
+  }
+  const cleanId = studentId.trim();
+  const studentRef = doc(db, STUDENTS_COLLECTION, cleanId);
+
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(studentRef);
+    if (!snap.exists()) {
+      throw new Error(`Data calon siswa dengan ID ${cleanId} tidak ditemukan di database.`);
+    }
+
+    transaction.set(
+      studentRef,
+      {
+        registrationStatus: 'DISETUJUI',
+        status: 'Aktif',
+        verifiedAt: new Date().toISOString(),
+        verifiedBy: adminName,
+      },
+      { merge: true }
+    );
+  });
+}
+
+/**
+ * Penolakan pendaftaran calon siswa oleh Admin BFA.
+ * Mengubah status pendaftaran menjadi DITOLAK, menonaktifkan akun (Non-Aktif),
+ * mencatat alasan penolakan, waktu, dan nama admin yang menolak.
+ */
+export async function rejectStudentRegistration(
+  studentId: string,
+  adminName: string = 'Admin BFA',
+  reason: string = 'Pendaftaran belum memenuhi persyaratan akademi'
+): Promise<void> {
+  if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
+    throw new Error('ID Siswa tidak valid untuk proses penolakan.');
+  }
+  const cleanId = studentId.trim();
+  const studentRef = doc(db, STUDENTS_COLLECTION, cleanId);
+
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(studentRef);
+    if (!snap.exists()) {
+      throw new Error(`Data calon siswa dengan ID ${cleanId} tidak ditemukan di database.`);
+    }
+
+    transaction.set(
+      studentRef,
+      {
+        registrationStatus: 'DITOLAK',
+        status: 'Non-Aktif',
+        rejectionReason: reason,
+        verifiedAt: new Date().toISOString(),
+        verifiedBy: adminName,
+      },
+      { merge: true }
+    );
+  });
+}
+
 export async function deleteStudentFromFirestore(studentId: string): Promise<void> {
   try {
     if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
