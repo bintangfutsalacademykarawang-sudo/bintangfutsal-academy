@@ -72,6 +72,7 @@ import {
   saveStudentToFirestore,
   saveReportToFirestore,
   saveInvoiceToFirestore,
+  fetchMonthlyInvoicesByPeriod,
   deleteInvoiceFromFirestore,
   saveAttendanceToFirestore,
   deleteAttendanceFromFirestore,
@@ -1213,55 +1214,177 @@ export default function App() {
   };
 
   // Generate Monthly Invoices with custom settings from Modal
-  const handleConfirmGenerateInvoices = (config: {
+  const handleConfirmGenerateInvoices = async (config: {
     period: string;
     dueDate: string;
     issueDate: string;
     amount: number;
     classGroupId: string;
+    targetMode?: 'ALL' | 'GROUP' | 'CUSTOM';
+    selectedStudentIds?: string[];
   }) => {
     let count = 0;
+    let skippedCount = 0;
+    let protectedPaidCount = 0;
     const newInvoices: Invoice[] = [];
     const dateFormatted = config.issueDate.split('-').reverse().join('/');
+    const cleanPeriod = (config.period || '').trim();
+    const normPeriod = cleanPeriod.toLowerCase();
 
-    students.forEach((st) => {
-      const matchGroup = config.classGroupId === 'ALL' || st.classGroupId === config.classGroupId;
-      if (st.status === 'Aktif' && matchGroup) {
-        const exists = invoices.some(
-          (inv) => inv.studentId === st.id && inv.type === 'Bulanan' && inv.period === config.period
-        );
-        if (!exists) {
-          const invId = `INV-${config.issueDate.replace(/-/g, '')}-${st.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`;
-          newInvoices.push({
-            id: invId,
-            studentId: st.id,
-            studentName: st.name,
-            classGroupId: st.classGroupId,
-            type: 'Bulanan',
-            period: config.period,
-            amount: config.amount,
-            paidAmount: 0,
-            remainingAmount: config.amount,
-            status: 'BELUM BAYAR',
-            dueDate: config.dueDate,
-            createdAt: dateFormatted,
-          });
-          count++;
-        }
+    if (!cleanPeriod) {
+      showToast('Periode tagihan tidak boleh kosong.', 'error');
+      return;
+    }
+
+    const mode = config.targetMode || (config.classGroupId === 'ALL' ? 'ALL' : config.selectedStudentIds?.length ? 'CUSTOM' : 'GROUP');
+    const selectedIdsSet = new Set(config.selectedStudentIds || []);
+
+    const targetedStudents = students.filter((st) => {
+      if (st.status !== 'Aktif') return false;
+      if (mode === 'CUSTOM') return selectedIdsSet.has(st.id);
+      if (mode === 'GROUP') return config.classGroupId === 'ALL' || st.classGroupId === config.classGroupId;
+      return true; // ALL
+    });
+
+    if (targetedStudents.length === 0) {
+      showToast(`Tidak ada siswa aktif yang cocok dengan target penerbitan ${cleanPeriod}.`, 'warning');
+      return;
+    }
+
+    // 1. Kumpulkan seluruh invoice SPP yang sudah ada di memori lokal untuk periode ini
+    const existingMonthlyMap = new Map<string, Invoice>();
+    invoices.forEach((inv) => {
+      if (inv.studentId && inv.type === 'Bulanan' && (inv.period || '').trim().toLowerCase() === normPeriod) {
+        existingMonthlyMap.set(inv.studentId, inv);
       }
     });
 
-    if (count > 0) {
-      setInvoices((prev) => [...newInvoices, ...prev]);
-      try {
-        localStorage.setItem('bfa_invoices', JSON.stringify([...newInvoices, ...invoices]));
-      } catch {}
-      newInvoices.forEach((inv) => {
-        saveInvoiceToFirestore(inv).catch((e) => console.warn('Firestore invoice sync:', e));
+    // 2. Query Firestore secara otoritatif untuk memastikan tidak ada tagihan terlewat akibat batasan limit query memori (Fail-Closed)
+    try {
+      const cloudMonthlyInvoices = await fetchMonthlyInvoicesByPeriod(cleanPeriod);
+      cloudMonthlyInvoices.forEach((inv) => {
+        if (inv.studentId && inv.type === 'Bulanan') {
+          const current = existingMonthlyMap.get(inv.studentId);
+          // Prioritaskan invoice yang memiliki status LUNAS atau ada pembayaran riil (paidAmount > 0)
+          if (
+            !current ||
+            (inv.paidAmount || 0) > (current.paidAmount || 0) ||
+            inv.status === 'LUNAS' ||
+            inv.status === 'SEBAGIAN'
+          ) {
+            existingMonthlyMap.set(inv.studentId, inv);
+          }
+        }
       });
-      showToast(`Berhasil menerbitkan ${count} tagihan SPP (${config.period}) jatuh tempo ${config.dueDate}!`, 'success');
+    } catch (err: any) {
+      console.error('Pengecekan tagihan server gagal:', err);
+      showToast(
+        `Gagal memeriksa data tagihan di server: ${err?.message || 'Koneksi terputus'}. Penerbitan dibatalkan demi keamanan data.`,
+        'error'
+      );
+      return;
+    }
+
+    // 3. Evaluasi setiap siswa target: jika sudah ada invoice untuk periode ini (apapun tanggal terbitnya), lewati!
+    targetedStudents.forEach((st) => {
+      const existingInv = existingMonthlyMap.get(st.id);
+      if (existingInv) {
+        // PERLINDUNGAN: Siswa sudah memiliki tagihan untuk periode ini.
+        // Jangan pernah membuat tagihan kedua dan jangan pernah menimpa dokumen lama.
+        skippedCount++;
+        if (
+          existingInv.status === 'LUNAS' ||
+          existingInv.status === 'SEBAGIAN' ||
+          (typeof existingInv.paidAmount === 'number' && existingInv.paidAmount > 0)
+        ) {
+          protectedPaidCount++;
+        }
+        return;
+      }
+
+      // Siswa belum memiliki tagihan SPP untuk periode ini: terbitkan tagihan baru
+      const invId = `INV-${config.issueDate.replace(/-/g, '')}-${st.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`;
+      newInvoices.push({
+        id: invId,
+        studentId: st.id,
+        studentName: st.name,
+        classGroupId: st.classGroupId,
+        type: 'Bulanan',
+        period: cleanPeriod,
+        amount: config.amount,
+        paidAmount: 0,
+        remainingAmount: config.amount,
+        status: 'BELUM BAYAR',
+        dueDate: config.dueDate,
+        createdAt: dateFormatted,
+      });
+      count++;
+    });
+
+    // 4. Simpan tagihan baru ke Firestore terlebih dahulu (Database-First)
+    if (count > 0) {
+      const savedInvoices: Invoice[] = [];
+      const failedInvoices: Invoice[] = [];
+
+      await Promise.all(
+        newInvoices.map(async (inv) => {
+          try {
+            await saveInvoiceToFirestore(inv);
+            savedInvoices.push(inv);
+          } catch (e) {
+            failedInvoices.push(inv);
+            console.error('Gagal menyimpan tagihan ke Firestore:', inv.id, e);
+          }
+        })
+      );
+
+      const successCount = savedInvoices.length;
+      const failedCount = failedInvoices.length;
+
+      // HANYA perbarui state lokal dan localStorage untuk tagihan yang BENAR-BENAR BERHASIL disimpan ke Firestore
+      if (successCount > 0) {
+        setInvoices((prev) => [...savedInvoices, ...prev]);
+        try {
+          const currentInvoices = JSON.parse(localStorage.getItem('bfa_invoices') || '[]');
+          localStorage.setItem('bfa_invoices', JSON.stringify([...savedInvoices, ...currentInvoices]));
+        } catch {}
+      }
+
+      if (failedCount > 0 && successCount > 0) {
+        showToast(
+          `Berhasil menerbitkan ${successCount} tagihan SPP (${cleanPeriod}), namun ${failedCount} tagihan gagal disimpan ke server. ${skippedCount > 0 ? `${skippedCount} siswa dilewati.` : ''}`,
+          'warning'
+        );
+      } else if (failedCount > 0 && successCount === 0) {
+        showToast(
+          `Seluruh ${failedCount} tagihan SPP gagal disimpan ke server. Tidak ada data lokal yang diubah. Silakan periksa jaringan Anda.`,
+          'error'
+        );
+      } else if (skippedCount > 0) {
+        const protectMsg = protectedPaidCount > 0 ? ` (${protectedPaidCount} berstatus Lunas/Cicilan dilindungi)` : '';
+        showToast(
+          `Berhasil menerbitkan ${successCount} tagihan SPP (${cleanPeriod}). ${skippedCount} siswa dilewati karena sudah memiliki tagihan${protectMsg}.`,
+          'success'
+        );
+      } else {
+        showToast(
+          `Berhasil menerbitkan ${successCount} tagihan SPP (${cleanPeriod}) jatuh tempo ${config.dueDate}!`,
+          'success'
+        );
+      }
     } else {
-      showToast(`Seluruh siswa aktif pada kelompok ${config.classGroupId === 'ALL' ? 'Semua' : config.classGroupId} sudah memiliki tagihan untuk ${config.period}.`, 'info');
+      if (skippedCount > 0) {
+        const protectMsg = protectedPaidCount > 0 ? ` Termasuk ${protectedPaidCount} tagihan Lunas/Cicilan yang aman terlindungi.` : '';
+        showToast(
+          `Seluruh siswa sasaran (${skippedCount} siswa) sudah memiliki tagihan SPP untuk periode ${cleanPeriod}.${protectMsg}`,
+          'info'
+        );
+      } else {
+        showToast(
+          `Tidak ada siswa aktif yang cocok dengan target penerbitan ${cleanPeriod}.`,
+          'warning'
+        );
+      }
     }
   };
 
@@ -2281,6 +2404,7 @@ Official Performance Report • BFA Karawang
       <GenerateInvoiceModal
         isOpen={isGenerateInvoiceModalOpen}
         students={students}
+        invoices={invoices}
         onClose={() => setIsGenerateInvoiceModalOpen(false)}
         onConfirm={handleConfirmGenerateInvoices}
       />

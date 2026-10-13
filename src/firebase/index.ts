@@ -620,11 +620,61 @@ export async function saveInvoiceToFirestore(invoice: Invoice): Promise<void> {
     }
     const cleanId = invoice.id.trim();
     const invRef = doc(db, INVOICES_COLLECTION, cleanId);
+
+    // Proteksi Pembayaran: Mencegah penimpaan invoice yang sudah memiliki riwayat pembayaran riil atau sudah LUNAS
+    // jika data yang hendak disimpan adalah invoice baru berstatus BELUM BAYAR dengan paidAmount 0.
+    if (invoice.status === 'BELUM BAYAR' && (!invoice.paidAmount || invoice.paidAmount === 0)) {
+      try {
+        const existingSnap = await getDoc(invRef);
+        if (existingSnap.exists()) {
+          const existingData = existingSnap.data() as Invoice;
+          if (
+            existingData.status === 'LUNAS' ||
+            existingData.status === 'SEBAGIAN' ||
+            (typeof existingData.paidAmount === 'number' && existingData.paidAmount > 0)
+          ) {
+            console.warn(
+              `[Protection] Menolak penimpaan invoice ${cleanId} yang sudah berstatus ${existingData.status} (paidAmount: ${existingData.paidAmount}). Data pembayaran riil dilindungi.`
+            );
+            return;
+          }
+        }
+      } catch (checkErr) {
+        console.error(`[Protection Check] Gagal memeriksa status invoice ${cleanId} di Firestore:`, checkErr);
+        throw checkErr;
+      }
+    }
+
     await setDoc(invRef, cleanForFirestore(invoice), { merge: true });
   } catch (error) {
     console.error('Failed to save invoice to Firestore:', error);
     throw error;
   }
+}
+
+/**
+ * Mengambil seluruh tagihan bulanan (SPP) untuk periode tertentu langsung dari Firestore.
+ * Digunakan untuk pemeriksaan duplikasi otoritatif database-first agar tidak bergantung
+ * pada batasan limit query di memori lokal.
+ * Melempar galat jika query gagal agar pemanggil dapat menerapkan fail-closed.
+ */
+export async function fetchMonthlyInvoicesByPeriod(period: string): Promise<Invoice[]> {
+  const cleanPeriod = (period || '').trim().toLowerCase();
+  if (!cleanPeriod) return [];
+
+  const collRef = collection(db, INVOICES_COLLECTION);
+  const q = query(collRef, where('type', '==', 'Bulanan'), limit(500));
+  const snapshot = await getDocs(q);
+
+  const list: Invoice[] = [];
+  snapshot.forEach((docSnap) => {
+    const data = docSnap.data() as Invoice;
+    const inv: Invoice = { ...data, id: docSnap.id };
+    if ((inv.period || '').trim().toLowerCase() === cleanPeriod) {
+      list.push(inv);
+    }
+  });
+  return list;
 }
 
 export async function deleteInvoiceFromFirestore(invoiceId: string): Promise<void> {
