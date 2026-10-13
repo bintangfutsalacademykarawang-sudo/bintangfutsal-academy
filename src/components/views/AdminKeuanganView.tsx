@@ -33,6 +33,7 @@ import {
   fetchCashMutationsPage, 
   subscribeToOperationalCashMutations 
 } from '../../firebase';
+import { AdminRecapView } from './AdminRecapView';
 
 interface AdminKeuanganViewProps {
   cashMutations: CashMutation[];
@@ -64,7 +65,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   onGenerateInvoices,
   onCancelInvoicePayment,
 }) => {
-  const [activeTab, setActiveTab] = useState<'buku-kas' | 'tagihan-iuran'>('buku-kas');
+  const [activeTab, setActiveTab] = useState<'buku-kas' | 'tagihan-iuran' | 'rekap-siswa'>('buku-kas');
 
   // Filter state for Buku Kas
   const [filterType, setFilterType] = useState<'Semua' | 'Pemasukan' | 'Pengeluaran'>('Semua');
@@ -488,7 +489,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                 <span>Catat Mutasi Kas</span>
               </button>
             </>
-          ) : (
+          ) : activeTab === 'tagihan-iuran' ? (
             <>
               <button
                 onClick={() => exportInvoicesExcel(invoices)}
@@ -516,7 +517,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                 </button>
               )}
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -670,6 +671,18 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
         >
           <Receipt className="w-4 h-4" />
           <span>Tagihan & Iuran Siswa ({invoices.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('rekap-siswa')}
+          className={`pb-3 flex items-center space-x-2 border-b-2 transition ${
+            activeTab === 'rekap-siswa'
+              ? 'border-blue-900 text-blue-900 font-black'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>Rekap Pembayaran & Tunggakan Siswa</span>
         </button>
       </div>
 
@@ -1157,6 +1170,11 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ---------------- TAB 3: REKAP PEMBAYARAN & TUNGGAKAN SISWA ---------------- */}
+      {activeTab === 'rekap-siswa' && (
+        <AdminRecapView students={students} currentInvoices={invoices} />
       )}
 
       {/* Invoice Payment Modal */}

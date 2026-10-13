@@ -677,6 +677,74 @@ export async function fetchMonthlyInvoicesByPeriod(period: string): Promise<Invo
   return list;
 }
 
+/**
+ * Mengambil seluruh tagihan yang relevan untuk tahun tertentu dari Firestore secara on-demand.
+ * Menggunakan query bounded pada rentang jatuh tempo yang mencakup tahun kalender,
+ * dengan cursor pagination ber-batch (pageSize 150) agar tidak terpotong oleh limit query default
+ * dan tidak membebani kuota tanpa batas.
+ * Melempar error jika query gagal (fail-closed) agar antarmuka rekap tidak menampilkan agregasi semu/tidak lengkap.
+ */
+export async function fetchInvoicesForYear(
+  year: number,
+  pageSize: number = 150
+): Promise<Invoice[]> {
+  if (!year || isNaN(year) || year < 2000 || year > 2100) {
+    throw new Error('Tahun tidak valid untuk memuat rekap tagihan.');
+  }
+
+  const collRef = collection(db, INVOICES_COLLECTION);
+  // Rentang batas jatuh tempo mencakup tahun berjalan beserta toleransi pergantian tahun
+  const startBound = `${year - 1}-12-15`;
+  const endBound = `${year + 1}-01-25\uf8ff`;
+
+  const results: Invoice[] = [];
+  const visitedIds = new Set<string>();
+  let lastDoc: QueryDocumentSnapshot | null = null;
+  let hasMore = true;
+  let loopCount = 0;
+  const maxLoops = 25; // Maksimal 25 x 150 = 3.750 dokumen
+
+  while (hasMore && loopCount < maxLoops) {
+    loopCount++;
+    const constraints: any[] = [
+      where('dueDate', '>=', startBound),
+      where('dueDate', '<=', endBound),
+      orderBy('dueDate', 'asc'),
+      limit(pageSize),
+    ];
+
+    if (lastDoc) {
+      constraints.push(startAfter(lastDoc));
+    }
+
+    const q = query(collRef, ...constraints);
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      hasMore = false;
+      break;
+    }
+
+    snap.forEach((docSnap) => {
+      if (!visitedIds.has(docSnap.id)) {
+        visitedIds.add(docSnap.id);
+        results.push({
+          ...(docSnap.data() as Invoice),
+          id: docSnap.id,
+        });
+      }
+    });
+
+    if (snap.docs.length < pageSize) {
+      hasMore = false;
+    } else {
+      lastDoc = snap.docs[snap.docs.length - 1];
+    }
+  }
+
+  return results;
+}
+
 export async function deleteInvoiceFromFirestore(invoiceId: string): Promise<void> {
   try {
     if (!invoiceId || typeof invoiceId !== 'string' || !invoiceId.trim()) {
