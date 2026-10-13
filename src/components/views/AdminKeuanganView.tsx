@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { CashMutation, Invoice } from '../../types';
+import { CashMutation, Invoice, Student } from '../../types';
 import { QueryDocumentSnapshot } from 'firebase/firestore';
 import { 
   Vault, 
@@ -37,6 +37,7 @@ import {
 interface AdminKeuanganViewProps {
   cashMutations: CashMutation[];
   invoices?: Invoice[];
+  students?: Student[];
   onOpenRecordCash: () => void;
   onDeleteMutation: (id: string) => void;
   onMarkInvoicePaid?: (id: string) => void;
@@ -54,6 +55,7 @@ interface AdminKeuanganViewProps {
 export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   cashMutations: propCashMutations,
   invoices = [],
+  students = [],
   onOpenRecordCash,
   onDeleteMutation,
   onMarkInvoicePaid,
@@ -72,6 +74,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
   const [filterCategory, setFilterCategory] = useState('Semua');
   const [search, setSearch] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // Payment Correction State (Khusus INVOICE_PAYMENT)
   const [mutationToCorrect, setMutationToCorrect] = useState<CashMutation | null>(null);
@@ -378,6 +381,17 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
     }
   };
 
+  const handleExportExcel = async () => {
+    setIsExportingExcel(true);
+    try {
+      await exportFinanceExcel(mutations, totalPemasukan, totalPengeluaran, totalKas, invoices, students);
+    } catch (e) {
+      console.error('Export Excel error:', e);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   // Filter mutations by type, category, period, and search query
   const filteredMutations = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -450,12 +464,13 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
           {activeTab === 'buku-kas' ? (
             <>
               <button
-                onClick={() => exportFinanceExcel(mutations, totalPemasukan, totalPengeluaran, totalKas)}
-                className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
+                onClick={handleExportExcel}
+                disabled={isExportingExcel}
+                className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-400 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm active:scale-95 transition"
                 title="Download Rekapitulasi Kas format Excel (.xlsx)"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-                <span>Unduh Excel</span>
+                <span>{isExportingExcel ? 'Menyiapkan Excel...' : 'Unduh Excel'}</span>
               </button>
               <button
                 onClick={handleExportPDF}

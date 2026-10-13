@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { Student, CashMutation, Invoice, Attendance } from '../types';
 
 /**
@@ -141,26 +143,135 @@ export const exportStudentsPDF = (students: Student[]) => {
 /**
  * EXPORT KEUANGAN & BUKU KAS
  */
-export const exportFinanceExcel = (
+export const exportFinanceExcel = async (
   mutations: CashMutation[],
   totalPemasukan: number,
   totalPengeluaran: number,
-  totalKas: number
+  totalKas: number,
+  invoices: Invoice[] = [],
+  students: Student[] = []
 ) => {
-  const data: Record<string, any>[] = mutations.map((m, idx) => ({
-    'No': idx + 1,
-    'ID Mutasi': m.id,
-    'Tanggal': m.date,
-    'Tipe Arus': m.type,
-    'Kategori': m.category,
-    'Keterangan / Rincian': m.note,
-    'Metode Pembayaran': m.method,
-    'Petugas / Admin': m.staff,
-    'Nominal Pemasukan (Rp)': m.type === 'Pemasukan' ? m.amount : 0,
-    'Nominal Pengeluaran (Rp)': m.type === 'Pengeluaran' ? m.amount : 0,
-  }));
+  // 1. Pemetaan Invoices: gabungkan dari props dan cache localStorage
+  const invoiceMap = new Map<string, Invoice>();
+  invoices.forEach((inv) => {
+    if (inv?.id) invoiceMap.set(inv.id, inv);
+  });
 
-  // Append summary row
+  try {
+    const savedInvoices = localStorage.getItem('bfa_invoices');
+    if (savedInvoices) {
+      const parsed: Invoice[] = JSON.parse(savedInvoices);
+      parsed.forEach((inv) => {
+        if (inv?.id && !invoiceMap.has(inv.id)) {
+          invoiceMap.set(inv.id, inv);
+        }
+      });
+    }
+  } catch {}
+
+  // 2. Pemetaan Siswa: gabungkan dari props dan cache localStorage
+  const studentMap = new Map<string, Student>();
+  students.forEach((st) => {
+    if (st?.id) studentMap.set(st.id, st);
+  });
+
+  try {
+    const savedStudents = localStorage.getItem('bfa_students');
+    if (savedStudents) {
+      const parsed: Student[] = JSON.parse(savedStudents);
+      parsed.forEach((st) => {
+        if (st?.id && !studentMap.has(st.id)) {
+          studentMap.set(st.id, st);
+        }
+      });
+    }
+  } catch {}
+
+  // 3. Resolusi Firestore untuk invoice yang belum ada di memori
+  const missingInvoiceIds = Array.from(
+    new Set(
+      mutations
+        .map((m) => m.invoiceId)
+        .filter((id): id is string => Boolean(id && typeof id === 'string' && !invoiceMap.has(id)))
+    )
+  );
+
+  if (missingInvoiceIds.length > 0) {
+    try {
+      await Promise.all(
+        missingInvoiceIds.map(async (invId) => {
+          try {
+            const snap = await getDoc(doc(db, 'invoices', invId));
+            if (snap.exists()) {
+              const invData = { ...(snap.data() as Invoice), id: snap.id };
+              invoiceMap.set(invId, invData);
+            }
+          } catch {}
+        })
+      );
+    } catch {}
+  }
+
+  // 4. Pembentukan baris data dengan kolom 'Nama Siswa' dan 'ID Siswa' disisipkan sebelum 'Metode Pembayaran'
+  const data: Record<string, any>[] = mutations.map((m, idx) => {
+    let studentId = '';
+    let studentName = '';
+
+    // Prioritas 1: Relasi otoritatif via invoiceId (mencakup SPP Bulanan & Iuran Sesi Lapangan)
+    if (m.invoiceId && invoiceMap.has(m.invoiceId)) {
+      const relInv = invoiceMap.get(m.invoiceId)!;
+      if (relInv.studentId) {
+        studentId = relInv.studentId;
+        const matchedStudent = studentMap.get(relInv.studentId);
+        studentName = matchedStudent?.name || relInv.studentName || '';
+      } else if (relInv.studentName) {
+        studentName = relInv.studentName;
+      }
+    }
+
+    // Prioritas 2: Relasi via paymentId
+    if (!studentId && m.paymentId) {
+      for (const inv of invoiceMap.values()) {
+        const hasPayment =
+          inv.payments?.some((p) => p.id === m.paymentId || p.paymentId === m.paymentId) ||
+          (inv.transactionId && inv.transactionId.includes(m.paymentId));
+        if (hasPayment && inv.studentId) {
+          studentId = inv.studentId;
+          const matchedStudent = studentMap.get(inv.studentId);
+          studentName = matchedStudent?.name || inv.studentName || '';
+          break;
+        }
+      }
+    }
+
+    // Prioritas 3: Field studentId langsung pada mutasi (jika tersedia di struktur dokumen)
+    if (!studentId && (m as any).studentId) {
+      const rawStudentId = (m as any).studentId;
+      studentId = rawStudentId;
+      const matchedStudent = studentMap.get(rawStudentId);
+      studentName = matchedStudent?.name || (m as any).studentName || '';
+    }
+
+    const finalStudentName = studentName.trim() || '-';
+    const finalStudentId = studentId.trim() || '-';
+
+    return {
+      'No': idx + 1,
+      'ID Mutasi': m.id,
+      'Tanggal': m.date,
+      'Tipe Arus': m.type,
+      'Kategori': m.category,
+      'Keterangan / Rincian': m.note,
+      'Nama Siswa': finalStudentName,
+      'ID Siswa': finalStudentId,
+      'Metode Pembayaran': m.method,
+      'Petugas / Admin': m.staff,
+      'Nominal Pemasukan (Rp)': m.type === 'Pemasukan' ? m.amount : 0,
+      'Nominal Pengeluaran (Rp)': m.type === 'Pengeluaran' ? m.amount : 0,
+    };
+  });
+
+  // Append summary row (tetap mempertahankan seluruh kolom terisi aman)
   data.push({
     'No': null as any,
     'ID Mutasi': 'RINGKASAN TOTAL',
@@ -168,6 +279,8 @@ export const exportFinanceExcel = (
     'Tipe Arus': '',
     'Kategori': '',
     'Keterangan / Rincian': `Saldo Kas Bersih: Rp${totalKas.toLocaleString('id-ID')}`,
+    'Nama Siswa': '',
+    'ID Siswa': '',
     'Metode Pembayaran': '',
     'Petugas / Admin': '',
     'Nominal Pemasukan (Rp)': totalPemasukan,
@@ -176,9 +289,23 @@ export const exportFinanceExcel = (
 
   const ws = XLSX.utils.json_to_sheet(data);
   ws['!cols'] = [
-    { wch: 5 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
-    { wch: 35 }, { wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 22 }
+    { wch: 5 },  // No
+    { wch: 22 }, // ID Mutasi
+    { wch: 14 }, // Tanggal
+    { wch: 14 }, // Tipe Arus
+    { wch: 22 }, // Kategori
+    { wch: 38 }, // Keterangan / Rincian
+    { wch: 28 }, // Nama Siswa
+    { wch: 14 }, // ID Siswa
+    { wch: 18 }, // Metode Pembayaran
+    { wch: 18 }, // Petugas / Admin
+    { wch: 22 }, // Nominal Pemasukan (Rp)
+    { wch: 22 }, // Nominal Pengeluaran (Rp)
   ];
+
+  // Aktifkan AutoFilter pada seluruh tabel transaksi (baris 1 s/d data terakhir transaksi)
+  const filterEndRow = Math.max(1, mutations.length + 1);
+  ws['!autofilter'] = { ref: `A1:L${filterEndRow}` };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Buku Kas & Keuangan BFA');

@@ -2146,6 +2146,7 @@ Official Performance Report • BFA Karawang
                 <AdminKeuanganView
                   cashMutations={cashMutations}
                   invoices={invoices}
+                  students={students}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onDeleteMutation={handleDeleteMutation}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
