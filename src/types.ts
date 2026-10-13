@@ -93,6 +93,8 @@ export interface Attendance {
   checkInTime: string;
   status: 'HADIR' | 'TIDAK_HADIR';
   feeGenerated: boolean;
+  notes?: string;
+  method?: 'BARCODE' | 'FINGERPRINT' | 'MANUAL';
 }
 
 export interface SkillIndicator {

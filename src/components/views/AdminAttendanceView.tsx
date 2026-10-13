@@ -16,9 +16,11 @@ import {
   ShieldCheck, 
   ArrowRight,
   Edit3,
-  MessageCircle 
+  MessageCircle,
+  UserCheck 
 } from 'lucide-react';
 import { exportAttendanceExcel, exportAttendancePDF } from '../../utils/exportHelpers';
+import { ManualAttendanceModal } from '../modals/ManualAttendanceModal';
 
 interface AdminAttendanceViewProps {
   attendances: Attendance[];
@@ -30,6 +32,13 @@ interface AdminAttendanceViewProps {
   onDeleteSchedule: (id: string) => void;
   onQuickMarkAttendance: (studentId: string, date: string, status: 'HADIR' | 'TIDAK_HADIR') => void;
   onDeleteAttendance?: (attendanceId: string) => void;
+  onManualAttendanceSubmit?: (
+    studentId: string,
+    date: string,
+    time: string,
+    status: 'HADIR' | 'TIDAK_HADIR',
+    notes?: string
+  ) => Promise<any> | void;
 }
 
 export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
@@ -42,8 +51,10 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
   onDeleteSchedule,
   onQuickMarkAttendance,
   onDeleteAttendance,
+  onManualAttendanceSubmit,
 }) => {
   const [activeTab, setActiveTab] = useState<'jadwal' | 'presensi'>('presensi');
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteAttId, setConfirmDeleteAttId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState('');
@@ -119,6 +130,15 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
           >
             <Fingerprint className="w-4 h-4" />
             <span>Simulasi Tap Presensi</span>
+          </button>
+
+          <button
+            onClick={() => setIsManualModalOpen(true)}
+            className="px-3.5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-extrabold rounded-xl text-xs shadow-md shadow-blue-500/25 transition flex items-center space-x-1.5 active:scale-95"
+            title="Catat kehadiran siswa secara manual tanpa scan kartu"
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>+ Absen Manual</span>
           </button>
 
           <button
@@ -390,6 +410,23 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
             </div>
           </div>
 
+          {/* Attendances Table Header & Action */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+            <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-blue-700" />
+              <span>Daftar Presensi Lapangan ({sortedAttendances.length} Catatan)</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setIsManualModalOpen(true)}
+              className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 font-bold rounded-xl text-xs flex items-center gap-1.5 transition active:scale-95 self-start sm:self-auto shadow-2xs"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-blue-700" />
+              <span>+ Absen Manual</span>
+            </button>
+          </div>
+
           {/* Attendances Table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
@@ -446,6 +483,19 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                             >
                               {att.status}
                             </span>
+                            {att.method === 'MANUAL' && (
+                              <span className="block text-[9px] font-bold text-blue-600 mt-0.5">
+                                • Manual
+                              </span>
+                            )}
+                            {att.notes && (
+                              <span
+                                className="block text-[10px] text-slate-500 italic mt-0.5 max-w-[160px] truncate"
+                                title={att.notes}
+                              >
+                                📝 {att.notes}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 font-mono font-extrabold text-slate-900 tabular-nums">
                             {isHadir ? (
@@ -528,6 +578,28 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Absen Manual */}
+      <ManualAttendanceModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        students={students}
+        attendances={attendances}
+        schedules={schedules}
+        initialDate={dateFilter}
+        initialClassGroup={classFilter}
+        onSubmit={async (studentId, date, time, status, notes) => {
+          if (onManualAttendanceSubmit) {
+            await onManualAttendanceSubmit(studentId, date, time, status, notes);
+          } else {
+            onQuickMarkAttendance(studentId, date, status);
+          }
+          if (dateFilter && dateFilter !== date) {
+            setDateFilter(date);
+          }
+          setActiveTab('presensi');
+        }}
+      />
     </div>
   );
 };

@@ -1031,39 +1031,36 @@ export default function App() {
     showToast('✓ Jadwal sesi latihan berhasil dihapus.', 'info');
   };
 
-  // Fingerprint Attendance Logic
-  const handleFingerprintSubmit = (
+  // Fingerprint & Manual Attendance Logic (Database-First)
+  const handleFingerprintSubmit = async (
     studentId: string,
     date: string,
     time: string,
-    status: 'HADIR' | 'TIDAK_HADIR'
-  ) => {
+    status: 'HADIR' | 'TIDAK_HADIR',
+    notes?: string,
+    method?: 'BARCODE' | 'FINGERPRINT' | 'MANUAL'
+  ): Promise<{ success: boolean; attendance: Attendance; invoiceCreated?: boolean }> => {
     const student = students.find((s) => s.id === studentId);
-    if (!student) return;
+    if (!student) {
+      throw new Error(`Data siswa dengan ID "${studentId}" tidak ditemukan.`);
+    }
 
     const existingIndex = attendances.findIndex((a) => a.studentId === studentId && a.date === date);
-    let updatedAtt: Attendance;
+    let targetAtt: Attendance;
 
     if (existingIndex >= 0) {
       // Update existing attendance record
-      updatedAtt = {
+      targetAtt = {
         ...attendances[existingIndex],
         status,
         checkInTime: time,
         feeGenerated: status === 'HADIR',
+        ...(notes !== undefined ? { notes } : {}),
+        method: method || attendances[existingIndex].method || 'MANUAL',
       };
-      setAttendances((prev) => {
-        const next = [...prev];
-        next[existingIndex] = updatedAtt;
-        try {
-          localStorage.setItem('bfa_attendances', JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-      saveAttendanceToFirestore(updatedAtt).catch((e) => console.warn('Firestore attendance sync:', e));
     } else {
       // Create new attendance record
-      updatedAtt = {
+      targetAtt = {
         id: `ATT-${date.replace(/-/g, '')}-${student.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`,
         studentId: student.id,
         studentName: student.name,
@@ -1072,17 +1069,35 @@ export default function App() {
         checkInTime: time,
         status,
         feeGenerated: status === 'HADIR',
+        ...(notes ? { notes } : {}),
+        method: method || 'MANUAL',
       };
-      setAttendances((prev) => {
-        const next = [updatedAtt, ...prev];
-        try {
-          localStorage.setItem('bfa_attendances', JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-      saveAttendanceToFirestore(updatedAtt).catch((e) => console.warn('Firestore attendance sync:', e));
     }
 
+    // 1. DATABASE-FIRST: Simpan ke Firestore terlebih dahulu
+    // Jika operasi server ini gagal/error, eksekusi berhenti dan state lokal TIDAK disentuh
+    await saveAttendanceToFirestore(targetAtt);
+
+    // 2. SETELAH FIRESTORE BERHASIL: Perbarui state React dan localStorage
+    setAttendances((prev) => {
+      const idx = prev.findIndex((a) => a.studentId === studentId && a.date === date);
+      let next: Attendance[];
+      if (idx >= 0) {
+        next = [...prev];
+        next[idx] = targetAtt;
+      } else {
+        next = [targetAtt, ...prev];
+      }
+      try {
+        localStorage.setItem('bfa_attendances', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    const isManual = method === 'MANUAL';
+    let invoiceCreated = false;
+
+    // 3. INTEGRITAS TAGIHAN: Hanya terbitkan tagihan latihan Rp15.000 jika status HADIR
     if (status === 'HADIR') {
       const duplicateInvoice = invoices.find(
         (inv) => inv.studentId === studentId && inv.attendanceDate === date && inv.type === 'Latihan'
@@ -1106,34 +1121,52 @@ export default function App() {
           dueDate: date,
           createdAt: formattedCreated,
         };
-        setInvoices((prev) => {
-          const next = [newInvoice, ...prev];
-          try {
-            localStorage.setItem('bfa_invoices', JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        saveInvoiceToFirestore(newInvoice).catch((e) => console.warn('Firestore invoice sync:', e));
 
-        showToast(
-          `Absensi ${student.name} berhasil tercatat (HADIR) & Tagihan Sesi Latihan Rp15.000 otomatis diterbitkan!`,
-          'success'
-        );
+        try {
+          await saveInvoiceToFirestore(newInvoice);
+          setInvoices((prev) => {
+            const next = [newInvoice, ...prev];
+            try {
+              localStorage.setItem('bfa_invoices', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+          invoiceCreated = true;
+
+          showToast(
+            `Absensi ${isManual ? 'manual ' : ''}${student.name} berhasil tersimpan (HADIR) & Tagihan Sesi Latihan Rp15.000 otomatis diterbitkan!`,
+            'success'
+          );
+        } catch (invErr) {
+          console.warn('Pemberitahuan: gagal menerbitkan tagihan latihan ke Firestore:', invErr);
+          showToast(
+            `Absensi ${isManual ? 'manual ' : ''}${student.name} berhasil disimpan, tetapi tagihan sesi latihan Rp15.000 gagal diterbitkan. Periksa menu Tagihan sebelum mencoba menerbitkan ulang.`,
+            'warning'
+          );
+        }
       } else {
         showToast(
-          `Absensi ${student.name} berhasil diverifikasi (HADIR) pada sesi ${date} jam ${time}.`,
+          `Absensi ${isManual ? 'manual ' : ''}${student.name} berhasil diperbarui (HADIR) pada sesi ${date} jam ${time}.`,
           'success'
         );
       }
     } else {
-      showToast(`Absensi ${student.name} tercatat (TIDAK HADIR). Bebas biaya iuran latihan.`, 'info');
+      showToast(
+        `Absensi ${isManual ? 'manual ' : ''}${student.name} tersimpan (${notes || 'TIDAK HADIR'}). Bebas biaya iuran latihan.`,
+        'info'
+      );
     }
+
+    return { success: true, attendance: targetAtt, invoiceCreated };
   };
 
   const handleQuickMarkAttendance = (studentId: string, date: string, status: 'HADIR' | 'TIDAK_HADIR') => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    handleFingerprintSubmit(studentId, date, timeStr, status);
+    handleFingerprintSubmit(studentId, date, timeStr, status).catch((err) => {
+      console.error('Quick mark attendance error:', err);
+      showToast('Gagal mencatat presensi cepat: ' + (err?.message || 'Koneksi error'), 'error');
+    });
   };
 
   // Delete attendance record feature requested by user
@@ -2029,6 +2062,9 @@ Official Performance Report • BFA Karawang
                   onDeleteSchedule={handleDeleteSchedule}
                   onQuickMarkAttendance={handleQuickMarkAttendance}
                   onDeleteAttendance={handleDeleteAttendance}
+                  onManualAttendanceSubmit={(studentId, date, time, status, notes) =>
+                    handleFingerprintSubmit(studentId, date, time, status, notes, 'MANUAL')
+                  }
                 />
               )}
 
