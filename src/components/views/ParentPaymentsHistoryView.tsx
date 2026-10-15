@@ -1,6 +1,6 @@
 import React from 'react';
-import { RouteId, Invoice, Student } from '../../types';
-import { Download, CheckCircle2, Receipt, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { RouteId, Invoice, Student, PaymentVerificationRequest } from '../../types';
+import { Download, CheckCircle2, Receipt, ShieldCheck, AlertTriangle, Clock, XCircle } from 'lucide-react';
 import { getDynamicInvoiceStatus } from '../../utils/financeHelpers';
 
 interface ParentPaymentsHistoryViewProps {
@@ -8,6 +8,7 @@ interface ParentPaymentsHistoryViewProps {
   invoices: Invoice[];
   onNavigate: (route: RouteId) => void;
   onShowReceipt: (invoice: Invoice) => void;
+  verificationRequests?: PaymentVerificationRequest[];
 }
 
 export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps> = ({
@@ -15,6 +16,7 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
   invoices,
   onNavigate,
   onShowReceipt,
+  verificationRequests = [],
 }) => {
   const childName = student?.name || 'Siswa BFA';
   const childGroup = student?.classGroupId || '-';
@@ -25,6 +27,17 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
 
   const paidInvoices = childInvoices.filter((i) => getDynamicInvoiceStatus(i) === 'LUNAS');
   const unpaidInvoices = childInvoices.filter((i) => getDynamicInvoiceStatus(i) !== 'LUNAS');
+
+  const studentVerifications = student?.id
+    ? verificationRequests.filter((r) => r.studentId === student.id)
+    : [];
+
+  const pendingVerification = studentVerifications.find((r) => r.status === 'MENUNGGU_VERIFIKASI');
+  const pendingInvoiceIds = new Set(
+    studentVerifications
+      .filter((r) => r.status === 'MENUNGGU_VERIFIKASI')
+      .flatMap((r) => r.invoiceIds || [])
+  );
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -45,6 +58,33 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
           </span>
         </div>
       </div>
+
+      {/* Pending Payment Verification Banner */}
+      {pendingVerification && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
+              <Clock className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <p className="font-black text-amber-950 text-sm flex items-center gap-2">
+                <span>Konfirmasi Pembayaran Sedang Diverifikasi Kasir</span>
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              </p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Ref: <strong>{pendingVerification.referenceNumber}</strong> • Nominal Rp{(Number(pendingVerification.amount) || 0).toLocaleString('id-ID')} via {pendingVerification.paymentMethod}. Status tagihan akan otomatis Lunas setelah kasir memverifikasi dana masuk.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('parent-payment')}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-xs transition active:scale-95 shrink-0"
+          >
+            Lihat Rincian
+          </button>
+        </div>
+      )}
 
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -142,6 +182,11 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
                         <Download className="w-3.5 h-3.5 text-emerald-200" />
                         <span>Kuitansi</span>
                       </button>
+                    ) : pendingInvoiceIds.has(inv.id) ? (
+                      <span className="px-3 py-1.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-2xs">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                        <span>Verifikasi</span>
+                      </span>
                     ) : (
                       <button
                         onClick={() => onNavigate('parent-payment')}
@@ -157,6 +202,93 @@ export const ParentPaymentsHistoryView: React.FC<ParentPaymentsHistoryViewProps>
           </div>
         )}
       </div>
+
+      {/* Online Payment Verification History */}
+      {studentVerifications.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
+              <span>Riwayat Pengajuan Konfirmasi Pembayaran Online</span>
+            </h3>
+            <span className="text-xs text-slate-500 font-mono">
+              {studentVerifications.length} Pengajuan
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {studentVerifications.map((req) => (
+              <div
+                key={req.id}
+                className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                  req.status === 'MENUNGGU_VERIFIKASI'
+                    ? 'bg-amber-50/60 border-amber-200'
+                    : req.status === 'DISETUJUI'
+                    ? 'bg-emerald-50/40 border-emerald-200'
+                    : req.status === 'DIBATALKAN_ADMIN'
+                    ? 'bg-slate-50/80 border-slate-300'
+                    : 'bg-rose-50/40 border-rose-200'
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      {req.referenceNumber}
+                    </span>
+                    <span className="text-slate-500 font-medium">• {req.paymentMethod}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        req.status === 'MENUNGGU_VERIFIKASI'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : req.status === 'DISETUJUI'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : req.status === 'DIBATALKAN_ADMIN'
+                          ? 'bg-slate-100 text-slate-800 border border-slate-300'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300'
+                      }`}
+                    >
+                      {req.status === 'MENUNGGU_VERIFIKASI'
+                        ? 'Menunggu Verifikasi Kasir'
+                        : req.status === 'DISETUJUI'
+                        ? 'Disetujui ✓'
+                        : req.status === 'DIBATALKAN_ADMIN'
+                        ? 'Dibatalkan Kasir'
+                        : 'Ditolak'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    Diajukan pada: {req.submittedAt ? req.submittedAt.slice(0, 16).replace('T', ' ') : '-'}
+                    {req.verifiedAt && ` • Diproses: ${req.verifiedAt.slice(0, 16).replace('T', ' ')}`}
+                  </p>
+
+                  {req.status === 'DITOLAK' && req.rejectionReason && (
+                    <p className="text-[11px] text-rose-700 font-medium">
+                      Alasan: {req.rejectionReason}
+                    </p>
+                  )}
+
+                  {req.status === 'DIBATALKAN_ADMIN' && (
+                    <p className="text-[11px] text-slate-600 font-medium">
+                      {req.cancellationReason ? `Alasan Pembatalan: "${req.cancellationReason}"` : 'Pembayaran telah dibatalkan oleh Kasir / Admin BFA'}
+                      {req.cancelledAt && ` • ${req.cancelledAt.slice(0, 16).replace('T', ' ')}`}
+                    </p>
+                  )}
+                </div>
+
+                <div className="text-right">
+                  <span className="font-mono font-black text-sm text-slate-900 block">
+                    Rp{(Number(req.amount) || 0).toLocaleString('id-ID')}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {req.invoiceIds?.length || 0} Tagihan Terkait
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
