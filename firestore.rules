@@ -17,6 +17,10 @@ service cloud.firestore {
       allow read, write: if isValidId(invoiceId);
     }
 
+    match /paymentVerificationRequests/{requestId} {
+      allow read, write: if isValidId(requestId);
+    }
+
     match /{document=**} {
       allow read, write: if true;
     }
