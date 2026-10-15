@@ -16,7 +16,8 @@ import {
   ToastMessage, 
   AuthUser, 
   StudentReport, 
-  TrainingSchedule 
+  TrainingSchedule,
+  PaymentVerificationRequest 
 } from './types';
 import { 
   INITIAL_STUDENTS, 
@@ -47,6 +48,7 @@ import { AdminAttendanceView } from './components/views/AdminAttendanceView';
 import { AdminFingerprintView } from './components/views/AdminFingerprintView';
 import { AdminInvoicesView } from './components/views/AdminInvoicesView';
 import { AdminCoachesView } from './components/views/AdminCoachesView';
+import { AdminPaymentVerificationsView } from './components/views/AdminPaymentVerificationsView';
 import { Coach } from './types/coach';
 import { collection, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
@@ -105,6 +107,10 @@ import {
   cleanForFirestore,
   saveNewStudentWithAtomicCounter,
   peekNextStudentId,
+  subscribeToPaymentVerificationRequests,
+  subscribeToStudentPaymentVerifications,
+  approvePaymentVerificationTransaction,
+  rejectPaymentVerificationRequest,
   db
 } from './firebase';
 
@@ -579,6 +585,66 @@ export default function App() {
       if (unsub) unsub();
     };
   }, [role, currentRoute, activeParentStudent?.id]);
+
+  // Payment Verification Requests State & Real-time Subscription
+  const [paymentVerificationRequests, setPaymentVerificationRequests] = useState<PaymentVerificationRequest[]>([]);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    if (role === 'admin') {
+      unsub = subscribeToPaymentVerificationRequests((reqs) => {
+        if (reqs) {
+          setPaymentVerificationRequests(reqs);
+        }
+      });
+    } else if (role === 'parent' && activeParentStudent?.id) {
+      unsub = subscribeToStudentPaymentVerifications(activeParentStudent.id, (reqs) => {
+        if (reqs) {
+          setPaymentVerificationRequests(reqs);
+        }
+      });
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [role, activeParentStudent?.id]);
+
+  const pendingPaymentVerificationsCount = useMemo(() => {
+    return paymentVerificationRequests.filter((r) => r.status === 'MENUNGGU_VERIFIKASI').length;
+  }, [paymentVerificationRequests]);
+
+  const handleApprovePaymentVerification = async (requestId: string, staffName?: string, note?: string) => {
+    const updatedReq = await approvePaymentVerificationTransaction({
+      requestId,
+      staffName: staffName || currentUser?.name || 'Admin BFA',
+      note,
+    });
+    setPaymentVerificationRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? updatedReq : r))
+    );
+  };
+
+  const handleRejectPaymentVerification = async (requestId: string, reason: string, staffName?: string) => {
+    await rejectPaymentVerificationRequest({
+      requestId,
+      reason,
+      staffName: staffName || currentUser?.name || 'Admin BFA',
+    });
+    setPaymentVerificationRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status: 'DITOLAK',
+              rejectionReason: reason,
+              verifiedAt: new Date().toISOString(),
+              verifiedBy: staffName || currentUser?.name || 'Admin BFA',
+            }
+          : r
+      )
+    );
+  };
 
   // Auto-heal local state if any student record in memory has an empty ID (local only, never overwrite Firebase)
   useEffect(() => {
@@ -1505,6 +1571,24 @@ export default function App() {
         return next;
       });
 
+      // 4. Update status antrean verifikasi jika pembayaran ini berasal dari konfirmasi orang tua
+      if (result.cancelledVerificationId) {
+        setPaymentVerificationRequests((prev) =>
+          prev.map((r) =>
+            r.id === result.cancelledVerificationId
+              ? {
+                  ...r,
+                  status: 'DIBATALKAN_ADMIN',
+                  cancelledAt: new Date().toISOString(),
+                  cancelledBy: data.staffName || currentUser?.name || 'Admin BFA',
+                  cancellationReason: data.reason || 'Pembayaran dibatalkan oleh Admin / Kasir',
+                  cancelledPaymentId: data.paymentId,
+                }
+              : r
+          )
+        );
+      }
+
       const successMsg = `✓ Pembayaran ${result.invoice.studentName} sebesar Rp${result.cancelledAmount.toLocaleString('id-ID')} berhasil dibatalkan. Tagihan & Buku Kas telah disesuaikan!`;
       showToast(successMsg, 'success');
 
@@ -1961,9 +2045,20 @@ Official Performance Report • BFA Karawang
   };
 
   // Parent Payment Confirmation (Awaiting Admin Verification - No direct Firestore mutations)
-  const handleParentPaymentSuccess = async (method: string, trxId: string) => {
+  const handleParentPaymentSuccess = async (
+    method: string, 
+    trxId: string, 
+    request?: PaymentVerificationRequest
+  ) => {
     const targetStudent = activeParentStudent;
     if (!targetStudent) return;
+
+    if (request) {
+      setPaymentVerificationRequests((prev) => [
+        request,
+        ...prev.filter((r) => r.id !== request.id),
+      ]);
+    }
 
     // Hitung total tagihan aktif yang diajukan konfirmasi
     const unpaidChildInvoices = invoices.filter(
@@ -2210,6 +2305,7 @@ Official Performance Report • BFA Karawang
           onOpenRecordCash={() => setIsRecordCashOpen(true)}
           onOpenFingerprint={() => setIsFingerprintOpen(true)}
           pendingRegistrationsCount={students.filter((s) => s.registrationStatus === 'MENUNGGU_VERIFIKASI').length}
+          pendingPaymentVerificationsCount={pendingPaymentVerificationsCount}
         />
 
         {/* Main Content Viewport */}
@@ -2223,6 +2319,7 @@ Official Performance Report • BFA Karawang
                   invoices={invoices}
                   attendances={attendances}
                   schedules={schedules}
+                  pendingPaymentVerificationsCount={pendingPaymentVerificationsCount}
                   onNavigate={handleNavigate}
                   onOpenRecordCash={() => setIsRecordCashOpen(true)}
                   onOpenFingerprint={() => setIsFingerprintOpen(true)}
@@ -2244,6 +2341,17 @@ Official Performance Report • BFA Karawang
                   students={students}
                   onApprove={handleApproveRegistration}
                   onReject={handleRejectRegistration}
+                  onShowToast={showToast}
+                  adminName={currentUser?.name || 'Admin BFA'}
+                />
+              )}
+
+              {currentRoute === 'payment-verifications' && (
+                <AdminPaymentVerificationsView
+                  verificationRequests={paymentVerificationRequests}
+                  invoices={invoices}
+                  onApprove={handleApprovePaymentVerification}
+                  onReject={handleRejectPaymentVerification}
                   onShowToast={showToast}
                   adminName={currentUser?.name || 'Admin BFA'}
                 />
@@ -2335,6 +2443,8 @@ Official Performance Report • BFA Karawang
               {currentRoute === 'invoices' && (
                 <AdminInvoicesView
                   invoices={invoices}
+                  verificationRequests={paymentVerificationRequests}
+                  onNavigate={handleNavigate}
                   onGenerateInvoices={handleGenerateMonthlyInvoices}
                   onMarkInvoicePaid={handleMarkInvoicePaid}
                   onProcessPayment={handleProcessPayment}
@@ -2380,6 +2490,7 @@ Official Performance Report • BFA Karawang
                       invoices={invoices}
                       attendances={attendances}
                       schedules={schedules}
+                      verificationRequests={paymentVerificationRequests}
                       onNavigate={handleNavigate}
                       onUpdateStudentPhoto={handleUpdateStudentPhoto}
                       onOpenEditStudent={(st) => {
@@ -2415,6 +2526,7 @@ Official Performance Report • BFA Karawang
                     <ParentPaymentsHistoryView
                       student={activeParentStudent}
                       invoices={invoices}
+                      verificationRequests={paymentVerificationRequests}
                       onNavigate={handleNavigate}
                       onShowReceipt={(inv) => {
                         setInvoiceForReceipt(inv);
