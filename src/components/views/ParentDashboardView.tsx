@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RouteId, Invoice, Student, Attendance, TrainingSchedule } from '../../types';
+import { RouteId, Invoice, Student, Attendance, TrainingSchedule, PaymentVerificationRequest } from '../../types';
 import { 
   CalendarDays, 
   CheckCircle2, 
@@ -30,6 +30,7 @@ interface ParentDashboardViewProps {
   invoices: Invoice[];
   attendances?: Attendance[];
   schedules?: TrainingSchedule[];
+  verificationRequests?: PaymentVerificationRequest[];
   onNavigate: (route: RouteId) => void;
   onUpdateStudentPhoto?: (studentId: string, photoUrl: string) => void;
   onOpenEditStudent?: (student: Student) => void;
@@ -43,6 +44,7 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
   invoices,
   attendances = [],
   schedules = [],
+  verificationRequests = [],
   onNavigate,
   onUpdateStudentPhoto,
   onOpenEditStudent,
@@ -53,6 +55,11 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
   const childGroup = student?.classGroupId || '-';
   const parentTitle = student?.parentName || 'Ayah/Bunda';
   const childAvatar = student?.avatar || '';
+
+  const pendingVerification = useMemo(
+    () => verificationRequests.find((r) => r.studentId === student?.id && r.status === 'MENUNGGU_VERIFIKASI'),
+    [verificationRequests, student?.id]
+  );
 
   const [isChangePhotoOpen, setIsChangePhotoOpen] = useState(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
@@ -161,6 +168,35 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Pending Payment Verification Banner */}
+      {pendingVerification && (
+        <div className="bg-amber-50 border border-amber-300 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
+              <Clock className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-amber-950 text-sm">
+                  Konfirmasi Pembayaran Sedang Diverifikasi Kasir
+                </span>
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              </div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Ref: <strong>{pendingVerification.referenceNumber}</strong> • Nominal Rp{(Number(pendingVerification.amount) || 0).toLocaleString('id-ID')} via {pendingVerification.paymentMethod}. Status tagihan akan otomatis Lunas setelah kasir memverifikasi dana masuk.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('parent-payments')}
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs transition active:scale-95 shrink-0 shadow-xs"
+          >
+            Lihat Status
+          </button>
         </div>
       )}
 
