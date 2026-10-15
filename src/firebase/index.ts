@@ -24,7 +24,16 @@ import {
   DocumentReference
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Student, StudentReport, Invoice, Attendance, TrainingSchedule, CashMutation, InvoicePayment } from '../types';
+import { 
+  Student, 
+  StudentReport, 
+  Invoice, 
+  Attendance, 
+  TrainingSchedule, 
+  CashMutation, 
+  InvoicePayment,
+  PaymentVerificationRequest 
+} from '../types';
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -106,6 +115,7 @@ const ATTENDANCES_COLLECTION = 'attendances';
 const SCHEDULES_COLLECTION = 'trainingSchedules';
 const CASH_MUTATIONS_COLLECTION = 'cashMutations';
 const INVOICE_PAYMENTS_COLLECTION = 'invoicePayments';
+const PAYMENT_VERIFICATIONS_COLLECTION = 'paymentVerificationRequests';
 
 /**
  * Gets exact student count from server with lightweight Firestore Aggregation (costs only 1 read per 1,000 docs).
@@ -1284,6 +1294,7 @@ export interface CancelPaymentResult {
   newPaidAmount: number;
   newRemainingAmount: number;
   newStatus: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR';
+  cancelledVerificationId?: string;
 }
 
 export async function cancelInvoicePaymentTransaction(
@@ -1392,6 +1403,60 @@ export async function cancelInvoicePaymentTransaction(
     console.warn('Lookup for cashMutations notice:', err);
   }
 
+  // 3. Resolve associated PaymentVerificationRequest jika pembayaran berasal dari verifikasi (PAY_PVR_...)
+  let targetPvrDocRef: DocumentReference | null = null;
+  const isPvrPayment = cleanPaymentId.startsWith('PAY_PVR') || 
+    Boolean(preloadedPayment?.id?.startsWith('PAY_PVR')) ||
+    Boolean(preloadedPayment?.paymentId?.startsWith('PAY_PVR'));
+
+  if (isPvrPayment) {
+    try {
+      const collPvr = collection(db, PAYMENT_VERIFICATIONS_COLLECTION);
+      // Query prioritas 1: cari dokumen yang processedPaymentIds-nya memuat cleanPaymentId
+      const qPvr = query(collPvr, where('processedPaymentIds', 'array-contains', cleanPaymentId), limit(1));
+      const snapPvr = await getDocs(qPvr);
+      if (!snapPvr.empty) {
+        targetPvrDocRef = snapPvr.docs[0].ref;
+      } else if (preloadedPayment?.id && preloadedPayment.id !== cleanPaymentId) {
+        // Query prioritas 2: cari dokumen yang processedPaymentIds-nya memuat preloadedPayment.id
+        const qPvr2 = query(collPvr, where('processedPaymentIds', 'array-contains', preloadedPayment.id), limit(1));
+        const snapPvr2 = await getDocs(qPvr2);
+        if (!snapPvr2.empty) {
+          targetPvrDocRef = snapPvr2.docs[0].ref;
+        }
+      }
+
+      // Fallback terverifikasi: pola ID stabil PAY_{safeReqId}_{safeInvId}
+      if (!targetPvrDocRef) {
+        const candidatePId = cleanPaymentId || preloadedPayment?.id || '';
+        const pvrMatch = candidatePId.match(/^PAY_(PVR-[A-Za-z0-9_-]+?)_(.+)$/);
+        if (pvrMatch && pvrMatch[1]) {
+          const directPvrRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, pvrMatch[1]);
+          const directPvrSnap = await getDoc(directPvrRef);
+          if (directPvrSnap.exists()) {
+            const pvrData = directPvrSnap.data() as PaymentVerificationRequest;
+            const matchesInv = Array.isArray(pvrData.invoiceIds) && pvrData.invoiceIds.includes(cleanInvoiceId);
+            const matchesPay = Array.isArray(pvrData.processedPaymentIds) && (
+              pvrData.processedPaymentIds.includes(cleanPaymentId) ||
+              (preloadedPayment?.id ? pvrData.processedPaymentIds.includes(preloadedPayment.id) : false)
+            );
+            if (matchesInv || matchesPay) {
+              targetPvrDocRef = directPvrRef;
+            }
+          }
+        }
+      }
+    } catch (pvrErr) {
+      console.warn('[cancelInvoicePayment] Lookup paymentVerificationRequests notice:', pvrErr);
+    }
+
+    if (!targetPvrDocRef) {
+      console.warn(
+        `[cancelInvoicePayment] Pembayaran ${cleanPaymentId} terindikasi dari verifikasi (PAY_PVR), namun dokumen paymentVerificationRequests terkait tidak dapat dipastikan. Pembatalan tagihan tetap diproses tanpa perubahan dokumen verifikasi.`
+      );
+    }
+  }
+
   return await runTransaction(db, async (transaction) => {
     // --- TAHAP 1: SELURUH PEMBACAAN (READS) WAJIB DI AWAL TRANSAKSI ---
     // 1. Baca invoice berdasarkan invoiceId
@@ -1420,7 +1485,18 @@ export async function cancelInvoicePaymentTransaction(
       }
     }
 
+    // 4. Baca dokumen paymentVerificationRequest jika targetPvrDocRef ada (READS FIRST)
+    let currentPvr: PaymentVerificationRequest | null = null;
+    if (targetPvrDocRef) {
+      const pvrSnap = await transaction.get(targetPvrDocRef);
+      if (pvrSnap.exists()) {
+        currentPvr = { ...(pvrSnap.data() as PaymentVerificationRequest), id: pvrSnap.id };
+      }
+    }
+
     // --- TAHAP 2: KALKULASI & LOGIKA BISNIS ---
+    const nowIso = new Date().toISOString();
+
     // Fallback jika payment doc tidak ditemukan atau sudah dihapus sebelumnya
     if (!currentPay) {
       // Jika tagihan sudah BELUM BAYAR dan tidak ada nilai pembayaran (sudah pernah dibatalkan)
@@ -1434,13 +1510,13 @@ export async function cancelInvoicePaymentTransaction(
           newPaidAmount: 0,
           newRemainingAmount: currentInv.amount,
           newStatus: 'BELUM BAYAR',
+          cancelledVerificationId: currentPvr?.id,
         };
       }
 
       // Jika tagihan masih tercatat LUNAS / SEBAGIAN, pulihkan nilai tagihan menjadi BELUM BAYAR
       const invTotal = Number(currentInv.amount) || 0;
       const cancelledAmount = Number(currentInv.paidAmount) || (currentInv.status === 'LUNAS' ? invTotal : 0);
-      const nowIso = new Date().toISOString();
 
       const updatedInvoice: Invoice = {
         ...currentInv,
@@ -1460,6 +1536,20 @@ export async function cancelInvoicePaymentTransaction(
 
       transaction.set(invoiceDocRef, cleanForFirestore(updatedInvoice), { merge: true });
 
+      // Jika ada targetPvrDocRef dan belum berstatus DIBATALKAN_ADMIN, perbarui juga di fallback
+      if (targetPvrDocRef && currentPvr && currentPvr.status !== 'DIBATALKAN_ADMIN') {
+        const updatedPvr: PaymentVerificationRequest = {
+          ...currentPvr,
+          status: 'DIBATALKAN_ADMIN',
+          cancelledAt: nowIso,
+          cancelledBy: staffName || 'Admin BFA',
+          cancellationReason: reason || 'Pembayaran dibatalkan oleh Admin / Kasir',
+          cancelledPaymentId: cleanPaymentId,
+          updatedAt: nowIso,
+        };
+        transaction.set(targetPvrDocRef, cleanForFirestore(updatedPvr), { merge: true });
+      }
+
       return {
         success: true,
         invoice: updatedInvoice,
@@ -1469,6 +1559,7 @@ export async function cancelInvoicePaymentTransaction(
         newPaidAmount: 0,
         newRemainingAmount: invTotal,
         newStatus: 'BELUM BAYAR',
+        cancelledVerificationId: currentPvr?.id,
       };
     }
 
@@ -1494,8 +1585,6 @@ export async function cancelInvoicePaymentTransaction(
     } else {
       newStatus = 'BELUM BAYAR';
     }
-
-    const nowIso = new Date().toISOString();
 
     // Hapus payment dari daftar payments jika ada array payments di invoice
     const updatedPayments = Array.isArray(currentInv.payments)
@@ -1528,6 +1617,20 @@ export async function cancelInvoicePaymentTransaction(
 
     transaction.set(invoiceDocRef, cleanForFirestore(updatedInvoice), { merge: true });
 
+    // Perbarui dokumen verifikasi terkait menjadi DIBATALKAN_ADMIN tanpa menghapus histori
+    if (targetPvrDocRef && currentPvr) {
+      const updatedPvr: PaymentVerificationRequest = {
+        ...currentPvr,
+        status: 'DIBATALKAN_ADMIN',
+        cancelledAt: nowIso,
+        cancelledBy: staffName || 'Admin BFA',
+        cancellationReason: reason || 'Pembayaran dibatalkan oleh Admin / Kasir',
+        cancelledPaymentId: currentPay.id || cleanPaymentId,
+        updatedAt: nowIso,
+      };
+      transaction.set(targetPvrDocRef, cleanForFirestore(updatedPvr), { merge: true });
+    }
+
     return {
       success: true,
       invoice: updatedInvoice,
@@ -1537,6 +1640,7 @@ export async function cancelInvoicePaymentTransaction(
       newPaidAmount,
       newRemainingAmount,
       newStatus,
+      cancelledVerificationId: currentPvr?.id,
     };
   });
 }
@@ -1617,6 +1721,369 @@ export function subscribeToSchedules(
       console.warn('Firestore schedules subscription notice:', err?.message);
       onError?.(err);
     }
+  );
+}
+
+// --- PAYMENT VERIFICATION REQUEST OPERATIONS ---
+export async function savePaymentVerificationRequest(
+  request: PaymentVerificationRequest
+): Promise<void> {
+  try {
+    if (!request || !request.id || typeof request.id !== 'string' || !request.id.trim()) {
+      throw new Error('ID Permintaan verifikasi tidak valid.');
+    }
+    const cleanId = request.id.trim();
+    const reqRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, cleanId);
+    const nowIso = new Date().toISOString();
+    await setDoc(
+      reqRef,
+      cleanForFirestore({
+        ...request,
+        createdAt: request.createdAt || nowIso,
+        updatedAt: nowIso,
+      }),
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('Failed to save payment verification request to Firestore:', error);
+    throw error;
+  }
+}
+
+export function subscribeToPaymentVerificationRequests(
+  onData: (requests: PaymentVerificationRequest[]) => void,
+  onError?: (err: Error) => void
+) {
+  const collRef = collection(db, PAYMENT_VERIFICATIONS_COLLECTION);
+  const q = query(collRef, orderBy('submittedAt', 'desc'), limit(150));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: PaymentVerificationRequest[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({
+          ...(docSnap.data() as PaymentVerificationRequest),
+          id: docSnap.id,
+        });
+      });
+      onData(list);
+    },
+    (err) => {
+      console.warn('Firestore payment verification requests subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+export function subscribeToStudentPaymentVerifications(
+  studentId: string,
+  onData: (requests: PaymentVerificationRequest[]) => void,
+  onError?: (err: Error) => void
+) {
+  if (!studentId || !studentId.trim()) return () => {};
+  const collRef = collection(db, PAYMENT_VERIFICATIONS_COLLECTION);
+  const q = query(
+    collRef,
+    where('studentId', '==', studentId.trim()),
+    limit(50)
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: PaymentVerificationRequest[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({
+          ...(docSnap.data() as PaymentVerificationRequest),
+          id: docSnap.id,
+        });
+      });
+      list.sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''));
+      onData(list);
+    },
+    (err) => {
+      console.warn('Firestore student payment verifications subscription notice:', err?.message);
+      onError?.(err);
+    }
+  );
+}
+
+export interface ApproveVerificationInput {
+  requestId: string;
+  staffName?: string;
+  note?: string;
+}
+
+export async function approvePaymentVerificationTransaction(
+  input: ApproveVerificationInput
+): Promise<PaymentVerificationRequest> {
+  const { requestId, staffName = 'Admin BFA', note } = input;
+  if (!requestId || !requestId.trim()) {
+    throw new Error('ID Permintaan verifikasi wajib diisi.');
+  }
+
+  const cleanReqId = requestId.trim();
+  const reqRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, cleanReqId);
+
+  return await runTransaction(db, async (transaction) => {
+    // 1. Baca dokumen permintaan verifikasi
+    const reqSnap = await transaction.get(reqRef);
+    if (!reqSnap.exists()) {
+      throw new Error(`Permintaan verifikasi ${cleanReqId} tidak ditemukan.`);
+    }
+    const currentReq = reqSnap.data() as PaymentVerificationRequest;
+
+    if (currentReq.status === 'DISETUJUI') {
+      throw new Error(`Permintaan konfirmasi (${currentReq.referenceNumber}) sudah pernah disetujui sebelumnya.`);
+    }
+    if (currentReq.status === 'DITOLAK') {
+      throw new Error(`Permintaan konfirmasi (${currentReq.referenceNumber}) sudah ditolak sebelumnya.`);
+    }
+
+    // Validasi nominal konfirmasi: tolak nol, negatif, tidak valid, NaN, atau bukan angka hingga batas aman
+    const reqAmount = typeof currentReq.amount === 'number' ? currentReq.amount : Number(currentReq.amount);
+    if (isNaN(reqAmount) || !isFinite(reqAmount) || reqAmount <= 0) {
+      throw new Error(
+        `Nominal konfirmasi pembayaran tidak valid (Rp${currentReq.amount ?? 0}). Permintaan tidak dapat disetujui.`
+      );
+    }
+
+    const invoiceIds = currentReq.invoiceIds || [];
+    if (invoiceIds.length === 0) {
+      throw new Error('Tidak ada tagihan terkait yang tercantum dalam permintaan ini.');
+    }
+
+    // 2. Baca seluruh tagihan terkait di awal transaksi (READS FIRST - Batasan ketat Firestore)
+    const invoiceSnaps: { id: string; ref: DocumentReference; data: Invoice }[] = [];
+    for (const invId of invoiceIds) {
+      const cleanInvId = invId.trim();
+      if (!cleanInvId) continue;
+      const invRef = doc(db, INVOICES_COLLECTION, cleanInvId);
+      const invSnap = await transaction.get(invRef);
+      if (invSnap.exists()) {
+        invoiceSnaps.push({
+          id: cleanInvId,
+          ref: invRef,
+          data: invSnap.data() as Invoice,
+        });
+      }
+    }
+
+    if (invoiceSnaps.length === 0) {
+      throw new Error('Tagihan terkait tidak ditemukan di database.');
+    }
+
+    // Hitung total sisa tagihan aktual dari invoice yang dibaca langsung di dalam transaksi
+    interface InvoiceCalc {
+      id: string;
+      ref: DocumentReference;
+      data: Invoice;
+      invTotal: number;
+      currentPaid: number;
+      currentRemaining: number;
+    }
+
+    const invoiceList: InvoiceCalc[] = invoiceSnaps.map(({ id, ref, data }) => {
+      const invTotal = Number(data.amount) || 0;
+      const currentPaid = data.paidAmount !== undefined
+        ? Number(data.paidAmount) || 0
+        : (data.status === 'LUNAS' ? invTotal : 0);
+      const currentRemaining = Math.max(0, invTotal - currentPaid);
+      return {
+        id,
+        ref,
+        data,
+        invTotal,
+        currentPaid,
+        currentRemaining,
+      };
+    });
+
+    const totalActualRemaining = invoiceList.reduce((sum, item) => sum + item.currentRemaining, 0);
+
+    // Jika seluruh invoice telah lunas sebelum verifikasi, batalkan persetujuan secara atomik
+    if (totalActualRemaining <= 0) {
+      throw new Error(
+        `Semua invoice terkait (${invoiceIds.join(', ')}) sudah lunas sebelum verifikasi diproses. ` +
+        `Pembayaran tidak dapat diproses lagi. Silakan periksa kembali data pembayaran Admin.`
+      );
+    }
+
+    // Jika nominal konfirmasi melebihi total sisa tagihan aktual:
+    // Dilarang memasukkan sisa dana ke invoice terakhir & dilarang over-allocation!
+    // Batalkan seluruh transaksi secara atomik tanpa mutasi parsial.
+    if (reqAmount > totalActualRemaining) {
+      throw new Error(
+        `Nominal konfirmasi pembayaran (Rp${reqAmount.toLocaleString('id-ID')}) melebihi ` +
+        `total sisa tagihan aktual yang dapat dibayar (Rp${totalActualRemaining.toLocaleString('id-ID')}). ` +
+        `Transaksi persetujuan dibatalkan secara atomik untuk mencegah kelebihan bayar.`
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const timeNow = new Date().toTimeString().slice(0, 8);
+    const dateNow = nowIso.slice(0, 10);
+
+    let remainingToAllocate = reqAmount;
+    const processedPaymentIds: string[] = [];
+    const processedMutationIds: string[] = [];
+
+    // 3. Alokasikan pembayaran ke tagihan & siapkan dokumen pembayaran + mutasi kas
+    for (let i = 0; i < invoiceList.length; i++) {
+      const item = invoiceList[i];
+
+      if (remainingToAllocate <= 0) {
+        break;
+      }
+
+      if (item.currentRemaining <= 0) {
+        // Tagihan sudah lunas, jangan alokasikan apa pun
+        continue;
+      }
+
+      // Setiap alokasi pembayaran ke invoice TIDAK BOLEH melebihi sisa tagihan invoice tersebut
+      const allocation = Math.min(remainingToAllocate, item.currentRemaining);
+
+      if (allocation <= 0) {
+        continue;
+      }
+
+      remainingToAllocate = remainingToAllocate - allocation;
+
+      const newPaid = item.currentPaid + allocation;
+      const newRemaining = Math.max(0, item.invTotal - newPaid);
+      const newStatus: 'LUNAS' | 'SEBAGIAN' | 'BELUM BAYAR' =
+        newRemaining <= 0 ? 'LUNAS' : (newPaid > 0 ? 'SEBAGIAN' : 'BELUM BAYAR');
+
+      // ID Unik Pembayaran & Mutasi yang stabil & idempotent
+      const safeReqId = cleanReqId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeInvId = item.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const paymentId = `PAY_${safeReqId}_${safeInvId}`;
+      const mutationId = `MUT_${paymentId}`;
+
+      processedPaymentIds.push(paymentId);
+      processedMutationIds.push(mutationId);
+
+      const paymentDocRef = doc(db, INVOICE_PAYMENTS_COLLECTION, paymentId);
+      const mutationDocRef = doc(db, CASH_MUTATIONS_COLLECTION, mutationId);
+
+      // Dokumen InvoicePayment
+      const paymentRecord: InvoicePayment = {
+        id: paymentId,
+        paymentId,
+        invoiceId: item.id,
+        studentId: item.data.studentId || currentReq.studentId,
+        amount: allocation,
+        date: dateNow,
+        time: timeNow,
+        paymentMethod: currentReq.paymentMethod || 'Transfer Bank',
+        method: currentReq.paymentMethod || 'Transfer Bank',
+        transactionId: currentReq.referenceNumber || `TRX-${paymentId}`,
+        staff: staffName,
+        note: note || `Verifikasi Konfirmasi Orang Tua (${currentReq.referenceNumber}) - ${item.data.type} (${item.data.period})`,
+        mutationId,
+        createdAt: nowIso,
+      };
+
+      // Dokumen CashMutation (Buku Kas)
+      const cashCategory = item.data.type === 'Bulanan' 
+        ? 'SPP Bulanan' 
+        : (item.data.type === 'Latihan' ? 'Iuran Sesi Lapangan' : (item.data.type || 'SPP Bulanan'));
+
+      const cashMutation: CashMutation = {
+        id: mutationId,
+        date: dateNow,
+        time: timeNow,
+        type: 'Pemasukan',
+        category: cashCategory,
+        amount: allocation,
+        note: `Verifikasi Pembayaran ${item.data.type} (${item.data.period}) - ${currentReq.studentName} [Ref: ${currentReq.referenceNumber}]`,
+        method: currentReq.paymentMethod || 'Transfer Bank',
+        staff: staffName,
+        source: 'INVOICE_PAYMENT',
+        invoiceId: item.id,
+        paymentId,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      // Dokumen Invoice Terupdate
+      const updatedInvoice: Invoice = {
+        ...item.data,
+        paidAmount: newPaid,
+        remainingAmount: newRemaining,
+        status: newStatus,
+        paidAt: newStatus === 'LUNAS' ? nowIso : item.data.paidAt,
+        transactionId: currentReq.referenceNumber || item.data.transactionId,
+        paymentMethod: currentReq.paymentMethod || item.data.paymentMethod,
+        updatedAt: nowIso,
+      };
+
+      // Eksekusi atomik writes
+      transaction.set(paymentDocRef, cleanForFirestore(paymentRecord));
+      transaction.set(mutationDocRef, cleanForFirestore(cashMutation));
+      transaction.set(item.ref, cleanForFirestore(updatedInvoice), { merge: true });
+    }
+
+    if (processedPaymentIds.length === 0) {
+      throw new Error('Tidak ada alokasi pembayaran yang berhasil diproses untuk tagihan terkait.');
+    }
+
+    if (remainingToAllocate > 0) {
+      throw new Error(
+        `Terdapat sisa pembayaran Rp${remainingToAllocate.toLocaleString('id-ID')} yang belum teralokasi. ` +
+        `Transaksi persetujuan dibatalkan secara atomik.`
+      );
+    }
+
+    // 4. Perbarui status dokumen verifikasi menjadi DISETUJUI
+    const updatedRequest: PaymentVerificationRequest = {
+      ...currentReq,
+      status: 'DISETUJUI',
+      verifiedAt: nowIso,
+      verifiedBy: staffName,
+      processedPaymentIds,
+      processedMutationIds,
+      updatedAt: nowIso,
+    };
+
+    transaction.set(reqRef, cleanForFirestore(updatedRequest), { merge: true });
+
+    return updatedRequest;
+  });
+}
+
+export interface RejectVerificationInput {
+  requestId: string;
+  reason: string;
+  staffName?: string;
+}
+
+export async function rejectPaymentVerificationRequest(
+  input: RejectVerificationInput
+): Promise<void> {
+  const { requestId, reason, staffName = 'Admin BFA' } = input;
+  if (!requestId || !requestId.trim()) {
+    throw new Error('ID Permintaan verifikasi wajib diisi.');
+  }
+  const cleanReqId = requestId.trim();
+  const reqRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, cleanReqId);
+
+  const reqSnap = await getDoc(reqRef);
+  if (!reqSnap.exists()) {
+    throw new Error(`Permintaan verifikasi ${cleanReqId} tidak ditemukan.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  await setDoc(
+    reqRef,
+    cleanForFirestore({
+      status: 'DITOLAK',
+      rejectionReason: reason || 'Bukti transfer tidak sesuai / dana belum masuk rekening kasir.',
+      verifiedAt: nowIso,
+      verifiedBy: staffName,
+      updatedAt: nowIso,
+    }),
+    { merge: true }
   );
 }
 
