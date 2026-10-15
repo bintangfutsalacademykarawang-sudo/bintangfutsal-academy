@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Invoice } from '../../types';
+import { Invoice, RouteId, PaymentVerificationRequest } from '../../types';
 import { QueryDocumentSnapshot } from 'firebase/firestore';
 import { 
   CreditCard, 
@@ -16,7 +16,8 @@ import {
   Loader2,
   RotateCcw,
   X,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
 import { getDynamicInvoiceStatus, getInvoicePaymentSummary } from '../../utils/financeHelpers';
@@ -40,6 +41,8 @@ interface AdminInvoicesViewProps {
   onDeleteInvoice?: (id: string) => void;
   handleCancelInvoicePayment?: (data: CancelInvoicePaymentData) => Promise<any>;
   onCancelInvoicePayment?: (data: CancelInvoicePaymentData) => Promise<any>;
+  verificationRequests?: PaymentVerificationRequest[];
+  onNavigate?: (route: RouteId) => void;
 }
 
 export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
@@ -51,6 +54,8 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
   onDeleteInvoice,
   handleCancelInvoicePayment,
   onCancelInvoicePayment,
+  verificationRequests = [],
+  onNavigate,
 }) => {
   const [localInvoices, setLocalInvoices] = useState<Invoice[]>(() => propInvoices || []);
   const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null);
@@ -121,6 +126,16 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
   };
 
   const summary = useMemo(() => getInvoicePaymentSummary(localInvoices), [localInvoices]);
+
+  const pendingVerificationInvoiceMap = useMemo(() => {
+    const map = new Map<string, PaymentVerificationRequest>();
+    verificationRequests
+      .filter((r) => r.status === 'MENUNGGU_VERIFIKASI')
+      .forEach((r) => {
+        (r.invoiceIds || []).forEach((id) => map.set(id, r));
+      });
+    return map;
+  }, [verificationRequests]);
 
   const filteredInvoices = useMemo(() => {
     return localInvoices.filter((inv) => {
@@ -497,22 +512,40 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                         Rp{remAmt.toLocaleString('id-ID')}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            dynamicStatus === 'LUNAS'
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                              : dynamicStatus === 'SEBAGIAN'
-                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                              : dynamicStatus === 'MENUNGGAK'
-                              ? 'bg-rose-100 text-rose-800 border border-rose-300 font-black'
-                              : 'bg-slate-100 text-slate-700 border border-slate-300'
-                          }`}
-                        >
-                          {dynamicStatus === 'MENUNGGAK' && (
-                            <AlertTriangle className="w-3 h-3 text-rose-600 mr-1" />
-                          )}
-                          {dynamicStatus}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              dynamicStatus === 'LUNAS'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : dynamicStatus === 'SEBAGIAN'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : dynamicStatus === 'MENUNGGAK'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300 font-black'
+                                : 'bg-slate-100 text-slate-700 border border-slate-300'
+                            }`}
+                          >
+                            {dynamicStatus === 'MENUNGGAK' && (
+                              <AlertTriangle className="w-3 h-3 text-rose-600 mr-1" />
+                            )}
+                            {dynamicStatus}
+                          </span>
+
+                          {(() => {
+                            const pendingReq = pendingVerificationInvoiceMap.get(inv.id);
+                            if (!pendingReq) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => onNavigate?.('payment-verifications')}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 hover:bg-amber-600 text-white transition shadow-2xs cursor-pointer active:scale-95"
+                                title={`Ada konfirmasi pembayaran dari wali (Ref: ${pendingReq.referenceNumber}). Klik untuk membuka verifikasi kasir.`}
+                              >
+                                <Clock className="w-2.5 h-2.5 animate-pulse" />
+                                <span>Verifikasi Kasir</span>
+                              </button>
+                            );
+                          })()}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
