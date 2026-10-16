@@ -11,7 +11,8 @@ import {
   CalendarDays, 
   Receipt,
   PlusCircle,
-  UserCheck
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,6 +22,7 @@ interface SidebarProps {
   onOpenRecordCash: () => void;
   onOpenFingerprint: () => void;
   pendingRegistrationsCount?: number;
+  pendingPaymentVerificationsCount?: number;
 }
 
 interface SidebarLink {
@@ -37,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenRecordCash,
   onOpenFingerprint,
   pendingRegistrationsCount = 0,
+  pendingPaymentVerificationsCount = 0,
 }) => {
   const adminLinks: SidebarLink[] = [
     { route: 'dashboard', label: 'Dashboard Admin', icon: Home },
@@ -45,6 +48,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Verifikasi Pendaftaran', 
       icon: UserCheck, 
       badge: pendingRegistrationsCount 
+    },
+    { 
+      route: 'payment-verifications', 
+      label: 'Verifikasi Pembayaran', 
+      icon: ShieldCheck, 
+      badge: pendingPaymentVerificationsCount 
     },
     { route: 'students', label: 'Data Siswa', icon: Users },
     { route: 'coaches', label: 'Data Pelatih', icon: Award },

@@ -69,6 +69,23 @@
         "status": { "type": "string" }
       },
       "required": ["id", "date", "classGroupId", "status"]
+    },
+    "PaymentVerificationRequest": {
+      "title": "PaymentVerificationRequest",
+      "description": "Parent payment confirmation queue awaiting admin verification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "referenceNumber": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "classGroupId": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string" },
+        "submittedAt": { "type": "string" }
+      },
+      "required": ["id", "referenceNumber", "studentId", "amount", "status", "submittedAt"]
     }
   },
   "firestore": {
@@ -87,6 +104,10 @@
     "/trainingSchedules/{scheduleId}": {
       "schema": "TrainingSchedule",
       "description": "Collection of training sessions synced live to parent dashboards"
+    },
+    "/paymentVerificationRequests/{requestId}": {
+      "schema": "PaymentVerificationRequest",
+      "description": "Collection of parent payment verification requests awaiting admin approval"
     }
   }
 }

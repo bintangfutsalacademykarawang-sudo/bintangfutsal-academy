@@ -43,6 +43,7 @@ interface AdminDashboardViewProps {
   onEditSchedule?: (schedule: TrainingSchedule) => void;
   onDeleteSchedule?: (id: string) => void;
   onViewParentDashboard?: () => void;
+  pendingPaymentVerificationsCount?: number;
   cloudSyncStatus?: {
     status: 'connecting' | 'connected' | 'error' | 'offline';
     source: 'server' | 'cache' | 'local_fallback';
@@ -67,6 +68,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onEditSchedule,
   onDeleteSchedule,
   onViewParentDashboard,
+  pendingPaymentVerificationsCount = 0,
   cloudSyncStatus,
   onRetrySync,
 }) => {
@@ -155,6 +157,33 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Pending Payment Verification Banner */}
+      {pendingPaymentVerificationsCount > 0 && (
+        <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 font-bold shadow-xs">
+              <CreditCard className="w-5 h-5 text-blue-100" />
+            </div>
+            <div>
+              <p className="font-black text-blue-950 text-sm flex items-center gap-2">
+                <span>{pendingPaymentVerificationsCount} Konfirmasi Pembayaran Orang Tua Menunggu Verifikasi</span>
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+              </p>
+              <p className="text-[11px] text-blue-800 mt-0.5">
+                Wali atlet telah mengirim konfirmasi transfer/QRIS. Verifikasi kasir akan mencatat dana ke Buku Kas dan memperbarui status tagihan menjadi Lunas.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('payment-verifications')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black rounded-xl text-xs shadow-sm transition flex items-center space-x-1.5 self-start sm:self-auto shrink-0"
+          >
+            <span>Verifikasi Pembayaran</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Pending New Member Verification Banner */}
       {pendingRegistrationsCount > 0 && (
         <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">

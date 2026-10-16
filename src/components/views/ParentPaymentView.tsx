@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RouteId, Student, Invoice } from '../../types';
+import { RouteId, Student, Invoice, PaymentVerificationRequest } from '../../types';
+import { savePaymentVerificationRequest } from '../../firebase';
 import { 
   QrCode, 
   CheckCircle2, 
@@ -11,7 +12,8 @@ import {
   Download, 
   Smartphone, 
   ShieldCheck, 
-  AlertCircle 
+  AlertCircle,
+  Loader2 
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -19,7 +21,7 @@ interface ParentPaymentViewProps {
   student?: Student;
   invoices: Invoice[];
   onNavigate: (route: RouteId) => void;
-  onPaymentSuccess: (method: string, trxId: string) => void;
+  onPaymentSuccess: (method: string, trxId: string, request?: PaymentVerificationRequest) => void;
   onShowToast?: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
 }
 
@@ -120,11 +122,59 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
     onShowToast?.('✓ Gambar barcode QRIS berhasil diunduh ke galeri!', 'success');
   };
 
-  const handleConfirmPaymentSubmitted = () => {
-    const trx = `CONF-BFA-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-    setLastTrxId(trx);
-    setStep('success');
-    onPaymentSuccess(selectedMethod, trx);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const handleConfirmPaymentSubmitted = async () => {
+    if (isSubmitting) return;
+    setSubmitError(null);
+
+    if (isAllPaid || totalUnpaidAmount <= 0 || unpaidInvoices.length === 0) {
+      onShowToast?.('Tidak ada sisa tagihan aktif yang perlu dikonfirmasi.', 'warning');
+      return;
+    }
+
+    const refNum = `CONF-BFA-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+    const reqId = `PVR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    setIsSubmitting(true);
+
+    try {
+      const pvrData: PaymentVerificationRequest = {
+        id: reqId,
+        referenceNumber: refNum,
+        studentId: student?.id || 'SISWA_BFA',
+        studentName: childName,
+        classGroupId: childGroup,
+        parentPhone: student?.phone || '',
+        parentName: student?.parentName || '',
+        amount: totalUnpaidAmount,
+        paymentMethod: selectedMethod,
+        invoiceIds: unpaidInvoices.map((i) => i.id),
+        invoiceDetails: unpaidInvoices.map((i) => ({
+          id: i.id,
+          type: i.type,
+          period: i.period,
+          amount: Number(i.amount) || 0,
+          remainingAmount: getInvoiceRemaining(i),
+        })),
+        status: 'MENUNGGU_VERIFIKASI',
+        submittedAt: new Date().toISOString(),
+      };
+
+      await savePaymentVerificationRequest(pvrData);
+      setLastTrxId(refNum);
+      setSubmitError(null);
+      setStep('success');
+      onPaymentSuccess(selectedMethod, refNum, pvrData);
+      onShowToast?.(`✓ Konfirmasi pembayaran (${refNum}) berhasil terkirim ke antrean Admin BFA!`, 'success');
+    } catch (err: any) {
+      console.error('Simpan request konfirmasi pembayaran ke server gagal:', err);
+      const errMsg = 'Gagal mengirim konfirmasi ke server. Periksa koneksi internet, lalu coba lagi.';
+      setSubmitError(errMsg);
+      onShowToast?.(errMsg, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // STEP 1: CHECKOUT & PAYMENT METHOD SELECTOR
@@ -525,19 +575,62 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
             </p>
           </div>
 
+          {/* Submission Failure Banner */}
+          {submitError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-[11px] text-rose-900 max-w-sm mx-auto space-y-2">
+              <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Pengiriman Konfirmasi Gagal:</span>
+              </div>
+              <p className="leading-relaxed text-rose-700">
+                {submitError}
+              </p>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleConfirmPaymentSubmitted}
+                className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center space-x-1.5"
+              >
+                <span>Coba Kirim Ulang Konfirmasi</span>
+              </button>
+            </div>
+          )}
+
           {/* Verification Trigger Button */}
           <div className="pt-2 space-y-2 max-w-sm mx-auto">
             <button
+              type="button"
+              disabled={isSubmitting}
               onClick={handleConfirmPaymentSubmitted}
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-600/20 transition active:scale-95 flex items-center justify-center space-x-2"
+              className={`w-full py-3.5 ${
+                submitError 
+                  ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' 
+                  : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
+              } text-white font-black rounded-xl text-xs shadow-md transition active:scale-95 flex items-center justify-center space-x-2 ${
+                isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>SAYA SUDAH BAYAR (KIRIM KONFIRMASI KE ADMIN)</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>MENGIRIM KONFIRMASI KE ADMIN...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{submitError ? 'COBA KIRIM ULANG KONFIRMASI' : 'SAYA SUDAH BAYAR (KIRIM KONFIRMASI KE ADMIN)'}</span>
+                </>
+              )}
             </button>
 
             <button
-              onClick={() => setStep('checkout')}
-              className="w-full py-2 bg-transparent hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition"
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => {
+                setSubmitError(null);
+                setStep('checkout');
+              }}
+              className="w-full py-2 bg-transparent hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition disabled:opacity-50"
             >
               Ubah Metode Pembayaran
             </button>

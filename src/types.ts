@@ -3,6 +3,7 @@ export type Role = 'admin' | 'parent';
 export type RouteId = 
   | 'dashboard'
   | 'registrations'
+  | 'payment-verifications'
   | 'students'
   | 'coaches'
   | 'keuangan'
@@ -19,6 +20,45 @@ export type RouteId =
 export type { Coach } from './types/coach';
 
 export type RegistrationStatus = 'MENUNGGU_VERIFIKASI' | 'DISETUJUI' | 'DITOLAK';
+
+export type PaymentVerificationStatus = 'MENUNGGU_VERIFIKASI' | 'DISETUJUI' | 'DITOLAK' | 'DIBATALKAN_ADMIN';
+
+export interface PaymentVerificationInvoiceItem {
+  id: string;
+  type: string;
+  period: string;
+  amount: number;
+  remainingAmount: number;
+}
+
+export interface PaymentVerificationRequest {
+  id: string;
+  referenceNumber: string; // e.g. CONF-BFA-123456-789
+  studentId: string;
+  studentName: string;
+  classGroupId: string;
+  parentPhone?: string;
+  parentName?: string;
+  amount: number;
+  paymentMethod: 'QRIS' | 'Transfer Bank' | string;
+  invoiceIds: string[];
+  invoiceDetails?: PaymentVerificationInvoiceItem[];
+  status: PaymentVerificationStatus;
+  submittedAt: string;
+  notes?: string;
+  proofUrl?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  rejectionReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancellationReason?: string;
+  cancelledPaymentId?: string;
+  processedPaymentIds?: string[];
+  processedMutationIds?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface StudentDocuments {
   kk?: string;
