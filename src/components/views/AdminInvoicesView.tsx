@@ -454,16 +454,16 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold border-b border-slate-200">
+            <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3.5">Siswa</th>
-                <th className="px-4 py-3.5">Jenis Tagihan</th>
-                <th className="px-4 py-3.5">Jatuh Tempo</th>
-                <th className="px-4 py-3.5 text-right">Total Tagihan</th>
-                <th className="px-4 py-3.5 text-right">Sudah Dibayar</th>
-                <th className="px-4 py-3.5 text-right">Sisa Tagihan</th>
-                <th className="px-4 py-3.5">Status</th>
-                <th className="px-4 py-3.5 text-right">Aksi</th>
+                <th className="px-3 py-2.5 text-left font-bold text-slate-700">Siswa</th>
+                <th className="px-2.5 py-2.5 text-left font-bold text-slate-700">Jenis Tagihan</th>
+                <th className="px-2 py-2.5 text-left font-bold text-slate-700 whitespace-nowrap">Jatuh Tempo</th>
+                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Total Tagihan</th>
+                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Sudah Dibayar</th>
+                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Sisa Tagihan</th>
+                <th className="px-2 py-2.5 text-center font-bold text-slate-700">Status</th>
+                <th className="px-3 py-2.5 text-right font-bold text-slate-700">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
@@ -487,34 +487,34 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50 transition">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="font-bold text-slate-900 block">{inv.studentName}</span>
-                        <span className="text-[10px] font-mono text-slate-400">
+                      <td className="px-3 py-2.5">
+                        <span className="font-bold text-slate-900 block leading-snug text-xs">{inv.studentName}</span>
+                        <span className="text-[10px] font-mono text-slate-400 block leading-tight">
                           {inv.studentId} • {inv.classGroupId}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-800 font-semibold">
-                        <span>{inv.type}</span>
-                        <span className="block text-[10px] text-slate-500 font-normal">{inv.period}</span>
+                      <td className="px-2.5 py-2.5 text-slate-800">
+                        <span className="font-semibold text-xs block leading-snug">{inv.type}</span>
+                        <span className="block text-[10px] text-slate-500 font-normal leading-tight">{inv.period}</span>
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-500 whitespace-nowrap tabular-nums">
+                      <td className="px-2 py-2.5 font-mono text-slate-500 whitespace-nowrap tabular-nums text-[11px]">
                         {inv.dueDate || '-'}
                       </td>
-                      <td className="px-4 py-3 font-black text-slate-900 font-mono whitespace-nowrap tabular-nums text-sm text-right">
+                      <td className="px-2.5 py-2.5 font-bold text-slate-900 font-mono whitespace-nowrap tabular-nums text-xs text-right">
                         Rp{totalAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className="px-4 py-3 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-right">
+                      <td className="px-2.5 py-2.5 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-xs text-right">
                         Rp{paidAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className={`px-4 py-3 font-black font-mono whitespace-nowrap tabular-nums text-right ${
-                        remAmt > 0 ? 'text-rose-700' : 'text-slate-400'
+                      <td className={`px-2.5 py-2.5 font-bold font-mono whitespace-nowrap tabular-nums text-xs text-right ${
+                        remAmt > 0 ? 'text-rose-700 font-black' : 'text-slate-400'
                       }`}>
                         Rp{remAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                      <td className="px-2 py-2.5 text-center">
+                        <div className="flex flex-col items-center justify-center gap-1">
                           <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${
                               dynamicStatus === 'LUNAS'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                                 : dynamicStatus === 'SEBAGIAN'
@@ -525,7 +525,7 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                             }`}
                           >
                             {dynamicStatus === 'MENUNGGAK' && (
-                              <AlertTriangle className="w-3 h-3 text-rose-600 mr-1" />
+                              <AlertTriangle className="w-2.5 h-2.5 text-rose-600 mr-1 shrink-0" />
                             )}
                             {dynamicStatus}
                           </span>
@@ -537,37 +537,38 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onNavigate?.('payment-verifications')}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 hover:bg-amber-600 text-white transition shadow-2xs cursor-pointer active:scale-95"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 hover:bg-amber-600 text-white transition shadow-2xs cursor-pointer active:scale-95 whitespace-nowrap"
                                 title={`Ada konfirmasi pembayaran dari wali (Ref: ${pendingReq.referenceNumber}). Klik untuk membuka verifikasi kasir.`}
                               >
                                 <Clock className="w-2.5 h-2.5 animate-pulse" />
-                                <span>Verifikasi Kasir</span>
+                                <span>Verifikasi</span>
                               </button>
                             );
                           })()}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                           {isFullyPaid ? (
                             <>
                               <button
                                 type="button"
                                 onClick={() => onShowReceipt(inv)}
-                                className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 inline-flex items-center gap-1 active:scale-95"
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold border border-slate-300 inline-flex items-center gap-1 active:scale-95 transition shadow-2xs shrink-0"
+                                title="Buka / Cetak Kuitansi Pembayaran"
                               >
-                                <Receipt className="w-3.5 h-3.5 text-blue-700" />
+                                <Receipt className="w-3 h-3 text-blue-700 shrink-0" />
                                 <span>Kuitansi</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => handleOpenCorrection(inv)}
-                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-semibold border border-amber-300 inline-flex items-center gap-1 active:scale-95 transition"
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-[11px] font-bold border border-amber-300 inline-flex items-center gap-1 active:scale-95 transition shadow-2xs shrink-0"
                                 title="Koreksi / Batalkan Pembayaran Yang Salah Input"
                               >
-                                <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
-                                <span>Koreksi Pembayaran</span>
+                                <RotateCcw className="w-3 h-3 text-amber-700 shrink-0" />
+                                <span>Koreksi</span>
                               </button>
                             </>
                           ) : (
@@ -575,21 +576,22 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setPayingInvoice(inv)}
-                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold active:scale-95 shadow-xs inline-flex items-center gap-1"
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black active:scale-95 shadow-xs inline-flex items-center gap-1 transition shrink-0"
+                                title={paidAmt > 0 ? 'Bayar Cicilan Tagihan Ini' : 'Bayar / Lunasi Tagihan Ini'}
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>{paidAmt > 0 ? 'Bayar Cicilan' : 'Bayar / Lunas'}</span>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-200 shrink-0" />
+                                <span>{paidAmt > 0 ? 'Bayar Cicilan' : 'Bayar Lunas'}</span>
                               </button>
 
                               {paidAmt > 0 && (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenCorrection(inv)}
-                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-xs font-semibold border border-amber-300 inline-flex items-center gap-1 active:scale-95 transition"
+                                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-[11px] font-bold border border-amber-300 inline-flex items-center gap-1 active:scale-95 transition shadow-2xs shrink-0"
                                   title="Koreksi / Batalkan Pembayaran Cicilan Yang Salah Input"
                                 >
-                                  <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
-                                  <span>Koreksi Pembayaran</span>
+                                  <RotateCcw className="w-3 h-3 text-amber-700 shrink-0" />
+                                  <span>Koreksi</span>
                                 </button>
                               )}
                             </>
@@ -599,10 +601,10 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                             <button
                               type="button"
                               onClick={() => setInvoiceToDelete(inv)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition shrink-0"
                               title="Hapus Tagihan Ini"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
                             </button>
                           )}
                         </div>
