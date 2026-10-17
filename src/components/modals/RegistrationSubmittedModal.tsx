@@ -12,7 +12,8 @@ import {
   Users, 
   FileCheck, 
   ArrowRight,
-  AlertTriangle
+  AlertTriangle,
+  MessageCircle
 } from 'lucide-react';
 import { BFALogo } from '../common/BFALogo';
 
@@ -30,6 +31,34 @@ export const RegistrationSubmittedModal: React.FC<RegistrationSubmittedModalProp
   const [copied, setCopied] = useState(false);
 
   if (!isOpen || !student) return null;
+
+  const adminWaPhone = '6281399201983';
+  const adminWaDisplay = '0813-9920-1983';
+
+  const generateWhatsAppMessage = () => {
+    if (!student) return '';
+    const studentNickname = student.nickname ? ` (${student.nickname})` : '';
+    return [
+      `*KONFIRMASI PENDAFTARAN SISWA BARU — BFA HUB*`,
+      ``,
+      `Halo Admin Bintang Futsal Academy,`,
+      `Saya orang tua/wali dari calon atlet telah menyelesaikan formulir pendaftaran online BFA HUB dengan rincian berikut:`,
+      ``,
+      `📋 *Data Calon Siswa:*`,
+      `• *ID Pendaftaran:* ${student.id}`,
+      `• *Nama Lengkap:* ${student.name}${studentNickname}`,
+      `• *Kelompok Usia (KU):* ${student.classGroupId}`,
+      `• *Nama Orang Tua/Wali:* ${student.parentName || '-'}`,
+      `• *No. WhatsApp Terdaftar:* ${student.phone || '-'}`,
+      ``,
+      `Mohon bantuannya untuk memeriksa berkas legalitas dan menyetujui pendaftaran ananda agar akun siswa dapat aktif di portal BFA HUB.`,
+      ``,
+      `Terima kasih.`
+    ].join('\n');
+  };
+
+  const waMessage = generateWhatsAppMessage();
+  const waUrl = `https://wa.me/${adminWaPhone}?text=${encodeURIComponent(waMessage)}`;
 
   const handleCopyId = () => {
     if (student.id) {
@@ -142,15 +171,42 @@ export const RegistrationSubmittedModal: React.FC<RegistrationSubmittedModalProp
           </div>
         </div>
 
+        {/* WhatsApp Notification Card */}
+        <div className="mt-4 p-4 bg-emerald-50 rounded-2xl border border-emerald-200 shadow-xs space-y-2.5 text-xs text-emerald-950">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-black text-emerald-900 text-xs">
+              <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Verifikasi WhatsApp ke Admin</span>
+            </div>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-mono font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+              {adminWaDisplay}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-emerald-800 leading-relaxed">
+            Kirimkan pemberitahuan pendaftaran langsung ke WhatsApp Admin BFA agar berkas legalitas dan kelompok usia ananda segera diverifikasi.
+          </p>
+
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition text-white font-extrabold rounded-xl text-xs flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/25"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>KIRIM NOTIFIKASI KE WHATSAPP ADMIN</span>
+          </a>
+        </div>
+
         {/* Action Button */}
-        <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-3 bg-blue-900 hover:bg-blue-800 active:scale-95 transition text-white font-black rounded-xl text-xs flex items-center justify-center space-x-2 shadow-md shadow-blue-900/20"
+            className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 transition text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center space-x-2 border border-slate-300"
           >
             <span>TUTUP & KEMBALI KE HALAMAN LOGIN</span>
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
