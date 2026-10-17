@@ -111,6 +111,7 @@ import {
   subscribeToStudentPaymentVerifications,
   approvePaymentVerificationTransaction,
   rejectPaymentVerificationRequest,
+  deleteStudentFromFirestore,
   db
 } from './firebase';
 
@@ -2172,9 +2173,62 @@ Official Performance Report • BFA Karawang
     }
   };
 
-  const handleDeleteStudent = (student: Student) => {
-    // Audit Tahap 1: Hard delete diblokir. Alur diarahkan ke arsip aman (status: 'Non-Aktif')
-    handleArchiveStudent(student);
+  // Permanent Delete Handler for Inactive / Archived Students
+  const handleDeleteStudent = async (student: Student): Promise<void> => {
+    // 1. Strict Security Guard: Only Admin role can perform permanent deletion
+    if (currentUser?.role !== 'admin') {
+      showToast('Akses ditolak: Hanya Admin yang berwenang menghapus data siswa.', 'error');
+      throw new Error('Akses ditolak: Hanya Admin yang berwenang.');
+    }
+
+    // 2. Strict Status Guard: Never allow deleting Active students
+    if (student.status === 'Aktif') {
+      showToast(`Penghapusan ditolak: Siswa ${student.name} masih berstatus Aktif. Siswa Aktif tidak boleh dihapus melalui fitur ini.`, 'error');
+      throw new Error('Siswa berstatus Aktif tidak boleh dihapus.');
+    }
+
+    // 3. Strict ID Validation: ID must exist and be valid string
+    if (!student.id || typeof student.id !== 'string' || !student.id.trim()) {
+      showToast('Error: Dokumen siswa tidak memiliki ID yang valid.', 'error');
+      throw new Error('ID Siswa tidak valid.');
+    }
+
+    try {
+      showToast(`Menghapus arsip siswa ${student.name} (${student.id}) dari database...`, 'info');
+
+      // 4. Delete student document directly from Firestore (no cascade)
+      await deleteStudentFromFirestore(student.id);
+
+      // 5. Update local state in memory
+      setStudents((prev) => prev.filter((s) => s.id !== student.id));
+
+      // 6. Update local storage cache
+      try {
+        const saved = localStorage.getItem('bfa_students');
+        if (saved) {
+          const list: Student[] = JSON.parse(saved);
+          const next = list.filter((s) => s.id !== student.id);
+          localStorage.setItem('bfa_students', JSON.stringify(next));
+        }
+      } catch {}
+
+      // Clean up saved custom password if present
+      try {
+        const raw = localStorage.getItem('bfa_student_passwords');
+        if (raw) {
+          const map = JSON.parse(raw);
+          delete map[student.id];
+          localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
+        }
+      } catch {}
+
+      setIsStudentDetailOpen(false);
+      showToast(`✓ Siswa ${student.name} (${student.id}) berhasil dihapus permanen dari arsip. Riwayat tagihan, pembayaran, dan Buku Kas tetap utuh.`, 'success');
+    } catch (err: any) {
+      console.error('[Firestore] Gagal menghapus permanen siswa:', err);
+      showToast(`Gagal menghapus siswa ${student.name}: ${err?.message || 'Error koneksi database'}. Data tetap dipertahankan.`, 'error');
+      throw err;
+    }
   };
 
   const handleResetStudentPassword = (studentId: string, newPass: string) => {

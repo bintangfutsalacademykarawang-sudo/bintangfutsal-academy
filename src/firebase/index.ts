@@ -410,8 +410,6 @@ export async function deleteStudentFromFirestore(studentId: string): Promise<voi
     const cleanId = studentId.trim();
     const studentRef = doc(db, STUDENTS_COLLECTION, cleanId);
     await deleteDoc(studentRef);
-    const reportRef = doc(db, REPORTS_COLLECTION, cleanId);
-    await deleteDoc(reportRef).catch(() => {});
   } catch (error) {
     console.error('Failed to delete student from Firestore:', error);
     throw error;

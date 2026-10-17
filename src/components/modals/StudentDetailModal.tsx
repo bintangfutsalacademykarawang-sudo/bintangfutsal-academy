@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Student, SkillIndicator, Invoice, Attendance } from '../../types';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
-import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Archive, RotateCcw } from 'lucide-react';
+import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Archive, RotateCcw, Trash2, AlertTriangle } from 'lucide-react';
 import { BarcodeDisplay } from '../common/BarcodeDisplay';
 import { StudentBarcodeModal } from './StudentBarcodeModal';
 
@@ -15,7 +15,7 @@ interface StudentDetailModalProps {
   onEdit: (student: Student) => void;
   onArchive?: (student: Student) => void;
   onReactivate?: (student: Student) => void;
-  onDelete?: (student: Student) => void;
+  onDelete?: (student: Student) => Promise<void> | void;
 }
 
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
@@ -34,6 +34,30 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const [isBarcodeCardOpen, setIsBarcodeCardOpen] = useState(false);
   const [isConfirmArchive, setIsConfirmArchive] = useState(false);
   const [isConfirmReactivate, setIsConfirmReactivate] = useState(false);
+  const [isConfirmDelete, setIsConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isConfirmedExplicitly, setIsConfirmedExplicitly] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
+
+  const handleExecuteDelete = async () => {
+    if (!student || !onDelete) return;
+    if (student.status === 'Aktif') {
+      setDeleteErrorMessage('Siswa berstatus Aktif tidak dapat dihapus melalui fitur ini.');
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteErrorMessage(null);
+    try {
+      await onDelete(student);
+      setIsConfirmDelete(false);
+      setIsConfirmedExplicitly(false);
+      onClose();
+    } catch (err: any) {
+      setDeleteErrorMessage(err?.message || 'Gagal menghapus data siswa dari database. Data tetap dipertahankan.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   if (!isOpen || !student) return null;
 
@@ -125,17 +149,34 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 </button>
               )
             ) : (
-              onReactivate && (
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmReactivate(true)}
-                  className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
-                  title="Aktifkan Kembali Atlet Ini"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Aktifkan Kembali</span>
-                </button>
-              )
+              <div className="flex items-center space-x-2">
+                {onReactivate && (
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmReactivate(true)}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                    title="Aktifkan Kembali Atlet Ini"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Aktifkan Kembali</span>
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsConfirmDelete(true);
+                      setIsConfirmedExplicitly(false);
+                      setDeleteErrorMessage(null);
+                    }}
+                    className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 flex items-center space-x-1.5 transition active:scale-95 shadow-xs"
+                    title="Hapus Permanen Data Siswa Nonaktif Ini"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Hapus Permanen</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -421,6 +462,124 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Aktifkan Kembali</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Konfirmasi Hapus Permanen Siswa Non-Aktif */}
+        {isConfirmDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200 animate-in fade-in zoom-in-95">
+              <button
+                onClick={() => {
+                  if (!isDeleting) {
+                    setIsConfirmDelete(false);
+                    setIsConfirmedExplicitly(false);
+                    setDeleteErrorMessage(null);
+                  }
+                }}
+                disabled={isDeleting}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-lg"
+                title="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Trash2 className="w-6 h-6" />
+              </div>
+
+              <h3 className="text-base font-black text-slate-900 text-center tracking-tight">
+                Hapus Permanen Siswa?
+              </h3>
+              
+              <p className="text-xs text-slate-600 text-center mt-1 leading-relaxed">
+                Anda akan menghapus data siswa berikut:
+              </p>
+
+              <div className="my-3.5 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center space-x-3">
+                <img
+                  src={student.avatar}
+                  alt={student.name}
+                  className="w-12 h-12 rounded-xl object-cover border border-slate-300 shrink-0"
+                />
+                <div className="overflow-hidden space-y-0.5">
+                  <div className="text-xs font-bold text-slate-500">
+                    Nama: <span className="font-extrabold text-slate-900">{student.name}</span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-500">
+                    ID: <span className="font-mono font-black text-blue-700">{student.id}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    <span className="text-[10px] bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded">
+                      KU {student.classGroupId}
+                    </span>
+                    <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded border border-rose-200">
+                      Status: {student.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5 text-xs text-amber-900">
+                <div className="flex items-center gap-1.5 font-bold text-amber-950">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Peringatan Keamanan Data</span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Tindakan ini dapat menghilangkan akses terhadap data siswa dan tidak mudah dibatalkan. Pastikan data dan riwayat terkait sudah diperiksa serta dicadangkan.
+                </p>
+                <p className="text-[10px] text-amber-800 leading-relaxed pt-1 border-t border-amber-200/60">
+                  🛡️ <strong>Perlindungan Data Wajib:</strong> Dokumen tagihan invoice, bukti pembayaran, mutasi Buku Kas, absensi, dan riwayat latihan tetap tersimpan utuh di sistem untuk keperluan audit.
+                </p>
+              </div>
+
+              {/* Explicit Confirmation Checkbox */}
+              <div className="mt-3.5">
+                <label className="flex items-start gap-2 p-2.5 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl cursor-pointer select-none transition">
+                  <input
+                    type="checkbox"
+                    checked={isConfirmedExplicitly}
+                    onChange={(e) => setIsConfirmedExplicitly(e.target.checked)}
+                    disabled={isDeleting}
+                    className="mt-0.5 rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                  />
+                  <span className="text-xs text-slate-700 font-medium leading-snug">
+                    Saya mengonfirmasi bahwa data siswa <strong>{student.name} ({student.id})</strong> ini sudah diperiksa dan siap dihapus permanen dari arsip.
+                  </span>
+                </label>
+              </div>
+
+              {deleteErrorMessage && (
+                <div className="mt-3 p-2.5 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{deleteErrorMessage}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsConfirmDelete(false);
+                    setIsConfirmedExplicitly(false);
+                    setDeleteErrorMessage(null);
+                  }}
+                  disabled={isDeleting}
+                  className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition active:scale-95 border border-slate-200 disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteDelete}
+                  disabled={!isConfirmedExplicitly || isDeleting}
+                  className="py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black rounded-xl text-xs shadow-md shadow-rose-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? 'Menghapus...' : 'Hapus Permanen'}</span>
                 </button>
               </div>
             </div>
