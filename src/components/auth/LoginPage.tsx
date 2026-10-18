@@ -16,6 +16,7 @@ import {
 import { BFALogo } from '../common/BFALogo';
 import { ForgotPasswordModal } from '../modals/ForgotPasswordModal';
 import { normalizePhoneNumber, isValidIndonesianMobile, isExactPhoneMatch } from '../../utils/phoneUtils';
+import { fetchSingleStudentById } from '../../firebase';
 
 interface LoginPageProps {
   students: Student[];
@@ -64,7 +65,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isSelectChildModalOpen, setIsSelectChildModalOpen] = useState(false);
 
   // Handle Parent Login Submission
-  const handleParentSubmit = (e: React.FormEvent) => {
+  const handleParentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const rawInput = parentIdentifier.trim();
     const cleanPass = parentPassword.trim().toLowerCase();
@@ -81,7 +82,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     // 1. Strict exact match against Student ID (case-insensitive & formatting-tolerant)
     const cleanIdInput = rawInput.replace(/[\s-]/g, '').toUpperCase();
-    const matchedById = students.filter(
+    let matchedById = students.filter(
       (s) => s.id && (
         s.id.trim().toUpperCase() === rawInput.toUpperCase() ||
         s.id.replace(/[\s-]/g, '').toUpperCase() === cleanIdInput
@@ -93,6 +94,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     let matchedByPhone: Student[] = [];
     if (isValidIndonesianMobile(normalizedInput)) {
       matchedByPhone = students.filter((s) => isExactPhoneMatch(s.phone, normalizedInput));
+    }
+
+    // Fallback: If not in local cache and input resembles a student ID, query only that single document
+    if (matchedById.length === 0 && matchedByPhone.length === 0 && cleanIdInput.startsWith('BFA')) {
+      try {
+        const directStudent = await fetchSingleStudentById(cleanIdInput);
+        if (directStudent) {
+          matchedById = [directStudent];
+        }
+      } catch {}
     }
 
     // Combine exact matches (ID takes priority if matched, otherwise Phone matches)

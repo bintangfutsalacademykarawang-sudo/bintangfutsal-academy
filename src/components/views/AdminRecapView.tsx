@@ -118,17 +118,12 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
     }
   }, [isLoading, currentInvoices]);
 
-  // Muat data awal secara otomatis saat komponen pertama kali dipasang
-  useEffect(() => {
-    if (!hasLoadedOnce) {
-      handleLoadRecapData(selectedYear);
-    }
-  }, [hasLoadedOnce, selectedYear, handleLoadRecapData]);
-
-  // Handler pergantian tahun
+  // Pemuatan data tahunan dibuat on-demand (tidak otomatis fetch saat pasang) demi penghematan kuota Firestore
+  // Handler pergantian tahun: Ganti tahun pilihan dan reset status agar data dimuat sesuai permintaan
   const handleChangeYear = (newYear: number) => {
     setSelectedYear(newYear);
-    handleLoadRecapData(newYear);
+    setHasLoadedOnce(false);
+    setYearInvoices([]);
   };
 
   // 4. Filter Siswa Berdasarkan KU, Status Siswa, dan Pencarian
@@ -353,8 +348,40 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
         </div>
       )}
 
-      {/* ---------------- 3. SUMMARY KPI CARDS ---------------- */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* ---------------- 2.5 ON-DEMAND PROMPT (WHEN NOT YET LOADED) ---------------- */}
+      {!hasLoadedOnce && !isLoading && !fetchError && (
+        <div className="bg-blue-50/70 border border-blue-200 rounded-3xl p-8 text-center space-y-4 shadow-2xs">
+          <div className="w-14 h-14 bg-blue-100 text-blue-900 rounded-2xl flex items-center justify-center mx-auto shadow-2xs">
+            <Calendar className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="font-black text-slate-900 text-lg">Pemuatan Rekap Tagihan Tahun {selectedYear}</h3>
+            <p className="text-xs text-slate-600 max-w-lg mx-auto leading-relaxed">
+              Untuk menghemat kuota pembacaan Cloud Firestore (Spark / Free Tier), data tagihan tahun {selectedYear} dimuat sesuai permintaan (on-demand). Silakan klik tombol di bawah untuk menampilkan rekap.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleLoadRecapData(selectedYear)}
+            className="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold rounded-2xl text-xs transition inline-flex items-center gap-2 shadow-sm active:scale-95 cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Muat Data Rekap Tahun {selectedYear}</span>
+          </button>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="bg-slate-50 border border-slate-200 rounded-3xl p-8 text-center space-y-3">
+          <RefreshCw className="w-8 h-8 text-blue-900 animate-spin mx-auto" />
+          <p className="text-xs font-bold text-slate-700">Sedang memuat data tagihan tahun {selectedYear} dari cloud...</p>
+        </div>
+      )}
+
+      {hasLoadedOnce && !isLoading && (
+        <>
+          {/* ---------------- 3. SUMMARY KPI CARDS ---------------- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Ditagihkan */}
         <div className="bg-gradient-to-br from-white to-blue-50/60 rounded-2xl p-4 border border-blue-200 shadow-2xs">
           <span className="text-[10px] font-extrabold text-blue-900 uppercase tracking-wider block">
@@ -988,6 +1015,8 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
             </table>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

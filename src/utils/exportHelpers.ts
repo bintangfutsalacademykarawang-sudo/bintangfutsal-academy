@@ -187,14 +187,27 @@ export const exportFinanceExcel = async (
     }
   } catch {}
 
-  // 3. Resolusi Firestore untuk invoice yang belum ada di memori
+  // 3. Resolusi dari cache lokal invoice sebelum menyentuh jaringan Firestore
+  try {
+    const savedInvoices = localStorage.getItem('bfa_invoices');
+    if (savedInvoices) {
+      const parsed: Invoice[] = JSON.parse(savedInvoices);
+      parsed.forEach((inv) => {
+        if (inv?.id && !invoiceMap.has(inv.id)) {
+          invoiceMap.set(inv.id, inv);
+        }
+      });
+    }
+  } catch {}
+
+  // Resolusi Firestore hanya untuk invoice yang benar-benar belum ada di memori maupun cache lokal (dibatasi max 15)
   const missingInvoiceIds = Array.from(
     new Set(
       mutations
         .map((m) => m.invoiceId)
         .filter((id): id is string => Boolean(id && typeof id === 'string' && !invoiceMap.has(id)))
     )
-  );
+  ).slice(0, 15);
 
   if (missingInvoiceIds.length > 0) {
     try {

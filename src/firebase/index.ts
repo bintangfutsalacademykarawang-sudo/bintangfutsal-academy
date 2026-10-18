@@ -629,6 +629,24 @@ export function subscribeToStudentDoc(
   );
 }
 
+/**
+ * Single document fetch with cache-first strategy.
+ * Costs only 1 read (or 0 if already in local cache) instead of reading the entire collection.
+ */
+export async function fetchSingleStudentById(studentId: string): Promise<Student | null> {
+  if (!studentId || !studentId.trim()) return null;
+  try {
+    const docRef = doc(db, STUDENTS_COLLECTION, studentId.trim());
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data() as Student;
+    }
+  } catch (err) {
+    console.warn('[Firestore] fetchSingleStudentById notice:', err);
+  }
+  return null;
+}
+
 // --- REPORT OPERATIONS ---
 export async function saveReportToFirestore(
   studentId: string, 
@@ -1750,10 +1768,11 @@ export async function savePaymentVerificationRequest(
 
 export function subscribeToPaymentVerificationRequests(
   onData: (requests: PaymentVerificationRequest[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  maxLimit: number = 50
 ) {
   const collRef = collection(db, PAYMENT_VERIFICATIONS_COLLECTION);
-  const q = query(collRef, orderBy('submittedAt', 'desc'), limit(150));
+  const q = query(collRef, orderBy('submittedAt', 'desc'), limit(maxLimit));
   return onSnapshot(
     q,
     (snapshot) => {

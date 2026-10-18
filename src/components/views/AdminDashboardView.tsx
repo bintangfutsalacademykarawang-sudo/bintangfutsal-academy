@@ -50,6 +50,7 @@ interface AdminDashboardViewProps {
     docCount: number;
     lastSynced: string | null;
     errorMessage: string | null;
+    isQuotaExhausted?: boolean;
   };
   onRetrySync?: () => void;
 }
@@ -225,13 +226,18 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </p>
             </div>
           </div>
-          {onRetrySync && (
+          {onRetrySync && !cloudSyncStatus?.isQuotaExhausted && (
             <button
               onClick={onRetrySync}
               className="px-3.5 py-1.5 bg-amber-800 hover:bg-amber-900 text-white font-bold rounded-lg text-[11px] transition shadow-xs flex items-center gap-1.5 self-start sm:self-auto active:scale-95"
             >
               <span>Hubungkan Ulang</span>
             </button>
+          )}
+          {cloudSyncStatus?.isQuotaExhausted && (
+            <div className="px-3 py-1.5 bg-amber-200/80 text-amber-900 font-bold rounded-lg text-[11px] self-start sm:self-auto shrink-0">
+              Mode Cache Lokal Aktif
+            </div>
           )}
         </div>
       )}

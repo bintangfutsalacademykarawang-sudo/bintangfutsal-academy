@@ -398,163 +398,198 @@ export default function App() {
   });
 
   // Real-time synchronization for Students with online Firebase Firestore
-  // Audit fix: No duplicate fetchStudentsDirectly on mount; listener uses local cache first
+  // Tahap 1: Dibatasi ketat per role (Admin memuat daftar lengkap, Parent memuat single doc anak, Tamu tidak memuat listener)
   useEffect(() => {
-    // Passively query verified student count from server using lightweight aggregation (1 read per 1,000 docs)
-    getStudentsCount().then((count) => {
-      if (typeof count === 'number' && count > 0) {
-        setCloudSyncStatus((prev) => ({
-          ...prev,
-          expectedCount: count,
-          isPartialCache: students.length < count && prev.isPartialCache,
-        }));
-      }
-    });
+    let unsubStudents: (() => void) | undefined;
 
-    // Listen to real-time changes from Firestore with diagnostic metadata and quota handling
-    const unsubStudents = subscribeToStudents(
-      (cloudStudents, meta) => {
-        if (cloudStudents && cloudStudents.length > 0) {
-          const { list: sanitized } = sanitizeStudentsList(cloudStudents);
-          setStudents(sanitized);
-          const isPartial = sanitized.length < 24;
-          setCloudSyncStatus((prev) => ({
-            status: 'connected',
-            source: meta.fromCache ? 'cache' : 'server',
-            docCount: sanitized.length,
-            expectedCount: prev.expectedCount || Math.max(sanitized.length, 24),
-            lastSynced: meta.timestamp,
-            isQuotaExhausted: false,
-            isPartialCache: isPartial,
-            errorMessage: null,
-          }));
-          try {
-            localStorage.setItem('bfa_students', JSON.stringify(sanitized));
-            localStorage.setItem('bfa_students_cached_at', meta.timestamp);
-            localStorage.setItem('bfa_students_cloud_synced', 'true');
-          } catch {}
-        } else if (cloudStudents && cloudStudents.length === 0) {
+    if (currentUser?.role === 'admin') {
+      // Admin: Query hitungan siswa via aggregation & pasang listener real-time daftar siswa
+      getStudentsCount().then((count) => {
+        if (typeof count === 'number' && count > 0) {
           setCloudSyncStatus((prev) => ({
             ...prev,
-            status: 'connected',
-            source: meta.fromCache ? 'cache' : 'server',
-            lastSynced: meta.timestamp,
-            errorMessage: null,
+            expectedCount: count,
+            isPartialCache: students.length < count && prev.isPartialCache,
           }));
         }
-      },
-      (err, isQuota) => {
-        setCloudSyncStatus((prev) => {
-          let userFriendlyMsg: string;
-          if (isQuota) {
-            if (prev.isPartialCache) {
-              userFriendlyMsg = 'Batas kuota harian Cloud Firestore (free tier read) terlampaui (resource-exhausted). Perangkat ini memuat 10 data siswa lama dari cache peramban lokal. Database Cloud di Firebase tetap aman berisi 24 siswa.';
-            } else if (prev.docCount >= 24) {
-              userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Menampilkan 24 siswa dari cache lokal terverifikasi. Data di Firebase tetap aman.';
-            } else {
-              userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Data server tidak dapat dimuat.';
-            }
-          } else {
-            userFriendlyMsg = err?.message || 'Gagal tersambung ke database Firestore';
-          }
+      });
 
-          return {
-            ...prev,
-            status: 'error',
-            source: prev.docCount > 0 ? 'cache' : 'local_fallback',
-            isQuotaExhausted: isQuota,
-            errorMessage: userFriendlyMsg,
-          };
-        });
-      }
-    );
+      unsubStudents = subscribeToStudents(
+        (cloudStudents, meta) => {
+          if (cloudStudents && cloudStudents.length > 0) {
+            const { list: sanitized } = sanitizeStudentsList(cloudStudents);
+            setStudents(sanitized);
+            const isPartial = sanitized.length < 24;
+            setCloudSyncStatus((prev) => ({
+              status: meta.fromCache ? 'connecting' : 'connected',
+              source: meta.fromCache ? 'cache' : 'server',
+              docCount: sanitized.length,
+              expectedCount: prev.expectedCount || Math.max(sanitized.length, 24),
+              lastSynced: meta.timestamp,
+              isQuotaExhausted: false,
+              isPartialCache: isPartial,
+              errorMessage: null,
+            }));
+            try {
+              localStorage.setItem('bfa_students', JSON.stringify(sanitized));
+              localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+              localStorage.setItem('bfa_students_cloud_synced', 'true');
+            } catch {}
+          } else if (cloudStudents && cloudStudents.length === 0) {
+            setCloudSyncStatus((prev) => ({
+              ...prev,
+              status: meta.fromCache ? 'connecting' : 'connected',
+              source: meta.fromCache ? 'cache' : 'server',
+              lastSynced: meta.timestamp,
+              errorMessage: null,
+            }));
+          }
+        },
+        (err, isQuota) => {
+          setCloudSyncStatus((prev) => {
+            let userFriendlyMsg: string;
+            if (isQuota) {
+              if (prev.isPartialCache) {
+                userFriendlyMsg = 'Batas kuota harian Cloud Firestore (free tier read) terlampaui (resource-exhausted). Perangkat ini memuat data siswa dari cache peramban lokal. Database Cloud di Firebase tetap aman.';
+              } else if (prev.docCount >= 20) {
+                userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Menampilkan siswa dari cache lokal terverifikasi. Data di Firebase tetap aman.';
+              } else {
+                userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Menampilkan cache lokal aman.';
+              }
+            } else {
+              userFriendlyMsg = err?.message || 'Gagal tersambung ke database Firestore';
+            }
+
+            return {
+              ...prev,
+              status: 'error',
+              source: prev.docCount > 0 ? 'cache' : 'local_fallback',
+              isQuotaExhausted: isQuota,
+              errorMessage: userFriendlyMsg,
+            };
+          });
+        }
+      );
+    } else if (currentUser?.role === 'parent' && currentUser.studentId) {
+      // Parent: Hanya memantau 1 dokumen anak resmi (menghemat 97% read Firestore)
+      const cleanStudentId = currentUser.studentId.trim();
+      unsubStudents = subscribeToStudentDoc(
+        cleanStudentId,
+        (childDoc, meta) => {
+          if (childDoc) {
+            setStudents((prev) => {
+              const exists = prev.some((s) => s.id === childDoc.id);
+              const updated = exists
+                ? prev.map((s) => (s.id === childDoc.id ? childDoc : s))
+                : [...prev, childDoc];
+              try {
+                localStorage.setItem('bfa_students', JSON.stringify(updated));
+                localStorage.setItem('bfa_students_cached_at', meta.timestamp);
+              } catch {}
+              return updated;
+            });
+            setCloudSyncStatus((prev) => ({
+              ...prev,
+              status: meta.fromCache ? 'connecting' : 'connected',
+              source: meta.fromCache ? 'cache' : 'server',
+              docCount: 1,
+              lastSynced: meta.timestamp,
+              isQuotaExhausted: false,
+              errorMessage: null,
+            }));
+          }
+        },
+        (err, isQuota) => {
+          if (isQuota) {
+            setCloudSyncStatus((prev) => ({
+              ...prev,
+              status: 'error',
+              source: 'cache',
+              isQuotaExhausted: true,
+              errorMessage: 'Batas kuota harian Cloud Firestore terlampaui. Menampilkan profil anak dari cache lokal.',
+            }));
+          }
+        }
+      );
+    }
 
     return () => {
-      unsubStudents();
+      if (unsubStudents) unsubStudents();
     };
-  }, []);
+  }, [currentUser?.role, currentUser?.studentId]);
 
-  // Lifecycle-scoped listener for Invoices: Active only when viewing financial/dashboard/invoice routes
+  // Tahap 2: Stabilkan rute invoice untuk mencegah siklus unmount/remount saat navigasi tab admin
+  const isAdminInvoiceRoute = currentUser?.role === 'admin' && ['dashboard', 'keuangan', 'invoices', 'payment-verifications'].includes(currentRoute);
+  const isParentInvoiceRoute = role === 'parent' && ['parent-dashboard', 'parent-payment', 'parent-payments', 'parent-attendance'].includes(currentRoute);
+
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (currentUser?.role === 'admin') {
-      const adminInvoiceRoutes: RouteId[] = ['dashboard', 'keuangan', 'invoices'];
-      if (adminInvoiceRoutes.includes(currentRoute)) {
-        unsub = subscribeToInvoices((cloudInvoices) => {
-          if (cloudInvoices) {
-            setInvoices(cloudInvoices);
-          }
-        }, undefined, 50);
-      }
-    } else if (role === 'parent' && activeParentStudent?.id) {
-      const parentInvoiceRoutes: RouteId[] = ['parent-dashboard', 'parent-payment', 'parent-payments', 'parent-attendance'];
-      if (parentInvoiceRoutes.includes(currentRoute)) {
-        unsub = subscribeToStudentInvoices(activeParentStudent.id, (childInvoices) => {
-          if (childInvoices) {
-            setInvoices(childInvoices);
-          }
-        });
-      }
+    if (isAdminInvoiceRoute) {
+      unsub = subscribeToInvoices((cloudInvoices) => {
+        if (cloudInvoices) {
+          setInvoices(cloudInvoices);
+        }
+      }, undefined, 50);
+    } else if (isParentInvoiceRoute && activeParentStudent?.id) {
+      unsub = subscribeToStudentInvoices(activeParentStudent.id, (childInvoices) => {
+        if (childInvoices) {
+          setInvoices(childInvoices);
+        }
+      });
     }
 
     return () => {
       if (unsub) unsub();
     };
-  }, [currentUser, role, currentRoute, activeParentStudent?.id]);
+  }, [isAdminInvoiceRoute, isParentInvoiceRoute, activeParentStudent?.id]);
 
   // Lifecycle-scoped listener for Cash Mutations: Active only when viewing dashboard route (AdminKeuanganView manages its own scoped listener & pagination)
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (currentUser?.role === 'admin') {
-      const adminCashRoutes: RouteId[] = ['dashboard'];
-      if (adminCashRoutes.includes(currentRoute)) {
-        unsub = subscribeToCashMutations((cloudMutations) => {
-          if (cloudMutations) {
-            setCashMutations(cloudMutations);
-          }
-        }, undefined, 50);
-      }
+    if (currentUser?.role === 'admin' && currentRoute === 'dashboard') {
+      unsub = subscribeToCashMutations((cloudMutations) => {
+        if (cloudMutations) {
+          setCashMutations(cloudMutations);
+        }
+      }, undefined, 50);
     }
 
     return () => {
       if (unsub) unsub();
     };
-  }, [currentUser, role, currentRoute]);
+  }, [currentUser?.role, currentRoute]);
 
-  // Lifecycle-scoped listener for Attendances: Active only when viewing attendance/dashboard/erapport routes
+  // Tahap 2: Stabilkan rute absensi untuk mencegah remount berulang antara dashboard dan absensi
+  const isAdminAttendanceRoute = currentUser?.role === 'admin' && ['dashboard', 'attendance', 'erapport', 'fingerprint'].includes(currentRoute);
+  const isParentAttendanceRoute = role === 'parent' && ['parent-dashboard', 'parent-attendance', 'parent-report'].includes(currentRoute);
+
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    if (currentUser?.role === 'admin') {
-      const adminAttendanceRoutes: RouteId[] = ['dashboard', 'attendance', 'erapport', 'fingerprint'];
-      if (adminAttendanceRoutes.includes(currentRoute)) {
-        const attendanceLimit = currentRoute === 'dashboard' ? 40 : 200;
-        unsub = subscribeToAttendances((cloudAttendances) => {
-          if (cloudAttendances) {
-            const realAttendances = cloudAttendances.filter(
-              (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
-            );
-            setAttendances(realAttendances);
-          }
-        }, undefined, attendanceLimit);
-      }
-    } else if (role === 'parent' && activeParentStudent?.id) {
-      const parentAttendanceRoutes: RouteId[] = ['parent-dashboard', 'parent-attendance', 'parent-report'];
-      if (parentAttendanceRoutes.includes(currentRoute)) {
-        unsub = subscribeToStudentAttendances(activeParentStudent.id, (childAttendances) => {
-          if (childAttendances) {
-            setAttendances(childAttendances);
-          }
-        });
-      }
+    if (isAdminAttendanceRoute) {
+      const attendanceLimit = currentRoute === 'dashboard' ? 40 : 150;
+      unsub = subscribeToAttendances((cloudAttendances) => {
+        if (cloudAttendances) {
+          const realAttendances = cloudAttendances.filter(
+            (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
+          );
+          setAttendances(realAttendances);
+        }
+      }, undefined, attendanceLimit);
+    } else if (isParentAttendanceRoute && activeParentStudent?.id) {
+      unsub = subscribeToStudentAttendances(activeParentStudent.id, (childAttendances) => {
+        if (childAttendances) {
+          setAttendances(childAttendances);
+        }
+      });
     }
 
     return () => {
       if (unsub) unsub();
     };
-  }, [currentUser, role, currentRoute, activeParentStudent?.id]);
+  }, [isAdminAttendanceRoute, isParentAttendanceRoute, activeParentStudent?.id, currentRoute === 'dashboard']);
 
   // Lifecycle-scoped listener for Student Reports: Active only when viewing E-Rapport routes
   useEffect(() => {
@@ -587,18 +622,21 @@ export default function App() {
     };
   }, [role, currentRoute, activeParentStudent?.id]);
 
-  // Payment Verification Requests State & Real-time Subscription
+  // Payment Verification Requests State & Scoped Real-time Subscription (Limit 50, scoped to financial screens)
   const [paymentVerificationRequests, setPaymentVerificationRequests] = useState<PaymentVerificationRequest[]>([]);
+
+  const isAdminVerificationRoute = currentUser?.role === 'admin' && ['dashboard', 'invoices', 'payment-verifications', 'keuangan'].includes(currentRoute);
+  const isParentVerificationRoute = role === 'parent' && ['parent-dashboard', 'parent-payment', 'parent-payments'].includes(currentRoute);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
-    if (role === 'admin') {
+    if (isAdminVerificationRoute) {
       unsub = subscribeToPaymentVerificationRequests((reqs) => {
         if (reqs) {
           setPaymentVerificationRequests(reqs);
         }
-      });
-    } else if (role === 'parent' && activeParentStudent?.id) {
+      }, undefined, 50);
+    } else if (isParentVerificationRoute && activeParentStudent?.id) {
       unsub = subscribeToStudentPaymentVerifications(activeParentStudent.id, (reqs) => {
         if (reqs) {
           setPaymentVerificationRequests(reqs);
@@ -609,7 +647,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [role, activeParentStudent?.id]);
+  }, [isAdminVerificationRoute, isParentVerificationRoute, activeParentStudent?.id]);
 
   const pendingPaymentVerificationsCount = useMemo(() => {
     return paymentVerificationRequests.filter((r) => r.status === 'MENUNGGU_VERIFIKASI').length;
@@ -676,6 +714,11 @@ export default function App() {
 
   // Manual cloud re-synchronization with diagnostic reporting & cooldown safety
   const handleManualSyncCloud = async () => {
+    if (cloudSyncStatus.isQuotaExhausted) {
+      showToast('Batas kuota harian Cloud Firestore (free tier) sedang terlampaui. Data aman dimuat dari cache lokal tanpa membebani server.', 'info');
+      return;
+    }
+
     const now = Date.now();
     const elapsed = now - lastSyncAttemptRef.current;
     if (elapsed < 30000) {
