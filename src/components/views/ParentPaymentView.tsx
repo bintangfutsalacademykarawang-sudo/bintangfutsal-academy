@@ -13,7 +13,8 @@ import {
   Smartphone, 
   ShieldCheck, 
   AlertCircle,
-  Loader2 
+  Loader2,
+  Banknote
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -35,7 +36,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
   const childName = student?.name || 'Siswa BFA';
   const childGroup = student?.classGroupId || '-';
   const [step, setStep] = useState<'checkout' | 'waiting' | 'success'>('checkout');
-  const [selectedMethod, setSelectedMethod] = useState<'QRIS' | 'Transfer Bank'>('QRIS');
+  const [selectedMethod, setSelectedMethod] = useState<'QRIS' | 'Transfer Bank' | 'Tunai'>('QRIS');
   const [lastTrxId, setLastTrxId] = useState('');
 
   // Helper perhitungan sisa tagihan aktif (anti nilai negatif & anti double count)
@@ -139,6 +140,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
     setIsSubmitting(true);
 
     try {
+      const pvrMethod = selectedMethod === 'Tunai' ? 'Pembayaran Tunai di Lapangan' : selectedMethod;
       const pvrData: PaymentVerificationRequest = {
         id: reqId,
         referenceNumber: refNum,
@@ -148,7 +150,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
         parentPhone: student?.phone || '',
         parentName: student?.parentName || '',
         amount: totalUnpaidAmount,
-        paymentMethod: selectedMethod,
+        paymentMethod: pvrMethod,
         invoiceIds: unpaidInvoices.map((i) => i.id),
         invoiceDetails: unpaidInvoices.map((i) => ({
           id: i.id,
@@ -165,7 +167,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
       setLastTrxId(refNum);
       setSubmitError(null);
       setStep('success');
-      onPaymentSuccess(selectedMethod, refNum, pvrData);
+      onPaymentSuccess(pvrMethod, refNum, pvrData);
       onShowToast?.(`✓ Konfirmasi pembayaran (${refNum}) berhasil terkirim ke antrean Admin BFA!`, 'success');
     } catch (err: any) {
       console.error('Simpan request konfirmasi pembayaran ke server gagal:', err);
@@ -292,6 +294,13 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
                       desc: `Bank BCA: ${BCA_ACCOUNT_NO} a.n ${BCA_ACCOUNT_HOLDER}`,
                       badge: 'BCA Manual',
                       icon: Building,
+                    },
+                    {
+                      id: 'Tunai' as const,
+                      label: 'Pembayaran Tunai di Lapangan',
+                      desc: 'Bayar langsung kepada pelatih atau petugas resmi BFA saat sesi latihan.',
+                      badge: 'Pembayaran langsung di lapangan',
+                      icon: Banknote,
                     },
                   ].map((m) => {
                     const Icon = m.icon;
@@ -564,14 +573,116 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
             </div>
           )}
 
+          {/* VIEW C: CASH PAYMENT AT THE FIELD (PEMBAYARAN TUNAI DI LAPANGAN) */}
+          {selectedMethod === 'Tunai' && (
+            <div className="space-y-4 max-w-sm mx-auto text-left">
+              {/* Cash Card Banner */}
+              <div className="bg-gradient-to-br from-emerald-800 to-teal-950 text-white rounded-2xl p-5 border border-emerald-700 shadow-md space-y-4 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Banknote className="w-5 h-5 text-emerald-300" />
+                    <span className="font-black text-sm tracking-wider uppercase">
+                      TUNAI DI LAPANGAN
+                    </span>
+                  </div>
+                  <span className="bg-emerald-700/80 text-emerald-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-600">
+                    Petugas Resmi BFA
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-emerald-200/80 block">
+                    TOTAL NOMINAL TUNAI YANG DISERAHKAN:
+                  </span>
+                  <div className="flex items-center justify-between bg-emerald-950/80 p-2.5 rounded-xl border border-emerald-700">
+                    <span className="text-xl sm:text-2xl font-black font-mono tracking-wider text-amber-300">
+                      Rp{BILL_AMOUNT.toLocaleString('id-ID')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(String(BILL_AMOUNT), 'amount')}
+                      className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-emerald-950 rounded-lg text-xs font-black flex items-center space-x-1 shadow-xs transition active:scale-95"
+                    >
+                      {copiedAmount ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAmount ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex flex-col gap-1.5 text-xs border-t border-emerald-700/70">
+                  <div className="flex justify-between items-center text-emerald-100">
+                    <span className="text-[10px] text-emerald-200/80">NAMA SISWA:</span>
+                    <span className="font-bold">{childName} (Kelompok {childGroup})</span>
+                  </div>
+                  <div className="flex justify-between items-center text-emerald-100">
+                    <span className="text-[10px] text-emerald-200/80">RINCIAN TAGIHAN:</span>
+                    <span className="font-mono font-bold text-[11px] text-right">
+                      {unpaidInvoices.map((inv) => `${inv.type} (${inv.period})`).join(', ')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-emerald-100">
+                    <span className="text-[10px] text-emerald-200/80">TOTAL SISA TAGIHAN:</span>
+                    <span className="font-mono font-bold text-amber-300">
+                      Rp{totalUnpaidAmount.toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rincian Item Tagihan */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-2">
+                <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Rincian Tagihan yang Diserahkan Tunai:</span>
+                </span>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {unpaidInvoices.map((inv) => {
+                    const rem = getInvoiceRemaining(inv);
+                    return (
+                      <div key={inv.id} className="p-2 bg-white rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-slate-900">
+                            {inv.type === 'Bulanan' ? `Iuran SPP (${inv.period})` : inv.period || inv.type}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-mono">Invoice: {inv.id}</p>
+                        </div>
+                        <span className="font-mono font-black text-orange-600">
+                          Rp{rem.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Petunjuk Serah Terima Tunai */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-2">
+                <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Banknote className="w-4 h-4 text-emerald-600" />
+                  <span>Petunjuk Pembayaran Tunai di Lapangan:</span>
+                </span>
+                <ol className="list-decimal pl-4 space-y-1 text-slate-600 text-[11px] leading-relaxed">
+                  <li>Siapkan uang tunai sesuai total tagihan: <strong className="text-emerald-800 font-mono">Rp{BILL_AMOUNT.toLocaleString('id-ID')}</strong>.</li>
+                  <li>Serahkan uang tunai secara langsung kepada <strong>Pelatih (Coach)</strong> atau <strong>Petugas Resmi BFA</strong> saat sesi latihan di lapangan.</li>
+                  <li>Minta nama petugas atau pelatih penerima sebagai catatan serah terima uang fisik.</li>
+                  <li>Klik tombol <strong>"Kirim Konfirmasi Tunai ke Admin"</strong> di bawah agar data transaksi masuk ke antrean verifikasi petugas.</li>
+                </ol>
+              </div>
+            </div>
+          )}
+
           {/* Verification Notice */}
           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 max-w-sm mx-auto space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-amber-950">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Verifikasi Kasir Resmi BFA:</span>
+              <span>
+                {selectedMethod === 'Tunai' ? 'Pemberitahuan Pembayaran Tunai:' : 'Verifikasi Kasir Resmi BFA:'}
+              </span>
             </div>
             <p className="leading-relaxed text-amber-800">
-              Setelah Anda mentransfer atau scan QRIS, klik tombol di bawah untuk mengajukan konfirmasi pembayaran. Status tagihan akan diubah menjadi <strong>LUNAS</strong> setelah diverifikasi oleh Admin BFA.
+              {selectedMethod === 'Tunai'
+                ? 'Pembayaran tunai tidak otomatis lunas. Tagihan akan berstatus LUNAS setelah uang fisik diterima dan diverifikasi oleh pelatih / petugas resmi BFA di lapangan.'
+                : 'Setelah Anda mentransfer atau scan QRIS, klik tombol di bawah untuk mengajukan konfirmasi pembayaran. Status tagihan akan diubah menjadi LUNAS setelah diverifikasi oleh Admin BFA.'}
             </p>
           </div>
 
@@ -605,6 +716,8 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
               className={`w-full py-3.5 ${
                 submitError 
                   ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' 
+                  : selectedMethod === 'Tunai'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
                   : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
               } text-white font-black rounded-xl text-xs shadow-md transition active:scale-95 flex items-center justify-center space-x-2 ${
                 isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
@@ -618,7 +731,13 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{submitError ? 'COBA KIRIM ULANG KONFIRMASI' : 'SAYA SUDAH BAYAR (KIRIM KONFIRMASI KE ADMIN)'}</span>
+                  <span>
+                    {submitError 
+                      ? 'COBA KIRIM ULANG KONFIRMASI' 
+                      : selectedMethod === 'Tunai'
+                      ? 'KONFIRMASI PEMBAYARAN TUNAI KE ADMIN'
+                      : 'SAYA SUDAH BAYAR (KIRIM KONFIRMASI KE ADMIN)'}
+                  </span>
                 </>
               )}
             </button>
@@ -643,11 +762,22 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
 
   // STEP 3: PAYMENT CONFIRMATION SUBMITTED & PENDING ADMIN VERIFICATION
   const handleSendWaProof = () => {
+    let methodDesc = '';
+    if (selectedMethod === 'QRIS') {
+      methodDesc = 'QRIS Standar BFA';
+    } else if (selectedMethod === 'Transfer Bank') {
+      methodDesc = 'Transfer Bank BCA';
+    } else {
+      methodDesc = 'Pembayaran Tunai di Lapangan (Pelatih/Petugas BFA)';
+    }
+
     const waText = encodeURIComponent(
       `Halo Admin BFA, saya orang tua dari ananda *${childName}* (${student?.id || '-'}).\n` +
-      `Saya mengonfirmasi pembayaran via *${selectedMethod === 'QRIS' ? 'QRIS Standar BFA' : 'Transfer Bank BCA'}* untuk pelunasan sisa tagihan sebesar *Rp${totalUnpaidAmount.toLocaleString('id-ID')}*.\n` +
+      `Saya mengajukan konfirmasi *${methodDesc}* untuk pelunasan sisa tagihan sebesar *Rp${totalUnpaidAmount.toLocaleString('id-ID')}*.\n` +
       `No. Referensi Konfirmasi: *${lastTrxId}*\n\n` +
-      `Berikut saya lampirkan bukti transfer. Mohon dicocokkan dengan mutasi rekening/kasir dan diverifikasi pada sistem BFA Hub agar status tagihan diperbarui menjadi Lunas. Terima kasih.`
+      (selectedMethod === 'Tunai'
+        ? `Uang tunai diserahkan langsung kepada pelatih atau petugas resmi BFA saat sesi latihan di lapangan. Mohon dicatat dan diverifikasi pada sistem BFA Hub setelah dana fisik diterima. Terima kasih.`
+        : `Berikut saya lampirkan bukti transfer. Mohon dicocokkan dengan mutasi rekening/kasir dan diverifikasi pada sistem BFA Hub agar status tagihan diperbarui menjadi Lunas. Terima kasih.`)
     );
     window.open(`https://wa.me/6281399201983?text=${waText}`, '_blank');
   };
@@ -661,13 +791,17 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-black uppercase tracking-wider mb-2">
             <Clock className="w-3.5 h-3.5" />
-            <span>Menunggu Verifikasi Admin</span>
+            <span>
+              {selectedMethod === 'Tunai' ? 'Menunggu Penerimaan & Verifikasi Petugas' : 'Menunggu Verifikasi Admin'}
+            </span>
           </div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight">
-            Konfirmasi Pembayaran Diterima!
+            {selectedMethod === 'Tunai' ? 'Konfirmasi Penyerahan Tunai Terkirim!' : 'Konfirmasi Pembayaran Diterima!'}
           </h2>
           <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-            Terima kasih! Bukti transfer/pembayaran Anda sedang dalam antrean verifikasi Admin BFA. Tagihan akan diperbarui menjadi <strong className="text-emerald-700">LUNAS</strong> setelah dana diverifikasi oleh kasir/manajemen.
+            {selectedMethod === 'Tunai'
+              ? `Terima kasih! Konfirmasi penyerahan tunai ananda ${childName} telah tercatat di antrean Admin BFA. Tagihan akan berstatus LUNAS setelah uang fisik diterima dan diverifikasi oleh petugas resmi BFA di lapangan.`
+              : 'Terima kasih! Bukti transfer/pembayaran Anda sedang dalam antrean verifikasi Admin BFA. Tagihan akan diperbarui menjadi LUNAS setelah dana diverifikasi oleh kasir/manajemen.'}
           </p>
         </div>
 
@@ -687,13 +821,17 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
           <div className="flex justify-between items-center">
             <span className="text-slate-500">Kanal Pembayaran:</span>
             <span className="font-bold text-slate-900">
-              {selectedMethod === 'QRIS' ? 'QRIS Standar Nasional (BFA Karawang)' : `Transfer Bank BCA (${BCA_ACCOUNT_HOLDER})`}
+              {selectedMethod === 'QRIS'
+                ? 'QRIS Standar Nasional (BFA Karawang)'
+                : selectedMethod === 'Transfer Bank'
+                ? `Transfer Bank BCA (${BCA_ACCOUNT_HOLDER})`
+                : 'Pembayaran Tunai di Lapangan (Petugas / Pelatih Resmi BFA)'}
             </span>
           </div>
           <div className="flex justify-between items-center pt-1 border-t border-slate-200">
             <span className="text-slate-500">Status Pembukuan:</span>
             <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
-              Menunggu Pencocokan Kasir BFA
+              {selectedMethod === 'Tunai' ? 'Menunggu Penerimaan Tunai Fisik di Lapangan' : 'Menunggu Pencocokan Kasir BFA'}
             </span>
           </div>
         </div>
@@ -705,7 +843,9 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
           className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition active:scale-95 flex items-center justify-center space-x-2 shadow-xs"
         >
           <Smartphone className="w-4 h-4" />
-          <span>Kirim Bukti Transfer via WhatsApp Admin</span>
+          <span>
+            {selectedMethod === 'Tunai' ? 'Kirim Konfirmasi Tunai via WhatsApp Admin' : 'Kirim Bukti Transfer via WhatsApp Admin'}
+          </span>
         </button>
 
         <div className="flex gap-2">

@@ -6,7 +6,7 @@ export interface InvoicePayment {
   amount: number; // Nominal pembayaran pada sesi ini
   date: string; // Format YYYY-MM-DD
   time?: string; // Format HH:mm:ss
-  method?: 'Tunai' | 'Transfer Bank' | 'QRIS' | 'Manual Verifikasi Admin' | string;
+  method?: 'Tunai' | 'Pembayaran Tunai di Lapangan' | 'Transfer Bank' | 'QRIS' | 'Manual Verifikasi Admin' | string;
   paymentMethod?: string;
   transactionId?: string; // Nomor bukti transaksi / resi unik
   staff?: string; // Nama admin/sistem yang memverifikasi

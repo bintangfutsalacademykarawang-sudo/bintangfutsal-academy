@@ -328,8 +328,14 @@ export const AdminPaymentVerificationsView: React.FC<AdminPaymentVerificationsVi
                         </button>
                       </span>
 
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                        {req.paymentMethod}
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        (req.paymentMethod || '').toLowerCase().includes('tunai')
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300 font-black'
+                          : req.paymentMethod === 'QRIS'
+                          ? 'bg-rose-100 text-rose-800 border-rose-200'
+                          : 'bg-blue-100 text-blue-800 border-blue-200'
+                      }`}>
+                        {(req.paymentMethod || '').toLowerCase().includes('tunai') ? '💵 ' : ''}{req.paymentMethod}
                       </span>
 
                       <span className="text-[11px] text-slate-500 flex items-center gap-1">
@@ -483,7 +489,11 @@ export const AdminPaymentVerificationsView: React.FC<AdminPaymentVerificationsVi
                     <div className="pt-2 border-t border-amber-200/80 flex flex-wrap items-center justify-between gap-2">
                       <div className="text-[11px] text-amber-800 flex items-center gap-1.5">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>Pastikan mutasi dana sudah masuk ke rekening kasir BFA sebelum menyetujui.</span>
+                        <span>
+                          {(req.paymentMethod || '').toLowerCase().includes('tunai')
+                            ? 'Pastikan uang tunai fisik sudah diterima oleh pelatih/petugas BFA di lapangan sebelum menyetujui.'
+                            : 'Pastikan mutasi dana sudah masuk ke rekening kasir BFA sebelum menyetujui.'}
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -579,7 +589,11 @@ export const AdminPaymentVerificationsView: React.FC<AdminPaymentVerificationsVi
                 type="text"
                 value={approvalNote}
                 onChange={(e) => setApprovalNote(e.target.value)}
-                placeholder="Contoh: Dana mutasi BCA terkonfirmasi via kasir..."
+                placeholder={
+                  (requestToApprove.paymentMethod || '').toLowerCase().includes('tunai')
+                    ? 'Contoh: Diterima oleh Coach Hendra di lapangan saat sesi latihan...'
+                    : 'Contoh: Dana mutasi BCA terkonfirmasi via kasir...'
+                }
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
             </div>

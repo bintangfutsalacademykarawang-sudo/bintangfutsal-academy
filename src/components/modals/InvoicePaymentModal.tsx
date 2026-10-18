@@ -161,6 +161,7 @@ export const InvoicePaymentModal: React.FC<InvoicePaymentModalProps> = ({
                 onChange={(e) => setMethod(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-bold focus:outline-none focus:border-blue-600"
               >
+                <option value="Pembayaran Tunai di Lapangan">Pembayaran Tunai di Lapangan</option>
                 <option value="Tunai">Tunai Lapangan</option>
                 <option value="Transfer Bank BFA">Transfer Bank BFA</option>
                 <option value="QRIS Kasir">QRIS Kasir</option>
