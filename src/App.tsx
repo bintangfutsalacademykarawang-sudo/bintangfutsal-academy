@@ -96,6 +96,7 @@ import {
   saveCashMutationToFirestore,
   deleteCashMutationFromFirestore,
   subscribeToCashMutations,
+  subscribeToOperationalCashMutations,
   processInvoicePaymentTransaction,
   cancelInvoicePaymentTransaction,
   CancelPaymentInput,
@@ -112,8 +113,16 @@ import {
   approvePaymentVerificationTransaction,
   rejectPaymentVerificationRequest,
   deleteStudentFromFirestore,
+  isFirestoreQuotaError,
   db
 } from './firebase';
+import {
+  setBfaQuotaCooldown,
+  isBfaQuotaCooldownActive,
+  clearBfaQuotaCooldown,
+  getBfaQuotaCooldownRemainingMinutes,
+  getBfaQuotaLastErrorMessage
+} from './utils/quotaHelpers';
 
 // Explicit Production Write Allowlist:
 // Only official BFA production hostnames ("bfa.my.id" and "www.bfa.my.id") are granted write permission to Cloud Firestore.
@@ -385,15 +394,17 @@ export default function App() {
     errorMessage: string | null;
   }>(() => {
     const { list, isLegacyPartial, cachedAt } = getInitialStudentsCache();
+    const quotaActive = isBfaQuotaCooldownActive();
+    const quotaMsg = quotaActive ? getBfaQuotaLastErrorMessage() : null;
     return {
-      status: 'connecting',
-      source: list.length > 0 ? 'cache' : 'server',
+      status: quotaActive ? 'error' : 'connecting',
+      source: list.length > 0 ? 'cache' : (quotaActive ? 'local_fallback' : 'server'),
       docCount: list.length,
       expectedCount: 24,
       lastSynced: cachedAt,
-      isQuotaExhausted: false,
+      isQuotaExhausted: quotaActive,
       isPartialCache: isLegacyPartial,
-      errorMessage: null,
+      errorMessage: quotaMsg || (quotaActive ? 'Batas kuota harian Cloud Firestore terlampaui. Menampilkan data dari cache lokal (cooldown aktif).' : null),
     };
   });
 
@@ -401,6 +412,20 @@ export default function App() {
   // Tahap 1: Dibatasi ketat per role (Admin memuat daftar lengkap, Parent memuat single doc anak, Tamu tidak memuat listener)
   useEffect(() => {
     let unsubStudents: (() => void) | undefined;
+
+    // Quota Cooldown Guard: Jangan pasang listener server jika cooldown masih aktif pasca-reload
+    if (isBfaQuotaCooldownActive()) {
+      const remaining = getBfaQuotaCooldownRemainingMinutes();
+      const cachedMsg = getBfaQuotaLastErrorMessage() || 'Batas kuota harian Cloud Firestore terlampaui. Menampilkan data dari cache lokal (cooldown aktif).';
+      setCloudSyncStatus((prev) => ({
+        ...prev,
+        status: 'error',
+        source: prev.docCount > 0 ? 'cache' : 'local_fallback',
+        isQuotaExhausted: true,
+        errorMessage: remaining > 0 ? `${cachedMsg} (Jeda ${remaining} menit)` : cachedMsg,
+      }));
+      return;
+    }
 
     if (currentUser?.role === 'admin') {
       // Admin: Query hitungan siswa via aggregation & pasang listener real-time daftar siswa
@@ -420,6 +445,9 @@ export default function App() {
             const { list: sanitized } = sanitizeStudentsList(cloudStudents);
             setStudents(sanitized);
             const isPartial = sanitized.length < 24;
+            if (!meta.fromCache) {
+              clearBfaQuotaCooldown();
+            }
             setCloudSyncStatus((prev) => ({
               status: meta.fromCache ? 'connecting' : 'connected',
               source: meta.fromCache ? 'cache' : 'server',
@@ -436,6 +464,9 @@ export default function App() {
               localStorage.setItem('bfa_students_cloud_synced', 'true');
             } catch {}
           } else if (cloudStudents && cloudStudents.length === 0) {
+            if (!meta.fromCache) {
+              clearBfaQuotaCooldown();
+            }
             setCloudSyncStatus((prev) => ({
               ...prev,
               status: meta.fromCache ? 'connecting' : 'connected',
@@ -456,6 +487,8 @@ export default function App() {
               } else {
                 userFriendlyMsg = 'Batas kuota harian Cloud Firestore terlampaui (resource-exhausted). Menampilkan cache lokal aman.';
               }
+              // Hubungkan setBfaQuotaCooldown HANYA ketika teridentifikasi RESOURCE_EXHAUSTED
+              setBfaQuotaCooldown(userFriendlyMsg);
             } else {
               userFriendlyMsg = err?.message || 'Gagal tersambung ke database Firestore';
             }
@@ -477,6 +510,9 @@ export default function App() {
         cleanStudentId,
         (childDoc, meta) => {
           if (childDoc) {
+            if (!meta.fromCache) {
+              clearBfaQuotaCooldown();
+            }
             setStudents((prev) => {
               const exists = prev.some((s) => s.id === childDoc.id);
               const updated = exists
@@ -501,12 +537,15 @@ export default function App() {
         },
         (err, isQuota) => {
           if (isQuota) {
+            const parentMsg = 'Batas kuota harian Cloud Firestore terlampaui. Menampilkan profil anak dari cache lokal.';
+            // Hubungkan setBfaQuotaCooldown HANYA ketika teridentifikasi RESOURCE_EXHAUSTED
+            setBfaQuotaCooldown(parentMsg);
             setCloudSyncStatus((prev) => ({
               ...prev,
               status: 'error',
               source: 'cache',
               isQuotaExhausted: true,
-              errorMessage: 'Batas kuota harian Cloud Firestore terlampaui. Menampilkan profil anak dari cache lokal.',
+              errorMessage: parentMsg,
             }));
           }
         }
@@ -526,17 +565,33 @@ export default function App() {
     let unsub: (() => void) | undefined;
 
     if (isAdminInvoiceRoute) {
-      unsub = subscribeToInvoices((cloudInvoices) => {
-        if (cloudInvoices) {
-          setInvoices(cloudInvoices);
-        }
-      }, undefined, 50);
+      unsub = subscribeToInvoices(
+        (cloudInvoices) => {
+          if (cloudInvoices) {
+            setInvoices(cloudInvoices);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat data tagihan.');
+          }
+        },
+        50
+      );
     } else if (isParentInvoiceRoute && activeParentStudent?.id) {
-      unsub = subscribeToStudentInvoices(activeParentStudent.id, (childInvoices) => {
-        if (childInvoices) {
-          setInvoices(childInvoices);
+      unsub = subscribeToStudentInvoices(
+        activeParentStudent.id,
+        (childInvoices) => {
+          if (childInvoices) {
+            setInvoices(childInvoices);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat data tagihan.');
+          }
         }
-      });
+      );
     }
 
     return () => {
@@ -570,20 +625,36 @@ export default function App() {
 
     if (isAdminAttendanceRoute) {
       const attendanceLimit = currentRoute === 'dashboard' ? 40 : 150;
-      unsub = subscribeToAttendances((cloudAttendances) => {
-        if (cloudAttendances) {
-          const realAttendances = cloudAttendances.filter(
-            (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
-          );
-          setAttendances(realAttendances);
-        }
-      }, undefined, attendanceLimit);
+      unsub = subscribeToAttendances(
+        (cloudAttendances) => {
+          if (cloudAttendances) {
+            const realAttendances = cloudAttendances.filter(
+              (att) => !att.date?.startsWith('2026-09') && !att.id?.startsWith('ATT-202609')
+            );
+            setAttendances(realAttendances);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat absensi.');
+          }
+        },
+        attendanceLimit
+      );
     } else if (isParentAttendanceRoute && activeParentStudent?.id) {
-      unsub = subscribeToStudentAttendances(activeParentStudent.id, (childAttendances) => {
-        if (childAttendances) {
-          setAttendances(childAttendances);
+      unsub = subscribeToStudentAttendances(
+        activeParentStudent.id,
+        (childAttendances) => {
+          if (childAttendances) {
+            setAttendances(childAttendances);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat absensi.');
+          }
         }
-      });
+      );
     }
 
     return () => {
@@ -631,17 +702,33 @@ export default function App() {
   useEffect(() => {
     let unsub: (() => void) | undefined;
     if (isAdminVerificationRoute) {
-      unsub = subscribeToPaymentVerificationRequests((reqs) => {
-        if (reqs) {
-          setPaymentVerificationRequests(reqs);
-        }
-      }, undefined, 50);
+      unsub = subscribeToPaymentVerificationRequests(
+        (reqs) => {
+          if (reqs) {
+            setPaymentVerificationRequests(reqs);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat verifikasi pembayaran.');
+          }
+        },
+        50
+      );
     } else if (isParentVerificationRoute && activeParentStudent?.id) {
-      unsub = subscribeToStudentPaymentVerifications(activeParentStudent.id, (reqs) => {
-        if (reqs) {
-          setPaymentVerificationRequests(reqs);
+      unsub = subscribeToStudentPaymentVerifications(
+        activeParentStudent.id,
+        (reqs) => {
+          if (reqs) {
+            setPaymentVerificationRequests(reqs);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat verifikasi pembayaran.');
+          }
         }
-      });
+      );
     }
 
     return () => {
@@ -714,8 +801,12 @@ export default function App() {
 
   // Manual cloud re-synchronization with diagnostic reporting & cooldown safety
   const handleManualSyncCloud = async () => {
-    if (cloudSyncStatus.isQuotaExhausted) {
-      showToast('Batas kuota harian Cloud Firestore (free tier) sedang terlampaui. Data aman dimuat dari cache lokal tanpa membebani server.', 'info');
+    if (isBfaQuotaCooldownActive() || cloudSyncStatus.isQuotaExhausted) {
+      const remainingMinutes = getBfaQuotaCooldownRemainingMinutes();
+      const cooldownMsg = remainingMinutes > 0
+        ? `Batas kuota harian Cloud Firestore (free tier) sedang terlampaui. Masa jeda aman aktif (~${remainingMinutes} menit lagi). Data aman dimuat dari cache lokal.`
+        : 'Batas kuota harian Cloud Firestore (free tier) sedang terlampaui. Data aman dimuat dari cache lokal tanpa membebani server.';
+      showToast(cooldownMsg, 'info');
       return;
     }
 
@@ -738,6 +829,8 @@ export default function App() {
         friendlyMsg = cloudSyncStatus.isPartialCache
           ? 'Batas kuota harian Cloud Firestore (free tier) masih terlampaui (resource-exhausted). Perangkat ini masih memuat 10 data awal. Database Cloud Firebase tetap aman berisi 24 siswa.'
           : 'Batas kuota harian Cloud Firestore (free tier) masih terlampaui (resource-exhausted). Menampilkan 24 siswa dari cache lokal terverifikasi.';
+        // Set cooldown hanya ketika teridentifikasi RESOURCE_EXHAUSTED
+        setBfaQuotaCooldown(friendlyMsg);
       }
       setCloudSyncStatus((prev) => ({
         ...prev,
@@ -747,6 +840,8 @@ export default function App() {
       }));
       showToast(isQuotaExhausted ? 'Batas Kuota Cloud (resource-exhausted)' : friendlyMsg, 'error');
     } else {
+      // Sukses terhubung ke server: bersihkan cooldown flag
+      clearBfaQuotaCooldown();
       const { list: sanitized } = sanitizeStudentsList(freshStudents);
       setStudents(sanitized);
       const isPartial = sanitized.length < 24;
@@ -894,43 +989,32 @@ export default function App() {
   };
 
   // Lifecycle-scoped listener for Training Schedules: Active only when viewing schedule-related routes or modals
+  const isScheduleActive =
+    (currentUser?.role === 'admin' && (['dashboard', 'attendance'].includes(currentRoute) || isFingerprintOpen || isCreateScheduleOpen)) ||
+    (role === 'parent' && ['parent-dashboard', 'parent-attendance'].includes(currentRoute));
+
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
-    const isAdminScheduleView =
-      currentUser?.role === 'admin' &&
-      ['dashboard', 'attendance'].includes(currentRoute);
-
-    const isParentScheduleView =
-      role === 'parent' &&
-      ['parent-dashboard', 'parent-attendance'].includes(currentRoute);
-
-    const isScheduleModalActive =
-      currentUser?.role === 'admin' &&
-      (isFingerprintOpen || isCreateScheduleOpen);
-
-    if (
-      isAdminScheduleView ||
-      isParentScheduleView ||
-      isScheduleModalActive
-    ) {
-      unsub = subscribeToSchedules((cloudSchedules) => {
-        if (cloudSchedules && cloudSchedules.length > 0) {
-          setSchedules(cloudSchedules);
+    if (isScheduleActive) {
+      unsub = subscribeToSchedules(
+        (cloudSchedules) => {
+          if (cloudSchedules && cloudSchedules.length > 0) {
+            setSchedules(cloudSchedules);
+          }
+        },
+        (err) => {
+          if (isFirestoreQuotaError(err)) {
+            setBfaQuotaCooldown('Batas kuota harian Cloud Firestore terlampaui saat memuat jadwal latihan.');
+          }
         }
-      });
+      );
     }
 
     return () => {
       if (unsub) unsub();
     };
-  }, [
-    currentUser,
-    role,
-    currentRoute,
-    isFingerprintOpen,
-    isCreateScheduleOpen
-  ]);
+  }, [isScheduleActive]);
 
   // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
   useEffect(() => {

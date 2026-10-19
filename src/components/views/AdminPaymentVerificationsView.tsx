@@ -566,7 +566,11 @@ export const AdminPaymentVerificationsView: React.FC<AdminPaymentVerificationsVi
                 <span className="font-bold text-slate-900">{requestToApprove.studentName} ({requestToApprove.studentId})</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Nominal Transfer:</span>
+                <span className="text-slate-500">
+                  {(requestToApprove.paymentMethod || '').toLowerCase().includes('tunai')
+                    ? 'Nominal Tunai Diserahkan:'
+                    : 'Nominal Transfer:'}
+                </span>
                 <span className="font-black font-mono text-emerald-700 text-sm">
                   Rp{(Number(requestToApprove.amount) || 0).toLocaleString('id-ID')}
                 </span>
