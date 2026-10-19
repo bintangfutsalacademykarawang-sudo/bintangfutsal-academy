@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Attendance, TrainingSchedule, Student } from '../../types';
+import { Attendance, TrainingSchedule, Student, Invoice } from '../../types';
 import { ALL_KU_CATEGORIES } from '../../data/initialData';
 import { 
   Fingerprint, 
@@ -20,7 +20,7 @@ import {
   UserCheck 
 } from 'lucide-react';
 import { exportAttendanceExcel, exportAttendancePDF } from '../../utils/exportHelpers';
-import { ManualAttendanceModal } from '../modals/ManualAttendanceModal';
+import { ManualAttendanceModal, BatchAttendanceResult } from '../modals/ManualAttendanceModal';
 
 interface AdminAttendanceViewProps {
   attendances: Attendance[];
@@ -39,6 +39,18 @@ interface AdminAttendanceViewProps {
     status: 'HADIR' | 'TIDAK_HADIR',
     notes?: string
   ) => Promise<any> | void;
+  onBatchManualAttendanceSubmit?: (
+    items: Array<{
+      studentId: string;
+      date: string;
+      time: string;
+      status: 'HADIR' | 'TIDAK_HADIR';
+      notes?: string;
+    }>
+  ) => Promise<BatchAttendanceResult | any> | void;
+  onRetryInvoices?: (
+    invoices: Invoice[]
+  ) => Promise<{ successCount: number; failCount: number; errors: string[] }> | void;
 }
 
 export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
@@ -52,6 +64,8 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
   onQuickMarkAttendance,
   onDeleteAttendance,
   onManualAttendanceSubmit,
+  onBatchManualAttendanceSubmit,
+  onRetryInvoices,
 }) => {
   const [activeTab, setActiveTab] = useState<'jadwal' | 'presensi'>('presensi');
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -278,10 +292,24 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => handleSelectScheduleForAttendance(sch)}
-                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition active:scale-95 shadow-xs"
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition active:scale-95 shadow-xs cursor-pointer"
+                              title="Buka daftar absensi sesi ini"
                             >
                               <span>Buka Absensi</span>
                               <ArrowRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDateFilter(sch.date);
+                                setClassFilter(sch.classGroupId);
+                                setIsManualModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition active:scale-95 shadow-xs cursor-pointer"
+                              title="Catat presensi massal langsung untuk sesi jadwal ini"
+                            >
+                              <UserCheck className="w-3 h-3" />
+                              <span>Presensi Massal</span>
                             </button>
                             <button
                               type="button"
@@ -599,6 +627,38 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
           }
           setActiveTab('presensi');
         }}
+        onBatchSubmit={async (items) => {
+          if (onBatchManualAttendanceSubmit) {
+            const res = await onBatchManualAttendanceSubmit(items);
+            if (items.length > 0 && dateFilter && dateFilter !== items[0].date) {
+              setDateFilter(items[0].date);
+            }
+            setActiveTab('presensi');
+            return res || { successCount: items.length, failCount: 0, errors: [] };
+          }
+          let successCount = 0;
+          let failCount = 0;
+          const errors: string[] = [];
+          for (const item of items) {
+            try {
+              if (onManualAttendanceSubmit) {
+                await onManualAttendanceSubmit(item.studentId, item.date, item.time, item.status, item.notes);
+              } else {
+                onQuickMarkAttendance(item.studentId, item.date, item.status);
+              }
+              successCount++;
+            } catch (err: any) {
+              failCount++;
+              errors.push(err?.message || 'Gagal');
+            }
+          }
+          if (items.length > 0 && dateFilter && dateFilter !== items[0].date) {
+            setDateFilter(items[0].date);
+          }
+          setActiveTab('presensi');
+          return { successCount, failCount, errors };
+        }}
+        onRetryInvoices={onRetryInvoices}
       />
     </div>
   );

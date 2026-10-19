@@ -1395,6 +1395,253 @@ export default function App() {
     return { success: true, attendance: targetAtt, invoiceCreated };
   };
 
+  // Batch Manual Attendance Submit (Database-First)
+  const handleBatchManualAttendanceSubmit = async (
+    items: Array<{
+      studentId: string;
+      date: string;
+      time: string;
+      status: 'HADIR' | 'TIDAK_HADIR';
+      notes?: string;
+    }>
+  ): Promise<{
+    successCount: number;
+    failCount: number;
+    errors: string[];
+    attendanceSuccessCount: number;
+    attendanceFailCount: number;
+    attendanceErrors: Array<{ studentId: string; studentName: string; error: string }>;
+    invoiceSuccessCount: number;
+    invoiceFailCount: number;
+    invoiceErrors: Array<{
+      studentId: string;
+      studentName: string;
+      invoiceId: string;
+      error: string;
+      invoiceData: Invoice;
+    }>;
+  }> => {
+    let attendanceSuccessCount = 0;
+    let attendanceFailCount = 0;
+    const attendanceErrors: Array<{ studentId: string; studentName: string; error: string }> = [];
+
+    let invoiceSuccessCount = 0;
+    let invoiceFailCount = 0;
+    const invoiceErrors: Array<{
+      studentId: string;
+      studentName: string;
+      invoiceId: string;
+      error: string;
+      invoiceData: Invoice;
+    }> = [];
+
+    const updatedAttendances: Attendance[] = [];
+    const createdInvoices: Invoice[] = [];
+
+    for (const item of items) {
+      const student = students.find((s) => s.id === item.studentId);
+      const studentName = student?.name || item.studentId;
+
+      try {
+        if (!student) {
+          throw new Error(`Data siswa ${item.studentId} tidak ditemukan.`);
+        }
+
+        const existingIndex = attendances.findIndex(
+          (a) => a.studentId === item.studentId && a.date === item.date
+        );
+        let targetAtt: Attendance;
+
+        if (existingIndex >= 0) {
+          targetAtt = {
+            ...attendances[existingIndex],
+            status: item.status,
+            checkInTime: item.time,
+            feeGenerated: item.status === 'HADIR',
+            ...(item.notes !== undefined ? { notes: item.notes } : {}),
+            method: 'MANUAL',
+          };
+        } else {
+          targetAtt = {
+            id: `ATT-${item.date.replace(/-/g, '')}-${student.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`,
+            studentId: student.id,
+            studentName: student.name,
+            classGroupId: student.classGroupId,
+            date: item.date,
+            checkInTime: item.time,
+            status: item.status,
+            feeGenerated: item.status === 'HADIR',
+            ...(item.notes ? { notes: item.notes } : {}),
+            method: 'MANUAL',
+          };
+        }
+
+        // Database-First: Simpan data presensi ke Firestore
+        await saveAttendanceToFirestore(targetAtt);
+        updatedAttendances.push(targetAtt);
+        attendanceSuccessCount++;
+
+        // Terbitkan tagihan latihan Rp15.000 jika HADIR dan belum ada tagihan latihan
+        if (item.status === 'HADIR') {
+          const duplicateInvoice = invoices.find(
+            (inv) => inv.studentId === item.studentId && inv.attendanceDate === item.date && inv.type === 'Latihan'
+          );
+
+          if (!duplicateInvoice) {
+            const dateParts = item.date.split('-');
+            const formattedCreated = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+            const newInvoice: Invoice = {
+              id: `INV-${item.date.replace(/-/g, '')}-${student.id.replace('BFA-', '') || Math.floor(100 + Math.random() * 900)}`,
+              studentId: student.id,
+              studentName: student.name,
+              classGroupId: student.classGroupId,
+              type: 'Latihan',
+              attendanceDate: item.date,
+              period: `Sesi Latihan (${item.date})`,
+              amount: 15000,
+              paidAmount: 0,
+              remainingAmount: 15000,
+              status: 'BELUM BAYAR',
+              dueDate: item.date,
+              createdAt: formattedCreated,
+            };
+
+            try {
+              await saveInvoiceToFirestore(newInvoice);
+              createdInvoices.push(newInvoice);
+              invoiceSuccessCount++;
+            } catch (invErr: any) {
+              console.error(`Tagihan latihan untuk ${student.name} gagal disimpan ke Firestore:`, invErr);
+              invoiceFailCount++;
+              invoiceErrors.push({
+                studentId: student.id,
+                studentName: student.name,
+                invoiceId: newInvoice.id,
+                error: invErr?.message || 'Gagal menyimpan tagihan ke database',
+                invoiceData: newInvoice,
+              });
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error(`Gagal presensi untuk ${item.studentId}:`, err);
+        attendanceFailCount++;
+        attendanceErrors.push({
+          studentId: item.studentId,
+          studentName,
+          error: err?.message || 'Gagal menyimpan presensi',
+        });
+      }
+    }
+
+    // Perbarui state React dan localStorage secara sekaligus (batched)
+    if (updatedAttendances.length > 0) {
+      setAttendances((prev) => {
+        const next = [...prev];
+        for (const att of updatedAttendances) {
+          const idx = next.findIndex((a) => a.studentId === att.studentId && a.date === att.date);
+          if (idx >= 0) {
+            next[idx] = att;
+          } else {
+            next.unshift(att);
+          }
+        }
+        try {
+          localStorage.setItem('bfa_attendances', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    }
+
+    if (createdInvoices.length > 0) {
+      setInvoices((prev) => {
+        const next = [...createdInvoices, ...prev];
+        try {
+          localStorage.setItem('bfa_invoices', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    }
+
+    // Kumpulan string error gabungan untuk kompatibilitas
+    const combinedErrors: string[] = [
+      ...attendanceErrors.map((e) => `[Presensi] ${e.studentName}: ${e.error}`),
+      ...invoiceErrors.map((e) => `[Tagihan] ${e.studentName}: ${e.error}`),
+    ];
+
+    // Toast ringkasan transparan
+    if (attendanceFailCount === 0 && invoiceFailCount === 0) {
+      showToast(
+        `✓ Berhasil mencatat presensi massal ${attendanceSuccessCount} siswa.${
+          createdInvoices.length > 0 ? ` (${createdInvoices.length} tagihan sesi Rp15.000 diterbitkan)` : ''
+        }`,
+        'success'
+      );
+    } else if (attendanceSuccessCount > 0 && invoiceFailCount > 0 && attendanceFailCount === 0) {
+      showToast(
+        `Presensi ${attendanceSuccessCount} siswa tersimpan, TETAPI ${invoiceFailCount} tagihan sesi latihan belum berhasil disimpan ke database. Periksa rincian di dialog.`,
+        'warning'
+      );
+    } else if (attendanceSuccessCount > 0) {
+      showToast(
+        `Presensi: ${attendanceSuccessCount} berhasil, ${attendanceFailCount} gagal.${invoiceFailCount > 0 ? ` (${invoiceFailCount} tagihan gagal)` : ''}`,
+        'warning'
+      );
+    } else {
+      showToast(`Gagal mencatat presensi untuk seluruh ${attendanceFailCount} siswa.`, 'error');
+    }
+
+    return {
+      successCount: attendanceSuccessCount,
+      failCount: attendanceFailCount,
+      errors: combinedErrors,
+      attendanceSuccessCount,
+      attendanceFailCount,
+      attendanceErrors,
+      invoiceSuccessCount,
+      invoiceFailCount,
+      invoiceErrors,
+    };
+  };
+
+  // Recovery Handler: Menerbitkan ulang invoice yang gagal tanpa mengulang presensi
+  const handleRetryInvoices = async (
+    invoicesToSave: Invoice[]
+  ): Promise<{ successCount: number; failCount: number; errors: string[] }> => {
+    let successCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+    const savedInvoices: Invoice[] = [];
+
+    for (const inv of invoicesToSave) {
+      try {
+        await saveInvoiceToFirestore(inv);
+        savedInvoices.push(inv);
+        successCount++;
+      } catch (err: any) {
+        failCount++;
+        errors.push(`${inv.studentName || inv.studentId}: ${err?.message || 'Gagal menyimpan tagihan'}`);
+      }
+    }
+
+    if (savedInvoices.length > 0) {
+      setInvoices((prev) => {
+        const next = [...savedInvoices, ...prev.filter((p) => !savedInvoices.some((s) => s.id === p.id))];
+        try {
+          localStorage.setItem('bfa_invoices', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      showToast(`✓ Berhasil menerbitkan ulang ${successCount} tagihan latihan ke database.`, 'success');
+    }
+
+    if (failCount > 0) {
+      showToast(`Masih terdapat ${failCount} tagihan yang gagal diterbitkan ke database.`, 'warning');
+    }
+
+    return { successCount, failCount, errors };
+  };
+
   const handleQuickMarkAttendance = (studentId: string, date: string, status: 'HADIR' | 'TIDAK_HADIR') => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
@@ -2611,6 +2858,8 @@ Official Performance Report • BFA Karawang
                   onManualAttendanceSubmit={(studentId, date, time, status, notes) =>
                     handleFingerprintSubmit(studentId, date, time, status, notes, 'MANUAL')
                   }
+                  onBatchManualAttendanceSubmit={handleBatchManualAttendanceSubmit}
+                  onRetryInvoices={handleRetryInvoices}
                 />
               )}
 
