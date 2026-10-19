@@ -2476,8 +2476,8 @@ Official Performance Report • BFA Karawang
         activeStudentId={activeParentStudent?.id}
       />
 
-      {/* Main Container */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6">
+      {/* Main Container - maximized width for modern PC screens */}
+      <div className="flex-1 flex w-full max-w-[1600px] 2xl:max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6">
         {/* Desktop Sidebar & Mobile Bottom Nav */}
         <Sidebar
           role={role}

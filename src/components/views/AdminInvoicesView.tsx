@@ -452,18 +452,24 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
 
       {/* Invoices Table */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold border-b border-slate-200">
+        {/* Mobile / Tablet Horizontal Scroll Hint */}
+        <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+          <span>💡 Geser tabel ke samping untuk melihat kolom Status & Aksi</span>
+          <span className="font-mono font-bold text-slate-400">↔</span>
+        </div>
+
+        <div className="table-scroll-container">
+          <table className="w-full text-left text-xs border-collapse min-w-[880px]">
+            <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
               <tr>
-                <th className="px-3 py-2.5 text-left font-bold text-slate-700">Siswa</th>
-                <th className="px-2.5 py-2.5 text-left font-bold text-slate-700">Jenis Tagihan</th>
-                <th className="px-2 py-2.5 text-left font-bold text-slate-700 whitespace-nowrap">Jatuh Tempo</th>
-                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Total Tagihan</th>
-                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Sudah Dibayar</th>
-                <th className="px-2.5 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">Sisa Tagihan</th>
-                <th className="px-2 py-2.5 text-center font-bold text-slate-700">Status</th>
-                <th className="px-3 py-2.5 text-right font-bold text-slate-700">Aksi</th>
+                <th className="px-3.5 py-3 whitespace-nowrap w-[180px] min-w-[170px]">Siswa</th>
+                <th className="px-3 py-3 whitespace-nowrap w-[140px] min-w-[130px]">Jenis Tagihan</th>
+                <th className="px-3 py-3 whitespace-nowrap w-[95px] min-w-[90px]">Jatuh Tempo</th>
+                <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Total Tagihan</th>
+                <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Sudah Dibayar</th>
+                <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Sisa Tagihan</th>
+                <th className="px-3 py-3 text-center whitespace-nowrap w-[110px] min-w-[105px]">Status</th>
+                <th className="px-3.5 py-3 text-right whitespace-nowrap w-[160px] min-w-[155px]">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
@@ -487,31 +493,31 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50 transition">
-                      <td className="px-3 py-2.5">
-                        <span className="font-bold text-slate-900 block leading-snug text-xs">{inv.studentName}</span>
-                        <span className="text-[10px] font-mono text-slate-400 block leading-tight">
+                      <td className="px-3.5 py-3 whitespace-nowrap w-[180px] min-w-[170px]">
+                        <span className="font-bold text-slate-900 block leading-snug">{inv.studentName}</span>
+                        <span className="text-[10px] font-mono text-slate-500 block mt-0.5">
                           {inv.studentId} • {inv.classGroupId}
                         </span>
                       </td>
-                      <td className="px-2.5 py-2.5 text-slate-800">
-                        <span className="font-semibold text-xs block leading-snug">{inv.type}</span>
+                      <td className="px-3 py-3 whitespace-nowrap w-[140px] min-w-[130px] text-slate-800">
+                        <span className="font-semibold block leading-snug">{inv.type}</span>
                         <span className="block text-[10px] text-slate-500 font-normal leading-tight">{inv.period}</span>
                       </td>
-                      <td className="px-2 py-2.5 font-mono text-slate-500 whitespace-nowrap tabular-nums text-[11px]">
+                      <td className="px-3 py-3 font-mono text-slate-600 whitespace-nowrap tabular-nums w-[95px] min-w-[90px]">
                         {inv.dueDate || '-'}
                       </td>
-                      <td className="px-2.5 py-2.5 font-bold text-slate-900 font-mono whitespace-nowrap tabular-nums text-xs text-right">
+                      <td className="px-3 py-3 font-black text-slate-900 font-mono whitespace-nowrap tabular-nums text-sm text-right w-[110px] min-w-[105px]">
                         Rp{totalAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className="px-2.5 py-2.5 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-xs text-right">
+                      <td className="px-3 py-3 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-right w-[110px] min-w-[105px]">
                         Rp{paidAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className={`px-2.5 py-2.5 font-bold font-mono whitespace-nowrap tabular-nums text-xs text-right ${
-                        remAmt > 0 ? 'text-rose-700 font-black' : 'text-slate-400'
+                      <td className={`px-3 py-3 font-black font-mono whitespace-nowrap tabular-nums text-right w-[110px] min-w-[105px] ${
+                        remAmt > 0 ? 'text-rose-700' : 'text-slate-400'
                       }`}>
                         Rp{remAmt.toLocaleString('id-ID')}
                       </td>
-                      <td className="px-2 py-2.5 text-center">
+                      <td className="px-3 py-3 whitespace-nowrap text-center w-[110px] min-w-[105px]">
                         <div className="flex flex-col items-center justify-center gap-1">
                           <span
                             className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${
@@ -525,7 +531,7 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                             }`}
                           >
                             {dynamicStatus === 'MENUNGGAK' && (
-                              <AlertTriangle className="w-2.5 h-2.5 text-rose-600 mr-1 shrink-0" />
+                              <AlertTriangle className="w-3 h-3 text-rose-600 mr-1 shrink-0" />
                             )}
                             {dynamicStatus}
                           </span>
@@ -547,7 +553,7 @@ export const AdminInvoicesView: React.FC<AdminInvoicesViewProps> = ({
                           })()}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <td className="px-3.5 py-3 text-right whitespace-nowrap w-[160px] min-w-[155px]">
                         <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                           {isFullyPaid ? (
                             <>

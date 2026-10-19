@@ -19,7 +19,8 @@ import {
   ChevronDown,
   Loader2,
   RotateCcw,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { exportFinancePDF } from '../../utils/exportFinancePDF';
 import { exportFinanceExcel, exportInvoicesExcel, exportInvoicesPDF } from '../../utils/exportHelpers';
@@ -145,6 +146,9 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
 
   // Payment modal state
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
+
+  // Detail mutation note modal state
+  const [viewingMutationDetail, setViewingMutationDetail] = useState<CashMutation | null>(null);
 
   // Synchronization with incoming props for newly inserted records
   useEffect(() => {
@@ -798,19 +802,26 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
           </div>
 
           {/* Mutations Table */}
+          {/* Mutations Table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold border-b border-slate-200">
+            {/* Mobile Horizontal Scroll Indicator */}
+            <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+              <span>💡 Geser tabel ke samping untuk melihat kolom lengkap</span>
+              <span className="font-mono font-bold text-slate-400">↔</span>
+            </div>
+
+            <div className="table-scroll-container">
+              <table className="w-full text-left text-xs border-collapse min-w-[890px]">
+                <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3.5">Tanggal</th>
-                    <th className="px-4 py-3.5">Jenis</th>
-                    <th className="px-4 py-3.5">Kategori</th>
-                    <th className="px-4 py-3.5">Keterangan Transaksi</th>
-                    <th className="px-4 py-3.5">Metode</th>
-                    <th className="px-4 py-3.5">Sumber</th>
-                    <th className="px-4 py-3.5 text-right">Nominal</th>
-                    <th className="px-4 py-3.5 text-center">Aksi</th>
+                    <th className="px-3.5 py-3 whitespace-nowrap w-[110px] min-w-[100px]">Tanggal</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[90px] min-w-[85px]">Jenis</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[130px] min-w-[120px]">Kategori</th>
+                    <th className="px-3.5 py-3 min-w-[220px]">Keterangan Transaksi</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[85px] min-w-[80px]">Metode</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[95px] min-w-[85px]">Sumber</th>
+                    <th className="px-3.5 py-3 text-right whitespace-nowrap w-[125px] min-w-[120px]">Nominal</th>
+                    <th className="px-3 py-3 text-center whitespace-nowrap w-[85px] min-w-[80px]">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -834,11 +845,11 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                       const isIncome = m.type === 'Pemasukan';
                       return (
                         <tr key={m.id} className="hover:bg-slate-50 transition">
-                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">
-                            <span>{m.date}</span>
-                            {m.time && <span className="block text-[10px] text-slate-400">{m.time}</span>}
+                          <td className="px-3.5 py-3 font-mono text-slate-600 whitespace-nowrap w-[110px] min-w-[100px]">
+                            <span className="font-semibold text-slate-900 block leading-tight">{m.date}</span>
+                            {m.time && <span className="block text-[10px] text-slate-400 font-mono mt-0.5">{m.time}</span>}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-3 py-3 whitespace-nowrap w-[90px] min-w-[85px]">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 isIncome
@@ -849,31 +860,53 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                               {m.type}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">{m.category}</td>
-                          <td className="px-4 py-3 text-slate-700 max-w-xs">
-                            <span>{m.note}</span>
-                            {m.invoiceId && (
-                              <span className="block text-[10px] text-blue-600 font-mono">Ref: {m.invoiceId}</span>
-                            )}
+                          <td className="px-3 py-3 font-bold text-slate-900 whitespace-nowrap w-[130px] min-w-[120px]">
+                            {m.category}
                           </td>
-                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">
-                            <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] border border-slate-200">
+                          <td className="px-3.5 py-3 text-slate-700 min-w-[220px]">
+                            <div 
+                              className="line-clamp-2 text-slate-800 font-medium leading-relaxed break-words" 
+                              title={m.note || '-'}
+                            >
+                              {m.note || '-'}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              {m.invoiceId && (
+                                <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200/80 font-mono px-1.5 py-0.2 rounded font-normal whitespace-nowrap">
+                                  Ref: {m.invoiceId}
+                                </span>
+                              )}
+                              {m.note && m.note.length > 35 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingMutationDetail(m)}
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 underline font-semibold transition whitespace-nowrap inline-flex items-center gap-0.5"
+                                  title="Lihat rincian lengkap catatan ini"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  <span>Lihat Lengkap</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 font-mono text-slate-600 whitespace-nowrap w-[85px] min-w-[80px]">
+                            <span className="px-1.5 py-0.5 bg-slate-100 rounded text-[11px] border border-slate-200 font-medium inline-block">
                               {m.method}
                             </span>
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          <td className="px-3 py-3 whitespace-nowrap w-[95px] min-w-[85px]">
+                            <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60 inline-block">
                               {m.source === 'INVOICE_PAYMENT' ? 'Auto Tagihan' : (m.source || 'Manual')}
                             </span>
                           </td>
                           <td
-                            className={`px-4 py-3 font-mono font-black text-right whitespace-nowrap tabular-nums text-sm ${
+                            className={`px-3.5 py-3 font-mono font-black text-right whitespace-nowrap tabular-nums text-sm w-[125px] min-w-[120px] ${
                               isIncome ? 'text-emerald-700' : 'text-rose-700'
                             }`}
                           >
                             {isIncome ? '+' : '-'}Rp{(Number(m.amount) || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <td className="px-3 py-3 text-center whitespace-nowrap w-[85px] min-w-[80px]">
                             {(() => {
                               const isInvoicePayment = m.source === 'INVOICE_PAYMENT' || Boolean(m.invoiceId);
                               const hasValidPaymentRelation = Boolean(m.invoiceId);
@@ -1059,18 +1092,24 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
 
           {/* Synchronized Invoices Table */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold border-b border-slate-200">
+            {/* Mobile Horizontal Scroll Indicator */}
+            <div className="md:hidden px-4 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+              <span>💡 Geser tabel ke samping untuk melihat Status & Aksi pembayaran</span>
+              <span className="font-mono font-bold text-slate-400">↔</span>
+            </div>
+
+            <div className="table-scroll-container">
+              <table className="w-full text-left text-xs border-collapse min-w-[880px]">
+                <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3.5">Siswa</th>
-                    <th className="px-4 py-3.5">Jenis Tagihan</th>
-                    <th className="px-4 py-3.5">Jatuh Tempo</th>
-                    <th className="px-4 py-3.5 text-right">Total Tagihan</th>
-                    <th className="px-4 py-3.5 text-right">Sudah Dibayar</th>
-                    <th className="px-4 py-3.5 text-right">Sisa Tagihan</th>
-                    <th className="px-4 py-3.5">Status</th>
-                    <th className="px-4 py-3.5 text-right">Aksi</th>
+                    <th className="px-3.5 py-3 whitespace-nowrap w-[180px] min-w-[170px]">Siswa</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[140px] min-w-[130px]">Jenis Tagihan</th>
+                    <th className="px-3 py-3 whitespace-nowrap w-[95px] min-w-[90px]">Jatuh Tempo</th>
+                    <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Total Tagihan</th>
+                    <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Sudah Dibayar</th>
+                    <th className="px-3 py-3 text-right whitespace-nowrap w-[110px] min-w-[105px]">Sisa Tagihan</th>
+                    <th className="px-3 py-3 text-center whitespace-nowrap w-[110px] min-w-[105px]">Status</th>
+                    <th className="px-3.5 py-3 text-right whitespace-nowrap w-[160px] min-w-[155px]">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -1094,31 +1133,31 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
 
                       return (
                         <tr key={inv.id} className="hover:bg-slate-50 transition">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="font-bold text-slate-900 block">{inv.studentName}</span>
-                            <span className="text-[10px] font-mono text-slate-400">
+                          <td className="px-3.5 py-3 whitespace-nowrap w-[180px] min-w-[170px]">
+                            <span className="font-bold text-slate-900 block leading-snug">{inv.studentName}</span>
+                            <span className="text-[10px] font-mono text-slate-500 block mt-0.5">
                               {inv.studentId} • {inv.classGroupId}
                             </span>
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-slate-800 font-semibold">
-                            <span>{inv.type}</span>
-                            <span className="block text-[10px] text-slate-500 font-normal">{inv.period}</span>
+                          <td className="px-3 py-3 whitespace-nowrap w-[140px] min-w-[130px] text-slate-800">
+                            <span className="font-semibold block leading-snug">{inv.type}</span>
+                            <span className="block text-[10px] text-slate-500 font-normal leading-tight">{inv.period}</span>
                           </td>
-                          <td className="px-4 py-3 font-mono text-slate-500 whitespace-nowrap tabular-nums">
+                          <td className="px-3 py-3 font-mono text-slate-600 whitespace-nowrap tabular-nums w-[95px] min-w-[90px]">
                             {inv.dueDate || '-'}
                           </td>
-                          <td className="px-4 py-3 font-black text-slate-900 font-mono whitespace-nowrap tabular-nums text-sm text-right">
+                          <td className="px-3 py-3 font-black text-slate-900 font-mono whitespace-nowrap tabular-nums text-sm text-right w-[110px] min-w-[105px]">
                             Rp{totalAmt.toLocaleString('id-ID')}
                           </td>
-                          <td className="px-4 py-3 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-right">
+                          <td className="px-3 py-3 font-bold text-emerald-700 font-mono whitespace-nowrap tabular-nums text-right w-[110px] min-w-[105px]">
                             Rp{paidAmt.toLocaleString('id-ID')}
                           </td>
-                          <td className={`px-4 py-3 font-black font-mono whitespace-nowrap tabular-nums text-right ${
+                          <td className={`px-3 py-3 font-black font-mono whitespace-nowrap tabular-nums text-right w-[110px] min-w-[105px] ${
                             remAmt > 0 ? 'text-rose-700' : 'text-slate-400'
                           }`}>
                             Rp{remAmt.toLocaleString('id-ID')}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-3 py-3 whitespace-nowrap text-center w-[110px] min-w-[105px]">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 dynamicStatus === 'LUNAS'
@@ -1131,19 +1170,19 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                               }`}
                             >
                               {dynamicStatus === 'MENUNGGAK' && (
-                                <AlertTriangle className="w-3 h-3 text-rose-600 mr-1" />
+                                <AlertTriangle className="w-3 h-3 text-rose-600 mr-1 shrink-0" />
                               )}
                               {dynamicStatus}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
+                          <td className="px-3.5 py-3 text-right whitespace-nowrap w-[160px] min-w-[155px]">
+                            <div className="flex items-center justify-end gap-1.5 flex-nowrap">
                               {isFullyPaid ? (
                                 onShowReceipt && (
                                   <button
                                     type="button"
                                     onClick={() => onShowReceipt(inv)}
-                                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 inline-flex items-center gap-1 active:scale-95"
+                                    className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border border-slate-300 inline-flex items-center gap-1 active:scale-95 transition shadow-2xs"
                                   >
                                     <Receipt className="w-3.5 h-3.5 text-blue-700" />
                                     <span>Kuitansi</span>
@@ -1153,7 +1192,7 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setPayingInvoice(inv)}
-                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold active:scale-95 shadow-xs inline-flex items-center gap-1"
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold active:scale-95 shadow-xs inline-flex items-center gap-1 transition"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>{paidAmt > 0 ? 'Bayar Cicilan' : 'Bayar / Lunas'}</span>
@@ -1335,6 +1374,112 @@ export const AdminKeuanganView: React.FC<AdminKeuanganViewProps> = ({
               >
                 {isCancellingPayment && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>{isCancellingPayment ? 'Memproses Koreksi...' : 'Konfirmasi Koreksi'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Modal: Catatan & Keterangan Lengkap Transaksi */}
+      {viewingMutationDetail && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 text-slate-800 shadow-2xl relative border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => setViewingMutationDetail(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg transition"
+              title="Tutup dialog"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner ${
+                  viewingMutationDetail.type === 'Pemasukan'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Rincian Keterangan Transaksi</h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  {viewingMutationDetail.date} {viewingMutationDetail.time ? `• ${viewingMutationDetail.time}` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Jenis Transaksi:</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    viewingMutationDetail.type === 'Pemasukan'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-rose-100 text-rose-800 border border-rose-300'
+                  }`}
+                >
+                  {viewingMutationDetail.type}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Kategori:</span>
+                <span className="font-bold text-slate-900">{viewingMutationDetail.category}</span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Metode Pembayaran:</span>
+                <span className="font-mono font-semibold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {viewingMutationDetail.method}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Sumber Mutasi:</span>
+                <span className="font-mono text-slate-600">
+                  {viewingMutationDetail.source === 'INVOICE_PAYMENT' ? 'Auto Tagihan' : (viewingMutationDetail.source || 'Manual')}
+                </span>
+              </div>
+
+              {viewingMutationDetail.invoiceId && (
+                <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500 font-medium">Nomor Tagihan (Ref):</span>
+                  <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded">
+                    {viewingMutationDetail.invoiceId}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500 font-medium">Nominal Transaksi:</span>
+                <span
+                  className={`font-mono font-black text-base ${
+                    viewingMutationDetail.type === 'Pemasukan' ? 'text-emerald-700' : 'text-rose-700'
+                  }`}
+                >
+                  {viewingMutationDetail.type === 'Pemasukan' ? '+' : '-'}Rp
+                  {(Number(viewingMutationDetail.amount) || 0).toLocaleString('id-ID')}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">Keterangan / Catatan Transaksi Lengkap:</label>
+              <div className="p-3.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap break-words min-h-[70px]">
+                {viewingMutationDetail.note || 'Tidak ada catatan transaksi.'}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingMutationDetail(null)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-xs"
+              >
+                Tutup
               </button>
             </div>
           </div>

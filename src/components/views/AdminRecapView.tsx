@@ -508,22 +508,22 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs whitespace-nowrap">
+          <div className="table-scroll-container">
+            <table className="w-full text-left text-xs whitespace-nowrap min-w-[1150px]">
               <thead className="bg-slate-100/80 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200 sticky top-0">
                 <tr>
-                  <th className="py-3 px-3 w-10 text-center">No</th>
-                  <th className="py-3 px-3">ID Siswa</th>
-                  <th className="py-3 px-3 min-w-[140px]">Nama Siswa</th>
-                  <th className="py-3 px-2 text-center">KU</th>
+                  <th className="py-3 px-3 w-10 text-center whitespace-nowrap">No</th>
+                  <th className="py-3 px-3 whitespace-nowrap min-w-[90px]">ID Siswa</th>
+                  <th className="py-3 px-3 min-w-[160px] whitespace-nowrap">Nama Siswa</th>
+                  <th className="py-3 px-2 text-center whitespace-nowrap min-w-[60px]">KU</th>
                   {MONTH_NAMES_ID.map((m) => (
-                    <th key={m} className="py-3 px-2 text-center min-w-[70px]">
+                    <th key={m} className="py-3 px-2 text-center min-w-[70px] whitespace-nowrap">
                       {m.slice(0, 3)}
                     </th>
                   ))}
-                  <th className="py-3 px-3 text-right">Total Ditagih</th>
-                  <th className="py-3 px-3 text-right">Terbayar</th>
-                  <th className="py-3 px-3 text-right">Sisa Tagihan</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap min-w-[120px]">Total Ditagih</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap min-w-[120px]">Terbayar</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap min-w-[120px]">Sisa Tagihan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -693,23 +693,23 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
           {/* Tampilan 1: Per Siswa */}
           {trainingViewMode === 'per-siswa' && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs whitespace-nowrap">
+              <div className="table-scroll-container">
+                <table className="w-full text-left text-xs whitespace-nowrap min-w-[1020px] border-collapse">
                   <thead className="bg-slate-100/80 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-3 w-10 text-center">No</th>
-                      <th className="py-3 px-3">ID Siswa</th>
-                      <th className="py-3 px-3">Nama Siswa</th>
-                      <th className="py-3 px-3 text-center">KU</th>
-                      <th className="py-3 px-3 text-center">Status Siswa</th>
-                      <th className="py-3 px-3 text-center">Sesi Ber-Invoice</th>
-                      <th className="py-3 px-3 text-right">Total Tagihan (Rp)</th>
-                      <th className="py-3 px-3 text-right">Sudah Dibayar (Rp)</th>
-                      <th className="py-3 px-3 text-right">Sisa Tagihan (Rp)</th>
-                      <th className="py-3 px-3 text-center">Sesi Menunggak</th>
+                      <th className="py-3.5 px-3 w-10 text-center whitespace-nowrap">No</th>
+                      <th className="py-3.5 px-3 whitespace-nowrap min-w-[90px]">ID Siswa</th>
+                      <th className="py-3.5 px-3 whitespace-nowrap min-w-[170px]">Nama Siswa</th>
+                      <th className="py-3.5 px-3 text-center whitespace-nowrap min-w-[65px]">KU</th>
+                      <th className="py-3.5 px-3 text-center whitespace-nowrap min-w-[95px]">Status Siswa</th>
+                      <th className="py-3.5 px-3 text-center whitespace-nowrap min-w-[120px]">Sesi Ber-Invoice</th>
+                      <th className="py-3.5 px-3 text-right whitespace-nowrap min-w-[135px]">Total Tagihan (Rp)</th>
+                      <th className="py-3.5 px-3 text-right whitespace-nowrap min-w-[135px]">Sudah Dibayar (Rp)</th>
+                      <th className="py-3.5 px-3 text-right whitespace-nowrap min-w-[135px]">Sisa Tagihan (Rp)</th>
+                      <th className="py-3.5 px-3 text-center whitespace-nowrap min-w-[110px]">Sesi Menunggak</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 font-medium">
                     {trainingRecap.studentSummaries.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="py-12 text-center text-slate-400">
@@ -719,15 +719,15 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
                     ) : (
                       trainingRecap.studentSummaries.map((st, idx) => (
                         <tr key={st.studentId} className="hover:bg-slate-50 transition">
-                          <td className="py-2.5 px-3 text-center text-slate-400 font-medium">{idx + 1}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-slate-700 text-[11px]">{st.studentId}</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-900">{st.studentName}</td>
-                          <td className="py-2.5 px-3 text-center">
+                          <td className="py-3 px-3 text-center text-slate-400 font-medium">{idx + 1}</td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-700 text-[11px] whitespace-nowrap">{st.studentId}</td>
+                          <td className="py-3 px-3 font-bold text-slate-900 min-w-[170px] whitespace-nowrap">{st.studentName}</td>
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
                             <span className="px-2 py-0.5 bg-blue-50 text-blue-900 font-bold rounded text-[10px]">
                               {st.classGroupId}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-center">
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                 st.studentStatus === 'Aktif'
@@ -738,19 +738,21 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
                               {st.studentStatus}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-center font-bold text-slate-800">
+                          <td className="py-3 px-3 text-center font-bold text-slate-800 font-mono tabular-nums whitespace-nowrap">
                             {st.sessionCount} Sesi
                           </td>
-                          <td className="py-2.5 px-3 text-right font-semibold text-slate-700">
+                          <td className="py-3 px-3 text-right font-bold text-slate-900 font-mono tabular-nums whitespace-nowrap">
                             Rp{st.totalBilled.toLocaleString('id-ID')}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-semibold text-emerald-700">
+                          <td className="py-3 px-3 text-right font-bold text-emerald-700 font-mono tabular-nums whitespace-nowrap">
                             Rp{st.totalPaid.toLocaleString('id-ID')}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-black text-rose-700">
+                          <td className={`py-3 px-3 text-right font-black font-mono tabular-nums whitespace-nowrap ${
+                            st.totalRemaining > 0 ? 'text-rose-700' : 'text-slate-400'
+                          }`}>
                             Rp{st.totalRemaining.toLocaleString('id-ID')}
                           </td>
-                          <td className="py-2.5 px-3 text-center">
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
                             {st.overdueCount > 0 ? (
                               <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-bold rounded text-[10px]">
                                 {st.overdueCount} Sesi
@@ -771,8 +773,8 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
           {/* Tampilan 2: Ringkasan Bulanan */}
           {trainingViewMode === 'per-bulan' && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs whitespace-nowrap">
+              <div className="table-scroll-container">
+                <table className="w-full text-left text-xs whitespace-nowrap min-w-[840px]">
                   <thead className="bg-slate-100/80 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Bulan</th>
@@ -828,8 +830,8 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
           {/* Tampilan 3: Detail Sesi Individual */}
           {trainingViewMode === 'detail-sesi' && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs whitespace-nowrap">
+              <div className="table-scroll-container">
+                <table className="w-full text-left text-xs whitespace-nowrap min-w-[960px]">
                   <thead className="bg-slate-100/80 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-3 w-10 text-center">No</th>
@@ -917,8 +919,8 @@ export const AdminRecapView: React.FC<AdminRecapViewProps> = ({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs whitespace-nowrap">
+          <div className="table-scroll-container">
+            <table className="w-full text-left text-xs whitespace-nowrap min-w-[1100px]">
               <thead className="bg-slate-100/80 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-3 w-10 text-center">No</th>
