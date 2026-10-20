@@ -257,9 +257,18 @@ export const AdminStudentsView: React.FC<AdminStudentsViewProps> = ({
                 </div>
               )}
               {cloudSyncStatus.status === 'connecting' && (
-                <p className="font-bold text-blue-900">
-                  Menghubungkan ke database Firebase Firestore...
-                </p>
+                <div>
+                  <p className="font-bold text-blue-900">
+                    {cloudSyncStatus.source === 'cache' && cloudSyncStatus.docCount > 0
+                      ? `Data Tersedia dari Cache Lokal (${cloudSyncStatus.docCount} Siswa)`
+                      : 'Menghubungkan ke database Firebase Firestore...'}
+                  </p>
+                  <p className="text-[11px] text-blue-700 mt-0.5">
+                    {cloudSyncStatus.source === 'cache' && cloudSyncStatus.docCount > 0
+                      ? 'Sinkronisasi dengan server cloud masih menunggu konfirmasi...'
+                      : 'Memuat data siswa langsung dari server cloud...'}
+                  </p>
+                </div>
               )}
             </div>
           </div>

@@ -580,6 +580,7 @@ export function subscribeToStudents(
   const collRef = collection(db, STUDENTS_COLLECTION);
   return onSnapshot(
     collRef,
+    { includeMetadataChanges: true },
     (snapshot) => {
       const items: Student[] = [];
       const docIds: string[] = [];
@@ -620,6 +621,7 @@ export function subscribeToStudentDoc(
   const docRef = doc(db, STUDENTS_COLLECTION, studentId.trim());
   return onSnapshot(
     docRef,
+    { includeMetadataChanges: true },
     (docSnap) => {
       if (!docSnap.exists()) {
         onData(null, {
