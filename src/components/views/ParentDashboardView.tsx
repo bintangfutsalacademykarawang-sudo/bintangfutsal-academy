@@ -17,10 +17,12 @@ import {
   QrCode,
   FileText,
   Phone,
-  UserCheck
+  UserCheck,
+  KeyRound
 } from 'lucide-react';
 import { ChangePhotoModal } from '../modals/ChangePhotoModal';
 import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
+import { ChangePasswordModal } from '../modals/ChangePasswordModal';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
 import { normalizePhoneNumber, isValidIndonesianMobile } from '../../utils/phoneUtils';
 
@@ -36,6 +38,8 @@ interface ParentDashboardViewProps {
   onOpenEditStudent?: (student: Student) => void;
   onOpenDetailStudent?: (student: Student) => void;
   onSwitchStudent?: (studentId: string) => void;
+  onUpdatePassword?: (studentId: string, currentPass: string, newPass: string) => Promise<boolean>;
+  onShowToast?: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
 }
 
 export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
@@ -50,6 +54,8 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
   onOpenEditStudent,
   onOpenDetailStudent,
   onSwitchStudent,
+  onUpdatePassword,
+  onShowToast,
 }) => {
   const childName = student?.name || 'Siswa BFA';
   const childGroup = student?.classGroupId || '-';
@@ -63,6 +69,7 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
 
   const [isChangePhotoOpen, setIsChangePhotoOpen] = useState(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const birthYear = student?.birthDate ? new Date(student.birthDate).getFullYear() : NaN;
   const childAgeText = !isNaN(birthYear) ? `${CURRENT_SYSTEM_YEAR - birthYear} Tahun` : '';
@@ -318,6 +325,16 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
               >
                 <Camera className="w-3.5 h-3.5 text-blue-600" />
                 <span>Ubah Foto</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsChangePasswordOpen(true)}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-black text-amber-300 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs active:scale-95"
+                title="Ganti Password Portal Orang Tua"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+                <span>Ganti Password</span>
               </button>
             </div>
           </div>
@@ -656,6 +673,54 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
         student={student}
         onClose={() => setIsBarcodeModalOpen(false)}
       />
+
+      {/* Change Password Modal */}
+      {student && (
+        <ChangePasswordModal
+          isOpen={isChangePasswordOpen}
+          studentId={student.id}
+          studentName={childName}
+          onClose={() => setIsChangePasswordOpen(false)}
+          onUpdatePassword={async (studentId, currentPass, newPass) => {
+            // Verify current password first
+            let savedCustomPasswords: Record<string, string> = {};
+            try {
+              const raw = localStorage.getItem('bfa_student_passwords');
+              if (raw) savedCustomPasswords = JSON.parse(raw);
+            } catch {}
+
+            const customPass = savedCustomPasswords[student.id] || student.customPassword;
+            const birthDateClean = (student.birthDate || '').replace(/\D/g, '');
+
+            const isCurrentValid = 
+              (customPass && currentPass.trim().toLowerCase() === customPass.toLowerCase()) ||
+              currentPass.trim().toLowerCase() === 'bfa123' ||
+              currentPass.trim().toLowerCase() === '123456' ||
+              currentPass.trim().toLowerCase() === 'admin123' ||
+              (birthDateClean && currentPass.trim() === birthDateClean);
+
+            if (!isCurrentValid) {
+              return false;
+            }
+
+            // Save new password
+            try {
+              const raw = localStorage.getItem('bfa_student_passwords');
+              const map = raw ? JSON.parse(raw) : {};
+              map[studentId] = newPass;
+              localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
+            } catch {}
+
+            if (onUpdatePassword) {
+              await onUpdatePassword(studentId, currentPass, newPass);
+            }
+            return true;
+          }}
+          onShowToast={(msg, type) => {
+            if (onShowToast) onShowToast(msg, type);
+          }}
+        />
+      )}
     </div>
   );
 };

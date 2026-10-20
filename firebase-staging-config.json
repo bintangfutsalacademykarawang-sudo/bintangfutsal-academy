@@ -1,0 +1,12 @@
+{
+  "projectId": "bfa-hub-staging",
+  "appId": "1:832880412306:web:440f40da0fa948e000c84b",
+  "apiKey": "AIzaSyAnQ_MiO3nuHFycYo5sMNmdfu0r2eeftwc",
+  "authDomain": "bfa-hub-staging.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "bfa-hub-staging.firebasestorage.app",
+  "messagingSenderId": "832880412306",
+  "measurementId": "G-3V4GZMGTY6",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}

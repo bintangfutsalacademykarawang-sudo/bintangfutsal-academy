@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import { 
   getFirestore, 
   initializeFirestore,
@@ -23,7 +24,8 @@ import {
   DocumentSnapshot,
   DocumentReference
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import prodConfig from '../../firebase-applet-config.json';
+import stagingConfig from '../../firebase-staging-config.json';
 import { 
   Student, 
   StudentReport, 
@@ -35,13 +37,31 @@ import {
   PaymentVerificationRequest 
 } from '../types';
 
+// Determine environment based on Vite environment variable or runtime flag
+const useStaging = typeof import.meta !== 'undefined' && (import.meta.env?.VITE_USE_STAGING === 'true' || import.meta.env?.VITE_FIREBASE_PROJECT_ID === 'bfa-hub-staging');
+
+let activeConfig: any = prodConfig;
+
+if (useStaging) {
+  if (!stagingConfig || !stagingConfig.projectId || stagingConfig.projectId !== 'bfa-hub-staging') {
+    throw new Error('[Firebase Init] FATAL: Staging configuration is missing or invalid! Refusing to fallback to production.');
+  }
+  activeConfig = stagingConfig;
+  console.info('[Firebase Init] Running in STAGING mode with project:', activeConfig.projectId);
+} else {
+  console.info('[Firebase Init] Running in PRODUCTION mode with project:', activeConfig.projectId);
+}
+
 // Initialize Firebase App
-export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
+
+// Initialize Firebase Auth (isolated to activeConfig instance)
+export const auth = getAuth(app);
 
 // Initialize Firestore with configured databaseId and robust offline caching
 // Safe fallback for InPrivate/Incognito where IndexedDB may be blocked or restricted
 function initFirestoreInstance() {
-  const dbId = (firebaseConfig as any).firestoreDatabaseId;
+  const dbId = (activeConfig as any).firestoreDatabaseId;
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({

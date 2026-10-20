@@ -2929,6 +2929,11 @@ Official Performance Report • BFA Karawang
                       }}
                       onOpenDetailStudent={handleOpenDetail}
                       onSwitchStudent={handleSwitchStudent}
+                      onUpdatePassword={async (studentId, currentPass, newPass) => {
+                        handleResetStudentPassword(studentId, newPass);
+                        return true;
+                      }}
+                      onShowToast={showToast}
                     />
                   )}
 
