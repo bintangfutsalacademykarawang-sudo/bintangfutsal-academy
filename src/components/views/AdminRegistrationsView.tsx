@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
 import { BFALogo } from '../common/BFALogo';
+import { WhatsAppAccountNotificationModal } from '../modals/WhatsAppAccountNotificationModal';
 
 interface AdminRegistrationsViewProps {
   students: Student[];
@@ -53,6 +54,9 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
   const [studentToReject, setStudentToReject] = useState<Student | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // WhatsApp Account Confirmation State
+  const [studentForWhatsApp, setStudentForWhatsApp] = useState<Student | null>(null);
 
   // Document Inspection Modal State
   const [inspectingStudent, setInspectingStudent] = useState<Student | null>(null);
@@ -115,13 +119,16 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
   const handleConfirmApprove = async () => {
     if (!studentToApprove || isApproving) return;
     setIsApproving(true);
+    const approvedStudent = studentToApprove;
     try {
-      await onApprove(studentToApprove.id);
+      await onApprove(approvedStudent.id);
       onShowToast(
-        `✓ Pendaftaran ananda ${studentToApprove.name} (${studentToApprove.id}) berhasil DISETUJUI! Akun siswa aktif & dapat masuk Portal Orang Tua.`,
+        `✓ Pendaftaran ananda ${approvedStudent.name} (${approvedStudent.id}) berhasil DISETUJUI! Akun siswa aktif & dapat masuk Portal Orang Tua.`,
         'success'
       );
       setStudentToApprove(null);
+      // Buka modal pratinjau WhatsApp info login untuk orang tua/wali siswa yang baru disetujui
+      setStudentForWhatsApp(approvedStudent);
     } catch (err: any) {
       console.error('Gagal menyetujui pendaftaran:', err);
       onShowToast(`Gagal menyetujui pendaftaran: ${err?.message || 'Error koneksi Firestore'}`, 'error');
@@ -602,9 +609,20 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
                           <span>Pulihkan & Setujui</span>
                         </button>
                       ) : (
-                        <div className="flex items-center space-x-1 text-emerald-700 font-bold text-xs bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>Akun Terverifikasi</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center space-x-1 text-emerald-700 font-bold text-xs bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>Akun Terverifikasi</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setStudentForWhatsApp(reg)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs shadow-emerald-600/20"
+                            title="Kirim info login akun BFA HUB ke WhatsApp orang tua/wali"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Kirim Info Login WhatsApp</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -862,6 +880,14 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* ---------------- 8. MODAL NOTIFIKASI WHATSAPP KONFIRMASI AKUN ---------------- */}
+      <WhatsAppAccountNotificationModal
+        isOpen={!!studentForWhatsApp}
+        student={studentForWhatsApp}
+        onClose={() => setStudentForWhatsApp(null)}
+        onShowToast={onShowToast}
+      />
 
     </div>
   );
