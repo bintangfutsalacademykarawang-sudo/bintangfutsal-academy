@@ -212,10 +212,10 @@ export const WhatsAppAccountNotificationModal: React.FC<WhatsAppAccountNotificat
             <Info className="w-4 h-4 text-amber-600 shrink-0" />
             <span>Kredensial Login yang Diinformasikan:</span>
           </div>
-          <p className="text-[11px] text-amber-800 leading-relaxed">
+          <p className="text-[11px] text-amber-800 leading-relaxed space-y-1">
             • <strong>ID Login:</strong> <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-blue-900">{student.id}</code> atau Nomor WhatsApp <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-blue-900">{student.phone}</code>
             <br />
-            • <strong>Password Awal:</strong> <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-amber-900">bfa123</code> (tervalidasi aktif di sistem autentikasi Portal BFA).
+            • <strong>Password:</strong> <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-amber-900">bfa123</code>
           </p>
         </div>
 
