@@ -114,8 +114,14 @@ import {
   rejectPaymentVerificationRequest,
   deleteStudentFromFirestore,
   isFirestoreQuotaError,
-  db
+  db,
+  resolvedEnv
 } from './firebase';
+import {
+  subscribeToBfaAuthState,
+  signInWithBfaAdapter,
+  signOutBfaAdapter
+} from './firebase/authAdapter';
 import {
   setBfaQuotaCooldown,
   isBfaQuotaCooldownActive,
@@ -123,6 +129,8 @@ import {
   getBfaQuotaCooldownRemainingMinutes,
   getBfaQuotaLastErrorMessage
 } from './utils/quotaHelpers';
+
+export type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 
 // Explicit Production Write Allowlist:
 // Only official BFA production hostnames ("bfa.my.id" and "www.bfa.my.id") are granted write permission to Cloud Firestore.
@@ -148,33 +156,49 @@ const getIsProductionWriteEnabled = (): boolean => {
 const WRITE_ENABLED = getIsProductionWriteEnabled();
 
 export default function App() {
-  // Authentication session state (null = show Login Page)
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    try {
-      const saved = localStorage.getItem('bfa_auth_user');
-      if (saved) {
-        const user: AuthUser = JSON.parse(saved);
-        // Reset old demo admin logins (like Coach Hendra or Sari) so user logs in with Admin / EdySun
-        if (user.role === 'admin' && (user.name.includes('Hendra') || user.name.includes('Sari'))) {
-          localStorage.removeItem('bfa_auth_user');
-          return null;
-        }
-        return user;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  });
+  // Authentication session state managed via Firebase Auth Adapter:
+  // 'checking' on initial mount, transitioned strictly to 'authenticated' or 'unauthenticated'.
+  // localStorage is NEVER treated as proof of authentication to grant database access.
+  const [authState, setAuthState] = useState<AuthState>('checking');
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
-  const [role, setRole] = useState<Role>(currentUser?.role || 'admin');
+  const [role, setRole] = useState<Role>('parent');
   const [currentRoute, setCurrentRoute] = useState<RouteId>(() => {
     try {
       const savedRoute = localStorage.getItem('bfa_current_route');
       if (savedRoute) return savedRoute as RouteId;
     } catch {}
-    return currentUser?.role === 'parent' ? 'parent-dashboard' : 'dashboard';
+    return 'dashboard';
   });
+
+  // Subscribe to Firebase Auth session changes
+  useEffect(() => {
+    let isMounted = true;
+
+    const unsubscribe = subscribeToBfaAuthState((session) => {
+      if (!isMounted) return;
+
+      if (session && session.authUser) {
+        setCurrentUser(session.authUser);
+        setRole(session.authUser.role);
+        setAuthState('authenticated');
+        try {
+          localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
+        } catch {}
+      } else {
+        setCurrentUser(null);
+        setAuthState('unauthenticated');
+        try {
+          localStorage.removeItem('bfa_auth_user');
+        } catch {}
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // Helper to inspect localStorage cached students
   const getInitialStudentsCache = (): {
@@ -413,6 +437,11 @@ export default function App() {
   useEffect(() => {
     let unsubStudents: (() => void) | undefined;
 
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
+
     // Quota Cooldown Guard: Jangan pasang listener server jika cooldown masih aktif pasca-reload
     if (isBfaQuotaCooldownActive()) {
       const remaining = getBfaQuotaCooldownRemainingMinutes();
@@ -555,7 +584,7 @@ export default function App() {
     return () => {
       if (unsubStudents) unsubStudents();
     };
-  }, [currentUser?.role, currentUser?.studentId]);
+  }, [authState, currentUser, currentUser?.role, currentUser?.studentId]);
 
   // Tahap 2: Stabilkan rute invoice untuk mencegah siklus unmount/remount saat navigasi tab admin
   const isAdminInvoiceRoute = currentUser?.role === 'admin' && ['dashboard', 'keuangan', 'invoices', 'payment-verifications'].includes(currentRoute);
@@ -563,6 +592,11 @@ export default function App() {
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
+
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
 
     if (isAdminInvoiceRoute) {
       unsub = subscribeToInvoices(
@@ -597,11 +631,16 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [isAdminInvoiceRoute, isParentInvoiceRoute, activeParentStudent?.id]);
+  }, [authState, currentUser, isAdminInvoiceRoute, isParentInvoiceRoute, activeParentStudent?.id]);
 
   // Lifecycle-scoped listener for Cash Mutations: Active only when viewing dashboard route (AdminKeuanganView manages its own scoped listener & pagination)
   useEffect(() => {
     let unsub: (() => void) | undefined;
+
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
 
     if (currentUser?.role === 'admin' && currentRoute === 'dashboard') {
       unsub = subscribeToCashMutations((cloudMutations) => {
@@ -614,7 +653,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [currentUser?.role, currentRoute]);
+  }, [authState, currentUser, currentUser?.role, currentRoute]);
 
   // Tahap 2: Stabilkan rute absensi untuk mencegah remount berulang antara dashboard dan absensi
   const isAdminAttendanceRoute = currentUser?.role === 'admin' && ['dashboard', 'attendance', 'erapport', 'fingerprint'].includes(currentRoute);
@@ -622,6 +661,11 @@ export default function App() {
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
+
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
 
     if (isAdminAttendanceRoute) {
       const attendanceLimit = currentRoute === 'dashboard' ? 40 : 150;
@@ -660,11 +704,16 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [isAdminAttendanceRoute, isParentAttendanceRoute, activeParentStudent?.id, currentRoute === 'dashboard']);
+  }, [authState, currentUser, isAdminAttendanceRoute, isParentAttendanceRoute, activeParentStudent?.id, currentRoute === 'dashboard']);
 
   // Lifecycle-scoped listener for Student Reports: Active only when viewing E-Rapport routes
   useEffect(() => {
     let unsub: (() => void) | undefined;
+
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
 
     if (role === 'admin' && currentRoute === 'erapport') {
       unsub = subscribeToReports((cloudReports) => {
@@ -691,7 +740,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [role, currentRoute, activeParentStudent?.id]);
+  }, [authState, currentUser, role, currentRoute, activeParentStudent?.id]);
 
   // Payment Verification Requests State & Scoped Real-time Subscription (Limit 50, scoped to financial screens)
   const [paymentVerificationRequests, setPaymentVerificationRequests] = useState<PaymentVerificationRequest[]>([]);
@@ -701,6 +750,12 @@ export default function App() {
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
+
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
+
     if (isAdminVerificationRoute) {
       unsub = subscribeToPaymentVerificationRequests(
         (reqs) => {
@@ -734,7 +789,7 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [isAdminVerificationRoute, isParentVerificationRoute, activeParentStudent?.id]);
+  }, [authState, currentUser, isAdminVerificationRoute, isParentVerificationRoute, activeParentStudent?.id]);
 
   const pendingPaymentVerificationsCount = useMemo(() => {
     return paymentVerificationRequests.filter((r) => r.status === 'MENUNGGU_VERIFIKASI').length;
@@ -864,7 +919,7 @@ export default function App() {
   };
 
   // Auth Handlers
-  const handleLogin = (user: AuthUser) => {
+  const handleLogin = async (user: AuthUser, password?: string) => {
     // Strict registration verification for parent portal access
     if (user.role === 'parent' && user.studentId) {
       const targetStudent = students.find((s) => s.id === user.studentId);
@@ -880,7 +935,47 @@ export default function App() {
       }
     }
 
-    // Clear any temporary edit/detail/report states from previous accounts
+    // Authenticate through Firebase Auth Adapter when in emulator mode with provided password
+    if (resolvedEnv.isEmulator && password) {
+      try {
+        const session = await signInWithBfaAdapter({
+          identifier: user.studentId || user.emailOrPhone,
+          password,
+          role: user.role,
+          studentId: user.studentId,
+          studentName: user.studentName,
+          staffName: user.name,
+        });
+
+        // Clear any temporary edit/detail/report states from previous accounts
+        setStudentToEdit(null);
+        setStudentForDetail(null);
+        setEditingReportStudent(null);
+        setInvoiceForReceipt(null);
+        setCapturedCameraData(null);
+
+        setCurrentUser(session.authUser);
+        setRole(session.authUser.role);
+        setAuthState('authenticated');
+        try {
+          localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
+        } catch (e) {
+          console.error(e);
+        }
+        const nextRoute = session.authUser.role === 'admin' ? 'dashboard' : 'parent-dashboard';
+        setCurrentRoute(nextRoute);
+        try {
+          localStorage.setItem('bfa_current_route', nextRoute);
+        } catch {}
+        return;
+      } catch (err: any) {
+        console.error('[Auth Adapter] Sign-in failed:', err);
+        showToast(`Gagal login via Firebase Auth: ${err?.message || 'Kredensial tidak valid'}`, 'error');
+        return;
+      }
+    }
+
+    // Fallback if not running emulator
     setStudentToEdit(null);
     setStudentForDetail(null);
     setEditingReportStudent(null);
@@ -889,6 +984,7 @@ export default function App() {
 
     setCurrentUser(user);
     setRole(user.role);
+    setAuthState('authenticated');
     try {
       localStorage.setItem('bfa_auth_user', JSON.stringify(user));
     } catch (e) {
@@ -922,8 +1018,16 @@ export default function App() {
   }, [students, currentUser]);
 
   // Logout is the only official way to switch account / role as requested
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (resolvedEnv.isEmulator) {
+      try {
+        await signOutBfaAdapter();
+      } catch (e) {
+        console.warn('[Auth Adapter] Sign out notice:', e);
+      }
+    }
     setCurrentUser(null);
+    setAuthState('unauthenticated');
     setRole('admin');
     setRegisteredStudentId('');
     setStudentToEdit(null);
@@ -942,6 +1046,12 @@ export default function App() {
   };
 
   const handleNavigate = (route: RouteId) => {
+    // Route guard: akun orang tua tidak diizinkan membuka modul manajemen admin
+    if (currentUser?.role === 'parent' && !route.startsWith('parent-')) {
+      setCurrentRoute('parent-dashboard');
+      showToast('Akses ditolak: Portal Orang Tua tidak memiliki izin membuka modul manajemen admin.', 'warning');
+      return;
+    }
     setCurrentRoute(route);
     try {
       localStorage.setItem('bfa_current_route', route);
@@ -996,6 +1106,11 @@ export default function App() {
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
+
     if (isScheduleActive) {
       unsub = subscribeToSchedules(
         (cloudSchedules) => {
@@ -1014,10 +1129,15 @@ export default function App() {
     return () => {
       if (unsub) unsub();
     };
-  }, [isScheduleActive]);
+  }, [authState, currentUser, isScheduleActive]);
 
   // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
   useEffect(() => {
+    // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
+    if (authState !== 'authenticated' || !currentUser) {
+      return;
+    }
+
     if (role !== 'admin' || (currentRoute !== 'coaches' && !isCreateScheduleOpen)) {
       return;
     }
@@ -1050,7 +1170,7 @@ export default function App() {
     } catch (err) {
       console.warn('[Firestore] coaches subscription error:', err);
     }
-  }, [role, currentRoute, isCreateScheduleOpen]);
+  }, [authState, currentUser, role, currentRoute, isCreateScheduleOpen]);
 
   // Coach Management Handlers (Safety Guard: WRITE_ENABLED = false by default in Preview)
   const handleSaveCoach = async (coachData: Coach) => {
@@ -2605,24 +2725,44 @@ Official Performance Report • BFA Karawang
     }
   };
 
-  const handleResetStudentPassword = (studentId: string, newPass: string) => {
+  const handleSetStudentPasswordByAdmin = async (studentId: string, newPass: string): Promise<void> => {
+    const cleanPass = (newPass || '').trim();
+    if (!cleanPass || cleanPass.length < 6) {
+      throw new Error('Kata sandi baru minimal harus 6 karakter.');
+    }
+    const targetStudent = students.find((s) => s.id === studentId);
+    if (!targetStudent) {
+      throw new Error('Data siswa tidak ditemukan.');
+    }
+
+    const updatedStudent: Student = {
+      ...targetStudent,
+      customPassword: cleanPass,
+    };
+
+    // 1. Simpan ke Firestore terlebih dahulu (Database-first)
+    // Jika operasi database gagal, eksekusi terlempar ke catch dan tidak memalsukan keberhasilan
+    await saveStudentToFirestore(updatedStudent);
+
+    // 2. Hanya setelah Firestore berhasil: perbarui state lokal React dan cache
+    setStudents((prev) =>
+      prev.map((s) => (s.id === studentId ? updatedStudent : s))
+    );
+
+    if (studentForDetail && studentForDetail.id === studentId) {
+      setStudentForDetail(updatedStudent);
+    }
+
     try {
       const raw = localStorage.getItem('bfa_student_passwords');
       const map = raw ? JSON.parse(raw) : {};
-      map[studentId] = newPass;
+      map[studentId] = cleanPass;
       localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
     } catch {}
+  };
 
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s.id === studentId) {
-          const updated = { ...s, customPassword: newPass };
-          saveStudentToFirestore(updated).catch(() => {});
-          return updated;
-        }
-        return s;
-      })
-    );
+  const handleResetStudentPassword = async (studentId: string, newPass: string): Promise<void> => {
+    await handleSetStudentPasswordByAdmin(studentId, newPass);
   };
 
   const handleResetAdminPassword = (newPass: string) => {
@@ -2662,8 +2802,18 @@ Official Performance Report • BFA Karawang
     showToast(`✓ Berhasil beralih ke portal ananda ${targetStudent.name} (${targetStudent.id}).`, 'success');
   };
 
-  // If user is not logged in, render the Dedicated Login Page!
-  if (!currentUser) {
+  // 1. Initial Auth State Verification screen (Fail-closed loading indicator)
+  if (authState === 'checking') {
+    return (
+      <div className="min-h-screen bg-[#0A192F] flex flex-col items-center justify-center p-4">
+        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-white text-sm font-semibold tracking-wide">Memeriksa Sesi BFA HUB...</p>
+      </div>
+    );
+  }
+
+  // 2. If user is unauthenticated or has no valid session, render the Dedicated Login Page!
+  if (authState === 'unauthenticated' || !currentUser) {
     return (
       <>
         <LoginPage
@@ -2930,8 +3080,13 @@ Official Performance Report • BFA Karawang
                       onOpenDetailStudent={handleOpenDetail}
                       onSwitchStudent={handleSwitchStudent}
                       onUpdatePassword={async (studentId, currentPass, newPass) => {
-                        handleResetStudentPassword(studentId, newPass);
-                        return true;
+                        try {
+                          await handleSetStudentPasswordByAdmin(studentId, newPass);
+                          return true;
+                        } catch (err: any) {
+                          showToast(`Gagal mengubah kata sandi: ${err?.message || 'Gangguan koneksi database'}`, 'error');
+                          return false;
+                        }
                       }}
                       onShowToast={showToast}
                     />
@@ -3037,6 +3192,8 @@ Official Performance Report • BFA Karawang
         onArchive={role === 'admin' ? handleArchiveStudent : undefined}
         onReactivate={role === 'admin' ? handleReactivateStudent : undefined}
         onDelete={role === 'admin' ? handleDeleteStudent : undefined}
+        onSetCustomPassword={role === 'admin' ? handleSetStudentPasswordByAdmin : undefined}
+        onShowToast={showToast}
       />
 
       <EditReportModal

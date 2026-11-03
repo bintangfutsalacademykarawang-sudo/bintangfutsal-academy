@@ -1,28 +1,132 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // --- Helper Functions ---
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128;
     }
 
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        ('role' in request.auth.token && request.auth.token.role == 'admin') ||
+        ('admin' in request.auth.token && request.auth.token.admin == true)
+      );
+    }
+
+    function isCoach() {
+      return isAuthenticated() && (
+        ('role' in request.auth.token && request.auth.token.role == 'coach') ||
+        ('coach' in request.auth.token && request.auth.token.coach == true)
+      );
+    }
+
+    function isOwner(studentId) {
+      return isAuthenticated() && (
+        request.auth.uid == studentId ||
+        ('studentId' in request.auth.token && request.auth.token.studentId == studentId)
+      );
+    }
+
+    // 1. STUDENTS COLLECTION
     match /students/{studentId} {
-      allow read, write: if isValidId(studentId);
+      allow read: if isValidId(studentId) && (
+        isAdmin() || 
+        isCoach() || 
+        isOwner(studentId) || 
+        (isAuthenticated() && resource != null && 'userId' in resource.data && resource.data.userId == request.auth.uid)
+      );
+      allow create: if isValidId(studentId) && (
+        isAdmin() || 
+        (isAuthenticated() && (
+          isOwner(studentId) || 
+          ('userId' in request.resource.data && request.resource.data.userId == request.auth.uid)
+        ) && request.resource.data.registrationStatus == 'MENUNGGU_VERIFIKASI')
+      );
+      allow update, delete: if isValidId(studentId) && isAdmin();
     }
 
+    // 2. STUDENT REPORTS COLLECTION
     match /studentReports/{studentId} {
-      allow read, write: if isValidId(studentId);
+      allow read: if isValidId(studentId) && (
+        isAdmin() || 
+        isCoach() || 
+        isOwner(studentId) ||
+        (isAuthenticated() && resource != null && 'userId' in resource.data && resource.data.userId == request.auth.uid)
+      );
+      allow write: if isValidId(studentId) && (isAdmin() || isCoach());
     }
 
+    // 3. INVOICES COLLECTION
     match /invoices/{invoiceId} {
-      allow read, write: if isValidId(invoiceId);
+      allow read: if isValidId(invoiceId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isOwner(resource.data.studentId))
+      );
+      allow write: if isValidId(invoiceId) && isAdmin();
     }
 
+    // 4. INVOICE PAYMENTS COLLECTION
+    match /invoicePayments/{paymentId} {
+      allow read: if isValidId(paymentId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isOwner(resource.data.studentId))
+      );
+      allow write: if isValidId(paymentId) && isAdmin();
+    }
+
+    // 5. PAYMENT VERIFICATION REQUESTS COLLECTION
     match /paymentVerificationRequests/{requestId} {
-      allow read, write: if isValidId(requestId);
+      allow read: if isValidId(requestId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isOwner(resource.data.studentId))
+      );
+      allow create: if isValidId(requestId) && isAuthenticated() && (
+        isAdmin() || 
+        ('studentId' in request.resource.data && isOwner(request.resource.data.studentId))
+      );
+      allow update, delete: if isValidId(requestId) && isAdmin();
     }
 
+    // 6. ATTENDANCES COLLECTION
+    match /attendances/{attendanceId} {
+      allow read: if isValidId(attendanceId) && (
+        isAdmin() || 
+        isCoach() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isOwner(resource.data.studentId))
+      );
+      allow write: if isValidId(attendanceId) && (isAdmin() || isCoach());
+    }
+
+    // 7. TRAINING SCHEDULES COLLECTION (Public Read, Admin/Coach Write)
+    match /trainingSchedules/{scheduleId} {
+      allow read: if isValidId(scheduleId);
+      allow write: if isValidId(scheduleId) && (isAdmin() || isCoach());
+    }
+
+    // 8. COACHES COLLECTION (Public Read, Admin Write)
+    match /coaches/{coachId} {
+      allow read: if isValidId(coachId);
+      allow write: if isValidId(coachId) && isAdmin();
+    }
+
+    // 9. CASH MUTATIONS COLLECTION (Admin Only)
+    match /cashMutations/{mutationId} {
+      allow read, write: if isValidId(mutationId) && isAdmin();
+    }
+
+    // 10. SYSTEM COLLECTION (Admin Only)
+    match /system/{docId} {
+      allow read, write: if isValidId(docId) && isAdmin();
+    }
+
+    // DEFAULT DENY FOR ANY UNMATCHED COLLECTION
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

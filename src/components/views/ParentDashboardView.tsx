@@ -25,6 +25,7 @@ import { StudentBarcodeModal } from '../modals/StudentBarcodeModal';
 import { ChangePasswordModal } from '../modals/ChangePasswordModal';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
 import { normalizePhoneNumber, isValidIndonesianMobile } from '../../utils/phoneUtils';
+import { validateStudentPassword } from '../../utils/authUtils';
 
 interface ParentDashboardViewProps {
   student?: Student;
@@ -689,21 +690,20 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
               if (raw) savedCustomPasswords = JSON.parse(raw);
             } catch {}
 
-            const customPass = savedCustomPasswords[student.id] || student.customPassword;
-            const birthDateClean = (student.birthDate || '').replace(/\D/g, '');
-
-            const isCurrentValid = 
-              (customPass && currentPass.trim().toLowerCase() === customPass.toLowerCase()) ||
-              currentPass.trim().toLowerCase() === 'bfa123' ||
-              currentPass.trim().toLowerCase() === '123456' ||
-              currentPass.trim().toLowerCase() === 'admin123' ||
-              (birthDateClean && currentPass.trim() === birthDateClean);
-
-            if (!isCurrentValid) {
+            // Keamanan: HANYA menerima kata sandi khusus yang sah.
+            // Password universal (bfa123, 123456, admin123) dan tanggal lahir DITOLAK.
+            const validation = validateStudentPassword(student, currentPass, savedCustomPasswords);
+            if (!validation.isValid) {
               return false;
             }
 
-            // Save new password
+            // 1. Simpan ke database terlebih dahulu melalui handler induk (Database-First)
+            if (onUpdatePassword) {
+              const ok = await onUpdatePassword(studentId, currentPass, newPass);
+              if (ok === false) return false;
+            }
+
+            // 2. Hanya perbarui cache lokal setelah penyimpanan database berhasil
             try {
               const raw = localStorage.getItem('bfa_student_passwords');
               const map = raw ? JSON.parse(raw) : {};
@@ -711,9 +711,6 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
               localStorage.setItem('bfa_student_passwords', JSON.stringify(map));
             } catch {}
 
-            if (onUpdatePassword) {
-              await onUpdatePassword(studentId, currentPass, newPass);
-            }
             return true;
           }}
           onShowToast={(msg, type) => {

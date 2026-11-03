@@ -155,7 +155,7 @@ export const WhatsAppAccountNotificationModal: React.FC<WhatsAppAccountNotificat
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Pemberitahuan akun aktif, ID login, dan password awal kepada orang tua/wali.
+                Pemberitahuan akun aktif dan ID login resmi kepada orang tua/wali.
               </p>
             </div>
           </div>
@@ -215,7 +215,7 @@ export const WhatsAppAccountNotificationModal: React.FC<WhatsAppAccountNotificat
           <p className="text-[11px] text-amber-800 leading-relaxed space-y-1">
             • <strong>ID Login:</strong> <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-blue-900">{student.id}</code> atau Nomor WhatsApp <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-blue-900">{student.phone}</code>
             <br />
-            • <strong>Password:</strong> <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-amber-900">bfa123</code>
+            • <strong>Kata Sandi:</strong> Diatur secara resmi oleh Wali Siswa / Admin via menu Lupa Sandi (password universal bfa123 dinonaktifkan demi keamanan).
           </p>
         </div>
 

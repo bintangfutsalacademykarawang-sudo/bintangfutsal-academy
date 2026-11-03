@@ -16,11 +16,17 @@ import {
 import { BFALogo } from '../common/BFALogo';
 import { ForgotPasswordModal } from '../modals/ForgotPasswordModal';
 import { normalizePhoneNumber, isValidIndonesianMobile, isExactPhoneMatch } from '../../utils/phoneUtils';
-import { fetchSingleStudentById } from '../../firebase';
+import { 
+  fetchSingleStudentById, 
+  fetchStudentsByPhone, 
+  isFirestoreQuotaError, 
+  isFirestoreOfflineError 
+} from '../../firebase';
+import { validateStudentPassword } from '../../utils/authUtils';
 
 interface LoginPageProps {
   students: Student[];
-  onLogin: (user: AuthUser) => void;
+  onLogin: (user: AuthUser, password?: string) => void;
   onShowToast: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
   onOpenRegister?: () => void;
   prefilledIdentifier?: string;
@@ -63,10 +69,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [candidateStudents, setCandidateStudents] = useState<Student[]>([]);
   const [isSelectChildModalOpen, setIsSelectChildModalOpen] = useState(false);
+  const [isVerifyingParent, setIsVerifyingParent] = useState(false);
 
   // Handle Parent Login Submission
   const handleParentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isVerifyingParent) return;
     const rawInput = parentIdentifier.trim();
     const cleanPass = parentPassword.trim().toLowerCase();
 
@@ -96,14 +104,50 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       matchedByPhone = students.filter((s) => isExactPhoneMatch(s.phone, normalizedInput));
     }
 
-    // Fallback: If not in local cache and input resembles a student ID, query only that single document
-    if (matchedById.length === 0 && matchedByPhone.length === 0 && cleanIdInput.startsWith('BFA')) {
-      try {
-        const directStudent = await fetchSingleStudentById(cleanIdInput);
-        if (directStudent) {
-          matchedById = [directStudent];
+    // Fallback: If not in local cache, query single student document or matching phone records from Firestore
+    if (matchedById.length === 0 && matchedByPhone.length === 0) {
+      const isLikelyStudentId = cleanIdInput.startsWith('BFA') || /^BFA/i.test(rawInput) || /^\d{1,3}$/.test(rawInput);
+      const isLikelyMobile = isValidIndonesianMobile(normalizedInput);
+
+      if (isLikelyStudentId || isLikelyMobile) {
+        setIsVerifyingParent(true);
+        try {
+          if (isLikelyStudentId) {
+            const directStudent = await fetchSingleStudentById(rawInput);
+            if (directStudent) {
+              matchedById = [directStudent];
+            }
+          } else if (isLikelyMobile) {
+            const directStudents = await fetchStudentsByPhone(normalizedInput);
+            if (directStudents && directStudents.length > 0) {
+              matchedByPhone = directStudents;
+            }
+          }
+        } catch (fetchErr: any) {
+          setIsVerifyingParent(false);
+          if (isFirestoreQuotaError(fetchErr)) {
+            onShowToast(
+              'Batas kuota harian cloud (Firestore) sedang terlampaui. Silakan coba beberapa saat lagi atau hubungi Admin BFA.',
+              'warning'
+            );
+            return;
+          }
+          if (isFirestoreOfflineError(fetchErr)) {
+            onShowToast(
+              'Perangkat offline atau koneksi internet terputus. Pastikan perangkat terhubung ke internet dan coba lagi.',
+              'warning'
+            );
+            return;
+          }
+          onShowToast(
+            `Gagal memverifikasi akun ke database: ${fetchErr?.message || 'Gangguan koneksi'}. Silakan coba lagi.`,
+            'error'
+          );
+          return;
+        } finally {
+          setIsVerifyingParent(false);
         }
-      } catch {}
+      }
     }
 
     // Combine exact matches (ID takes priority if matched, otherwise Phone matches)
@@ -112,7 +156,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     if (matchedList.length === 0) {
       if (cloudSyncStatus?.isQuotaExhausted && cloudSyncStatus?.isPartialCache) {
         onShowToast(
-          'Data siswa belum tersinkronisasi lengkap dari Cloud karena batas kuota Firestore sedang terlampaui. Akun siswa #11 - #24 tetap tersimpan aman di database Cloud Firebase.',
+          'Data siswa belum tersinkronisasi lengkap dari Cloud karena batas kuota Firestore sedang terlampaui. Akun siswa tetap tersimpan aman di database Cloud Firebase.',
           'warning'
         );
       } else {
@@ -169,20 +213,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } catch {}
 
     const isStudentPasswordValid = (st: Student) => {
-      const customPass = savedCustomPasswords[st.id] || st.customPassword;
-      return (
-        (customPass && cleanPass === customPass.toLowerCase()) ||
-        cleanPass === 'bfa123' ||
-        cleanPass === '123456' ||
-        cleanPass === 'admin123' ||
-        cleanPass === (st.birthDate || '').replace(/\D/g, '')
-      );
+      const res = validateStudentPassword(st, cleanPass, savedCustomPasswords);
+      return res.isValid;
     };
 
     const validStudents = eligibleStudents.filter(isStudentPasswordValid);
 
     if (validStudents.length === 0) {
-      onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
+      const hasUnset = eligibleStudents.some((st) => {
+        const res = validateStudentPassword(st, cleanPass, savedCustomPasswords);
+        return res.reason === 'NO_CUSTOM_PASSWORD';
+      });
+
+      if (hasUnset) {
+        onShowToast(
+          'Akun belum memiliki kata sandi khusus atau kata sandi yang dimasukkan salah. Silakan klik "Bantuan / Lupa Password?" untuk panduan aktivasi/reset kata sandi melalui Admin BFA.',
+          'error'
+        );
+      } else {
+        onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
+      }
       return;
     }
 
@@ -201,7 +251,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         emailOrPhone: target.phone,
         studentId: target.id,
         studentName: target.name,
-      });
+      }, cleanPass);
       onShowToast(`Selamat datang, ${target.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${target.name}.`, 'success');
       return;
     }
@@ -231,7 +281,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       emailOrPhone: child.phone,
       studentId: child.id,
       studentName: child.name,
-    });
+    }, parentPassword.trim().toLowerCase());
     onShowToast(`Selamat datang, ${child.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${child.name}.`, 'success');
   };
 
@@ -255,7 +305,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       customAdminPass = localStorage.getItem('bfa_custom_admin_password') || '';
     } catch {}
 
-    const isPassCorrect = pass === 'adminbfa' || (customAdminPass && pass === customAdminPass);
+    // Keamanan: Jika admin telah menyetel customAdminPass, password bawaan 'adminbfa' DITOLAK
+    // dan HANYA customAdminPass yang diterima. Password bawaan hanya berlaku sebelum password kustom disetel.
+    const isPassCorrect = customAdminPass ? pass === customAdminPass : pass === 'adminbfa';
     const isAccountAdmin = user.toLowerCase() === 'admin' && isPassCorrect;
     const isAccountEdySun = user.toLowerCase() === 'edysun' && isPassCorrect;
 
@@ -266,7 +318,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         role: 'admin',
         name: staffName,
         emailOrPhone: staffEmail,
-      });
+      }, pass);
       onShowToast(`Selamat datang, ${staffName}! Berhasil masuk ke portal manajemen BFA.`, 'success');
     } else {
       onShowToast('Username atau Password Admin salah. Silakan periksa kembali data login Anda atau klik "Lupa Password?".', 'error');
@@ -447,10 +499,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl text-xs shadow-md shadow-orange-500/25 transition active:scale-95 flex items-center justify-center space-x-2 tracking-wide"
+                disabled={isVerifyingParent}
+                className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl text-xs shadow-md shadow-orange-500/25 transition active:scale-95 flex items-center justify-center space-x-2 tracking-wide disabled:opacity-75 disabled:cursor-not-allowed"
               >
-                <span>MASUK SEBAGAI ORANG TUA</span>
-                <ArrowRight className="w-4 h-4" />
+                {isVerifyingParent ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>MEMERIKSA DATABASE CLOUD...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>MASUK SEBAGAI ORANG TUA</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
 
               {onOpenRegister && (

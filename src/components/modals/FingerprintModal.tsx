@@ -20,6 +20,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import jsQR from 'jsqr';
+import { isFirestoreQuotaError, isFirestoreOfflineError } from '../../firebase';
 
 interface FingerprintModalProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ interface FingerprintModalProps {
   schedules?: TrainingSchedule[];
   initialScheduleId?: string;
   onClose: () => void;
-  onSubmit: (studentId: string, date: string, time: string, status: 'HADIR' | 'TIDAK_HADIR') => void;
+  onSubmit: (studentId: string, date: string, time: string, status: 'HADIR' | 'TIDAK_HADIR') => Promise<any> | void;
 }
 
 export const FingerprintModal: React.FC<FingerprintModalProps> = ({
@@ -42,8 +43,12 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
   const [selectedScheduleId, setSelectedScheduleId] = useState(initialScheduleId || (schedules[0]?.id || ''));
   const activeSchedule = schedules.find((s) => s.id === selectedScheduleId);
 
-  const [date, setDate] = useState(() => activeSchedule?.date || '2026-10-02');
-  const [time, setTime] = useState(() => activeSchedule?.startTime || '14:02:15');
+  const [date, setDate] = useState(() => activeSchedule?.date || new Date().toISOString().split('T')[0]);
+  const [time, setTime] = useState(() => {
+    if (activeSchedule?.startTime) return activeSchedule.startTime;
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  });
   const [status, setStatus] = useState<'HADIR' | 'TIDAK_HADIR'>('HADIR');
 
   const activeStudentsList = students.filter((s) => s.status === 'Aktif');
@@ -59,6 +64,14 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const [scanSuccessAnim, setScanSuccessAnim] = useState(false);
+  const [isSubmittingScan, setIsSubmittingScan] = useState(false);
+  const [submittingStudentName, setSubmittingStudentName] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [failedStudent, setFailedStudent] = useState<Student | null>(null);
+
+  // Fingerprint manual state
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   
   // Camera States
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -96,7 +109,12 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
       setBarcodeInput('');
       setScannedStudent(null);
       setScanSuccessAnim(false);
+      setScanError(null);
+      setFailedStudent(null);
+      setIsSubmittingScan(false);
+      setManualError(null);
       setCameraError(null);
+      isCooldownRef.current = false;
       setTimeout(() => {
         barcodeInputRef.current?.focus();
       }, 150);
@@ -204,25 +222,72 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
     } catch {}
   };
 
-  const triggerScanSuccess = useCallback((st: Student) => {
+  // Play an alert tone when saving fails
+  const playErrorTone = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.28);
+    } catch {}
+  };
+
+  const triggerScanSuccess = useCallback(async (st: Student) => {
     if (isCooldownRef.current) return;
     isCooldownRef.current = true;
 
-    playBeep();
-    setScannedStudent(st);
-    setScanSuccessAnim(true);
-    
-    // Auto-record attendance for scanned student
+    setIsSubmittingScan(true);
+    setSubmittingStudentName(st.name);
+    setScanError(null);
+    setFailedStudent(null);
+
     const now = new Date();
     const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    onSubmit(st.id, date, currentTimeStr, 'HADIR');
 
-    setTimeout(() => {
+    try {
+      // 1. Await database save first
+      await onSubmit(st.id, date, currentTimeStr, 'HADIR');
+
+      // 2. ONLY upon successful database save: trigger audio and visual success feedback
+      playBeep();
+      setScannedStudent(st);
+      setScanSuccessAnim(true);
+      setScanError(null);
+      setFailedStudent(null);
+
+      setTimeout(() => {
+        setScanSuccessAnim(false);
+        setBarcodeInput('');
+        isCooldownRef.current = false;
+        barcodeInputRef.current?.focus();
+      }, 2200);
+    } catch (err: any) {
+      // 3. On failure: play error tone, do NOT show false green checkmark, show clear error with retry
+      playErrorTone();
+      setScannedStudent(null);
       setScanSuccessAnim(false);
-      setBarcodeInput('');
+      setFailedStudent(st);
+
+      const isQuota = isFirestoreQuotaError(err);
+      const isOffline = isFirestoreOfflineError(err);
+      if (isQuota) {
+        setScanError(`Presensi ${st.name} GAGAL: Kuota harian Firestore terlampaui. Data tidak dapat disimpan ke server.`);
+      } else if (isOffline) {
+        setScanError(`Presensi ${st.name} GAGAL: Perangkat offline atau koneksi internet terputus.`);
+      } else {
+        setScanError(`Presensi ${st.name} GAGAL tersimpan: ${err?.message || 'Kesalahan sistem saat menyimpan ke server.'}`);
+      }
       isCooldownRef.current = false;
-      barcodeInputRef.current?.focus();
-    }, 2200);
+    } finally {
+      setIsSubmittingScan(false);
+      setSubmittingStudentName(null);
+    }
   }, [date, onSubmit]);
 
   // Handle scanned raw text (from camera or barcode gun)
@@ -346,11 +411,30 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
     }
   };
 
-  const handleFingerprintSubmit = (e: React.FormEvent) => {
+  const handleFingerprintSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    playBeep();
-    onSubmit(selectedStudentId, date, time, status);
-    onClose();
+    if (isSubmittingManual) return;
+    setIsSubmittingManual(true);
+    setManualError(null);
+
+    try {
+      await onSubmit(selectedStudentId, date, time, status);
+      playBeep();
+      onClose();
+    } catch (err: any) {
+      playErrorTone();
+      const isQuota = isFirestoreQuotaError(err);
+      const isOffline = isFirestoreOfflineError(err);
+      if (isQuota) {
+        setManualError('Gagal menyimpan presensi: Kuota harian Firestore terlampaui. Data tidak dapat disimpan ke server.');
+      } else if (isOffline) {
+        setManualError('Gagal menyimpan presensi: Perangkat offline atau koneksi internet terputus.');
+      } else {
+        setManualError(`Gagal menyimpan presensi: ${err?.message || 'Terjadi kesalahan sistem'}`);
+      }
+    } finally {
+      setIsSubmittingManual(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -543,8 +627,57 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
               )}
             </div>
 
-            {/* Scan Success Popup Banner */}
-            {scannedStudent && (
+            {/* 1. Submitting to Cloud Status Banner */}
+            {isSubmittingScan && (
+              <div className="p-3.5 rounded-2xl border bg-blue-50 border-blue-200 flex items-center gap-3 animate-pulse">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
+                <div className="overflow-hidden">
+                  <p className="text-xs font-bold text-blue-900">
+                    Menyimpan Presensi ke Firestore...
+                  </p>
+                  <p className="text-[10px] text-blue-700 truncate">
+                    Memverifikasi ananda {submittingStudentName || 'siswa'} ke cloud database
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 2. Scan Error Banner with Retry */}
+            {scanError && (
+              <div className="p-3.5 rounded-2xl border bg-rose-50 border-rose-300 flex items-start justify-between gap-3 text-rose-900">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-black uppercase text-rose-800">Presensi Gagal Tersimpan</p>
+                    <p className="text-[11px] font-medium text-rose-700 mt-0.5">{scanError}</p>
+                    {failedStudent && (
+                      <button
+                        type="button"
+                        onClick={() => triggerScanSuccess(failedStudent)}
+                        className="mt-2 px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs transition active:scale-95 flex items-center gap-1.5"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Coba Simpan Ulang ({failedStudent.name})</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScanError(null);
+                    setFailedStudent(null);
+                    barcodeInputRef.current?.focus();
+                  }}
+                  className="text-rose-400 hover:text-rose-700 p-1 rounded-lg"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* 3. Confirmed Scan Success Popup Banner (ONLY after Firestore save succeeds!) */}
+            {!isSubmittingScan && !scanError && scannedStudent && (
               <div
                 className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all duration-300 ${
                   scanSuccessAnim
@@ -735,13 +868,30 @@ export const FingerprintModal: React.FC<FingerprintModalProps> = ({
               </div>
             </div>
 
+            {manualError && (
+              <div className="p-3 rounded-xl border bg-rose-50 border-rose-300 text-rose-800 text-xs flex items-center gap-2 font-medium">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{manualError}</span>
+              </div>
+            )}
+
             <div className="pt-2">
               <button
                 type="submit"
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-500/20 active:scale-95 transition flex items-center justify-center gap-1.5"
+                disabled={isSubmittingManual}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs shadow-md shadow-blue-500/20 active:scale-95 transition flex items-center justify-center gap-1.5 disabled:opacity-75 disabled:cursor-not-allowed"
               >
-                <Fingerprint className="w-4 h-4" />
-                <span>TAP SENSOR BIOMETRIK SEKARANG</span>
+                {isSubmittingManual ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>MENYIMPAN KE FIRESTORE...</span>
+                  </>
+                ) : (
+                  <>
+                    <Fingerprint className="w-4 h-4" />
+                    <span>TAP SENSOR BIOMETRIK SEKARANG</span>
+                  </>
+                )}
               </button>
             </div>
           </form>

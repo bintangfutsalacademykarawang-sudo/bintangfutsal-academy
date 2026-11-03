@@ -4,11 +4,18 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "dev": "tsx server.ts",
+    "dev:emulator": "vite --mode emulator --port=3000 --host=0.0.0.0",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --target=node20 --outfile=server.js --external:express --external:vite",
+    "build:staging": "vite build --mode staging",
+    "start": "node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "NODE_ENV=test tsx tests/env-guard.test.ts && NODE_ENV=test tsx tests/attendance_and_login.test.ts",
+    "test:staging": "npx tsx tests/staging-backend.test.ts && npx tsx tests/frontend-backend-integration.test.ts",
+    "test:emulator": "tsx tests/emulator-synthetic.test.ts",
+    "emulators:start": "firebase emulators:start --only auth,firestore"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -35,8 +42,11 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/supertest": "^7.2.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "firebase-admin": "^13.1.0",
+    "supertest": "^7.3.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

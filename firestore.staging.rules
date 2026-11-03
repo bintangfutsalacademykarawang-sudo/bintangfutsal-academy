@@ -1,0 +1,171 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // BFA HUB — FIRESTORE SECURITY RULES (STAGING ENVIRONMENT)
+    // Mode: ZERO-TRUST · LEAST PRIVILEGE · RBAC VIA CUSTOM CLAIMS
+    // Target Project: bfa-hub-staging (Database: (default))
+    // CATATAN: DILARANG MENGGUNAKAN WILDCARD PERMISSIVE (allow read, write: if true;)
+    // =========================================================================
+
+    // --- Helper Functions ---
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Validasi Integritas Waktu & Sesi
+    function tokenTimestampValid() {
+      return isAuthenticated() && 
+             request.auth.token.auth_time is int && 
+             request.auth.token.auth_time > 0;
+    }
+
+    function isAdmin() {
+      return tokenTimestampValid() && (
+        ('role' in request.auth.token && request.auth.token.role == 'admin') ||
+        ('admin' in request.auth.token && request.auth.token.admin == true)
+      );
+    }
+
+    function isCoach() {
+      return tokenTimestampValid() && (
+        ('role' in request.auth.token && request.auth.token.role == 'coach') ||
+        ('coach' in request.auth.token && request.auth.token.coach == true)
+      );
+    }
+
+    function isParent() {
+      return tokenTimestampValid() && (
+        ('role' in request.auth.token && request.auth.token.role == 'parent') ||
+        ('parent' in request.auth.token && request.auth.token.parent == true)
+      );
+    }
+
+    function isParentOfStudent(studentId) {
+      return tokenTimestampValid() && (
+        request.auth.uid == studentId ||
+        ('studentId' in request.auth.token && request.auth.token.studentId == studentId) ||
+        ('studentIds' in request.auth.token && studentId in request.auth.token.studentIds)
+      );
+    }
+
+    // 1. STUDENTS COLLECTION
+    match /students/{studentId} {
+      // Coach hanya dapat membaca profil operasional, Parent membaca anak sendiri, Admin membaca semua
+      allow read: if isValidId(studentId) && (
+        isAdmin() || 
+        isCoach() || 
+        isParentOfStudent(studentId)
+      );
+
+      // Mutasi profil hanya diizinkan untuk Admin atau melalui Trusted Backend
+      allow create: if isValidId(studentId) && (
+        isAdmin() ||
+        (isAuthenticated() && 
+         isParentOfStudent(studentId) && 
+         request.resource.data.registrationStatus == 'MENUNGGU_VERIFIKASI')
+      );
+
+      allow update, delete: if isValidId(studentId) && isAdmin();
+
+      // Sub-koleksi data privat: dokumen identitas (KK, Akte, NIK) terisolasi dari Coach
+      match /private/{docId} {
+        allow read: if isValidId(docId) && (
+          isAdmin() || 
+          isParentOfStudent(studentId)
+        );
+        allow write: if isValidId(docId) && isAdmin();
+      }
+    }
+
+    // 2. STUDENT REPORTS (E-RAPOR)
+    match /studentReports/{studentId} {
+      allow read: if isValidId(studentId) && (
+        isAdmin() || 
+        isCoach() || 
+        isParentOfStudent(studentId)
+      );
+      allow write: if isValidId(studentId) && (isAdmin() || isCoach());
+    }
+
+    // 3. INVOICES COLLECTION (FINANSIAL SENSITIF)
+    match /invoices/{invoiceId} {
+      allow read: if isValidId(invoiceId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isParentOfStudent(resource.data.studentId))
+      );
+      // Mutasi finansial dilarang dilakukan browser non-admin; dipercayakan ke Trusted Backend
+      allow write: if isValidId(invoiceId) && isAdmin();
+    }
+
+    // 4. INVOICE PAYMENTS COLLECTION (BUKTI PEMBAYARAN)
+    match /invoicePayments/{paymentId} {
+      allow read: if isValidId(paymentId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isParentOfStudent(resource.data.studentId))
+      );
+      allow write: if isValidId(paymentId) && isAdmin();
+    }
+
+    // 5. PAYMENT VERIFICATION REQUESTS (KONFIRMASI PEMBAYARAN PARENT)
+    match /paymentVerificationRequests/{requestId} {
+      allow read: if isValidId(requestId) && (
+        isAdmin() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isParentOfStudent(resource.data.studentId))
+      );
+      allow create: if isValidId(requestId) && isAuthenticated() && (
+        isAdmin() || 
+        ('studentId' in request.resource.data && 
+         isParentOfStudent(request.resource.data.studentId) && 
+         request.resource.data.status == 'MENUNGGU_VERIFIKASI')
+      );
+      allow update, delete: if isValidId(requestId) && isAdmin();
+    }
+
+    // 6. ATTENDANCES (PRESENSI)
+    match /attendances/{attendanceId} {
+      allow read: if isValidId(attendanceId) && (
+        isAdmin() || 
+        isCoach() || 
+        (isAuthenticated() && resource != null && 'studentId' in resource.data && isParentOfStudent(resource.data.studentId))
+      );
+      allow create: if isValidId(attendanceId) && (isAdmin() || isCoach());
+      allow update, delete: if isValidId(attendanceId) && isAdmin();
+    }
+
+    // 7. TRAINING SCHEDULES (JADWAL LATIHAN)
+    match /trainingSchedules/{scheduleId} {
+      allow read: if isValidId(scheduleId);
+      allow write: if isValidId(scheduleId) && (isAdmin() || isCoach());
+    }
+
+    // 8. COACHES (PROFIL PELATIH)
+    match /coaches/{coachId} {
+      allow read: if isValidId(coachId);
+      allow write: if isValidId(coachId) && isAdmin();
+    }
+
+    // 9. CASH MUTATIONS (BUKU KAS UTAMA - SANGAT RAHASIA)
+    match /cashMutations/{mutationId} {
+      allow read, write: if isValidId(mutationId) && isAdmin();
+    }
+
+    // 10. SYSTEM CONFIGURATION & ATOMIC COUNTERS
+    match /system/{docId} {
+      allow read, write: if isValidId(docId) && isAdmin();
+    }
+
+    // =========================================================================
+    // STRICT FAIL-CLOSED DEFAULT DENY
+    // Seluruh koleksi atau jalur tak terdefinisi diblokir secara mutlak
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

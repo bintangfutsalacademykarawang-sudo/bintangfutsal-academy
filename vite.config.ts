@@ -1,11 +1,24 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
+import { createBackendRouter } from './src/server/backendRouter';
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'bfa-backend-api-middleware',
+        configureServer(server) {
+          const router = createBackendRouter({ env: 'staging' });
+          server.middlewares.use('/api', (req: any, res: any, next: any) => {
+            router(req, res, next);
+          });
+        }
+      }
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

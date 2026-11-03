@@ -108,7 +108,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
           {/* Current Password */}
           <div className="space-y-1">
             <label className="block font-bold text-slate-700">
-              Password Saat Ini (atau Tanggal Lahir / bfa123):
+              Password Saat Ini:
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />

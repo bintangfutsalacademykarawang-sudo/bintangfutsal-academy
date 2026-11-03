@@ -1,8 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { 
   getFirestore, 
   initializeFirestore,
+  connectFirestoreEmulator,
   persistentLocalCache,
   persistentMultipleTabManager,
   memoryLocalCache,
@@ -36,21 +37,129 @@ import {
   InvoicePayment,
   PaymentVerificationRequest 
 } from '../types';
+import { normalizePhoneNumber, isValidIndonesianMobile, isExactPhoneMatch } from '../utils/phoneUtils';
 
-// Determine environment based on Vite environment variable or runtime flag
-const useStaging = typeof import.meta !== 'undefined' && (import.meta.env?.VITE_USE_STAGING === 'true' || import.meta.env?.VITE_FIREBASE_PROJECT_ID === 'bfa-hub-staging');
+export const emulatorConfig = {
+  projectId: 'demo-bfa-hub',
+  appId: '1:000000000000:web:emulator00000000',
+  apiKey: 'demo-api-key-for-emulator',
+  authDomain: 'demo-bfa-hub.firebaseapp.com',
+  firestoreDatabaseId: '(default)',
+  storageBucket: 'demo-bfa-hub.firebasestorage.app',
+  messagingSenderId: '000000000000',
+  measurementId: '',
+  oAuthClientId: '',
+  recaptchaSiteKey: '',
+};
 
-let activeConfig: any = prodConfig;
+export type FirebaseTargetEnv = 'emulator' | 'staging' | 'production';
 
-if (useStaging) {
-  if (!stagingConfig || !stagingConfig.projectId || stagingConfig.projectId !== 'bfa-hub-staging') {
-    throw new Error('[Firebase Init] FATAL: Staging configuration is missing or invalid! Refusing to fallback to production.');
-  }
-  activeConfig = stagingConfig;
-  console.info('[Firebase Init] Running in STAGING mode with project:', activeConfig.projectId);
-} else {
-  console.info('[Firebase Init] Running in PRODUCTION mode with project:', activeConfig.projectId);
+export interface FirebaseEnvResolution {
+  target: FirebaseTargetEnv;
+  config: any;
+  isEmulator: boolean;
+  isStaging: boolean;
+  isProduction: boolean;
+  emulatorHost: string;
+  emulatorFirestorePort: number;
+  emulatorAuthPort: number;
 }
+
+/**
+ * Resolves Firebase environment deterministically and enforces FAIL-CLOSED production isolation.
+ * Prevents unconfigured local development from accidentally connecting to production Firebase.
+ */
+export function resolveFirebaseEnvironment(envSource?: any): FirebaseEnvResolution {
+  const env = envSource || (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : (typeof process !== 'undefined' ? process.env : {}));
+
+  const mode = env.MODE || (env.NODE_ENV !== undefined ? env.NODE_ENV : (!envSource && typeof process !== 'undefined' ? process.env.NODE_ENV : undefined)) || 'development';
+  const isDev = env.DEV === true || mode === 'development';
+  const isProdMode = env.PROD === true || mode === 'production';
+
+  const useEmulatorFlag = env.VITE_USE_EMULATOR === 'true' || env.VITE_FIREBASE_ENV === 'emulator' || mode === 'emulator' || env.VITE_FIREBASE_PROJECT_ID === 'demo-bfa-hub';
+  const useStagingFlag = env.VITE_USE_STAGING === 'true' || env.VITE_FIREBASE_ENV === 'staging' || mode === 'staging' || env.VITE_FIREBASE_PROJECT_ID === 'bfa-hub-staging';
+  const useProdExplicitFlag = env.VITE_FIREBASE_ENV === 'production' || env.VITE_ALLOW_PROD_IN_DEV === 'true' || env.VITE_FIREBASE_PROJECT_ID === 'future-wonder-jwh4c';
+
+  // 1. Emulator Target (Explicit)
+  if (useEmulatorFlag) {
+    const host = env.VITE_EMULATOR_HOST || '127.0.0.1';
+    const firestorePort = Number(env.VITE_EMULATOR_FIRESTORE_PORT) || 8080;
+    const authPort = Number(env.VITE_EMULATOR_AUTH_PORT) || 9099;
+    return {
+      target: 'emulator',
+      config: emulatorConfig,
+      isEmulator: true,
+      isStaging: false,
+      isProduction: false,
+      emulatorHost: host,
+      emulatorFirestorePort: firestorePort,
+      emulatorAuthPort: authPort,
+    };
+  }
+
+  // 2. Staging Target (Explicit)
+  if (useStagingFlag) {
+    const activeStagingConfig = env.customStagingConfig !== undefined ? env.customStagingConfig : stagingConfig;
+    if (!activeStagingConfig || !activeStagingConfig.projectId || activeStagingConfig.projectId !== 'bfa-hub-staging') {
+      throw new Error('[Firebase Guard] FATAL: Staging configuration is missing or invalid! Refusing to fallback to production.');
+    }
+    return {
+      target: 'staging',
+      config: activeStagingConfig,
+      isEmulator: false,
+      isStaging: true,
+      isProduction: false,
+      emulatorHost: '127.0.0.1',
+      emulatorFirestorePort: 8080,
+      emulatorAuthPort: 9099,
+    };
+  }
+
+  // 3. Production Target (Explicit Production Build or Explicit Dev Flag)
+  if (isProdMode || useProdExplicitFlag) {
+    if (!prodConfig || !prodConfig.projectId || prodConfig.projectId !== 'future-wonder-jwh4c') {
+      throw new Error('[Firebase Guard] FATAL: Production configuration is missing or corrupted!');
+    }
+    return {
+      target: 'production',
+      config: prodConfig,
+      isEmulator: false,
+      isStaging: false,
+      isProduction: true,
+      emulatorHost: '127.0.0.1',
+      emulatorFirestorePort: 8080,
+      emulatorAuthPort: 9099,
+    };
+  }
+
+  // 4. Test Environment Safe Isolation Default
+  const isTestMode = mode === 'test' || env.NODE_ENV === 'test' || (!envSource && typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
+  if (isTestMode) {
+    return {
+      target: 'emulator',
+      config: emulatorConfig,
+      isEmulator: true,
+      isStaging: false,
+      isProduction: false,
+      emulatorHost: '127.0.0.1',
+      emulatorFirestorePort: 8080,
+      emulatorAuthPort: 9099,
+    };
+  }
+
+  // 5. FAIL-CLOSED GUARD: Development without explicit configuration is strictly refused
+  throw new Error(
+    '[Firebase Guard] FAIL-CLOSED: Refusing to connect to production Firebase from an unconfigured development environment.\n' +
+    'To connect locally, run "npm run dev:emulator" or set VITE_USE_EMULATOR=true in your .env file.\n' +
+    'To use staging, set VITE_USE_STAGING=true or run "npm run build:staging".\n' +
+    'To connect to production in development, set VITE_ALLOW_PROD_IN_DEV=true or VITE_FIREBASE_ENV=production.'
+  );
+}
+
+
+// Execute deterministic resolution
+export const resolvedEnv = resolveFirebaseEnvironment();
+export const activeConfig: any = resolvedEnv.config;
 
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
@@ -61,7 +170,7 @@ export const auth = getAuth(app);
 // Initialize Firestore with configured databaseId and robust offline caching
 // Safe fallback for InPrivate/Incognito where IndexedDB may be blocked or restricted
 function initFirestoreInstance() {
-  const dbId = (activeConfig as any).firestoreDatabaseId;
+  const dbId = resolvedEnv.isEmulator ? undefined : (activeConfig as any).firestoreDatabaseId;
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
@@ -81,6 +190,26 @@ function initFirestoreInstance() {
 }
 
 export const db = initFirestoreInstance();
+
+// Connect emulators if in emulator mode (guarded against duplicate connects in HMR/re-runs)
+if (resolvedEnv.isEmulator) {
+  const g = globalThis as any;
+  if (!g.__bfa_emulator_connected__) {
+    try {
+      connectFirestoreEmulator(db, resolvedEnv.emulatorHost, resolvedEnv.emulatorFirestorePort);
+      connectAuthEmulator(auth, `http://${resolvedEnv.emulatorHost}:${resolvedEnv.emulatorAuthPort}`, { disableWarnings: true });
+      g.__bfa_emulator_connected__ = true;
+      console.info(`[Firebase Init] Connected to LOCAL EMULATORS (Firestore: ${resolvedEnv.emulatorHost}:${resolvedEnv.emulatorFirestorePort}, Auth: ${resolvedEnv.emulatorHost}:${resolvedEnv.emulatorAuthPort})`);
+    } catch (e: any) {
+      console.warn('[Firebase Init] Emulator connection notice:', e?.message || e);
+    }
+  }
+} else if (resolvedEnv.isStaging) {
+  console.info('[Firebase Init] Running in STAGING mode with project:', activeConfig.projectId);
+} else {
+  console.info('[Firebase Init] Running in PRODUCTION mode with project:', activeConfig.projectId);
+}
+
 
 // Diagnostic metadata structure
 export interface FirestoreDiagnosticInfo {
@@ -654,20 +783,108 @@ export function subscribeToStudentDoc(
 /**
  * Single document fetch with cache-first strategy.
  * Costs only 1 read (or 0 if already in local cache) instead of reading the entire collection.
+ * Tolerates various Student ID formats (e.g. 'BFA-001', 'bfa-001', 'BFA001', 'bfa 001', '001', '1').
+ * Propagates quota and offline errors so callers can inform the user accurately.
  */
 export async function fetchSingleStudentById(studentId: string): Promise<Student | null> {
-  if (!studentId || !studentId.trim()) return null;
-  try {
-    const docRef = doc(db, STUDENTS_COLLECTION, studentId.trim());
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      return snap.data() as Student;
+  if (!studentId || typeof studentId !== 'string' || !studentId.trim()) return null;
+  const rawClean = studentId.trim();
+  const upper = rawClean.toUpperCase();
+  const digitsOnly = upper.replace(/[\s-]/g, '');
+  
+  // Format standard BFA-XXX ID
+  const candidateIds: string[] = [];
+  const bfaMatch = digitsOnly.match(/^BFA(\d+)$/);
+  const plainNumMatch = digitsOnly.match(/^(\d{1,3})$/);
+
+  if (bfaMatch) {
+    candidateIds.push(`BFA-${bfaMatch[1].padStart(3, '0')}`);
+  } else if (plainNumMatch) {
+    candidateIds.push(`BFA-${plainNumMatch[1].padStart(3, '0')}`);
+  }
+
+  if (!candidateIds.includes(upper)) candidateIds.push(upper);
+  if (!candidateIds.includes(rawClean)) candidateIds.push(rawClean);
+
+  let lastError: any = null;
+  for (const cid of candidateIds) {
+    try {
+      const docRef = doc(db, STUDENTS_COLLECTION, cid);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data() as Student;
+      }
+    } catch (err: any) {
+      lastError = err;
+      if (isFirestoreQuotaError(err) || isFirestoreOfflineError(err)) {
+        throw err;
+      }
     }
-  } catch (err) {
-    console.warn('[Firestore] fetchSingleStudentById notice:', err);
+  }
+
+  if (lastError) {
+    throw lastError;
   }
   return null;
 }
+
+/**
+ * Targeted query for students matching a parent's registered WhatsApp phone number.
+ * Costs only the number of matching documents (typically 1 or 2 reads for siblings, 0 if not found).
+ * Matches across phone formatting variants (+628..., 628..., 08..., dashes, spaces).
+ * Propagates quota and offline errors so callers can display proper status to the user.
+ */
+export async function fetchStudentsByPhone(phone: string): Promise<Student[]> {
+  if (!phone || typeof phone !== 'string' || !phone.trim()) return [];
+  const normalized = normalizePhoneNumber(phone);
+  if (!isValidIndonesianMobile(normalized)) return [];
+
+  // Generate phone search variants
+  const rawTrimmed = phone.trim();
+  const variantsSet = new Set<string>();
+  variantsSet.add(normalized); // '081234567890'
+  variantsSet.add(rawTrimmed);
+  
+  if (normalized.startsWith('08')) {
+    const rest = normalized.slice(2);
+    variantsSet.add(`628${rest}`);
+    variantsSet.add(`+628${rest}`);
+    variantsSet.add(`8${rest}`);
+    variantsSet.add(`+62 8${rest}`);
+    variantsSet.add(`+62 8${rest.slice(0, 3)}-${rest.slice(3)}`);
+    if (rest.length >= 8) {
+      const p1 = rest.slice(0, 2);
+      const p2 = rest.slice(2, 6);
+      const p3 = rest.slice(6);
+      variantsSet.add(`08${p1}-${p2}-${p3}`);
+      variantsSet.add(`08${p1} ${p2} ${p3}`);
+    }
+  }
+
+  const variants = Array.from(variantsSet).filter(Boolean).slice(0, 30);
+  try {
+    const q = query(
+      collection(db, STUDENTS_COLLECTION),
+      where('phone', 'in', variants),
+      limit(10)
+    );
+
+    const snap = await getDocs(q);
+    const matched: Student[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data() as Student;
+      if (isExactPhoneMatch(data.phone, normalized)) {
+        matched.push(data);
+      }
+    });
+
+    return matched;
+  } catch (err: any) {
+    console.warn('[Firestore] fetchStudentsByPhone notice:', err);
+    throw err;
+  }
+}
+
 
 // --- REPORT OPERATIONS ---
 export async function saveReportToFirestore(

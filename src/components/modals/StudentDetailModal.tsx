@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Student, SkillIndicator, Invoice, Attendance } from '../../types';
 import { formatDateIndo, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
-import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Archive, RotateCcw, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Edit3, CheckCircle2, FileText, QrCode, Printer, ShieldCheck, Sparkles, User, Archive, RotateCcw, Trash2, AlertTriangle, KeyRound } from 'lucide-react';
 import { BarcodeDisplay } from '../common/BarcodeDisplay';
 import { StudentBarcodeModal } from './StudentBarcodeModal';
 
@@ -16,6 +16,8 @@ interface StudentDetailModalProps {
   onArchive?: (student: Student) => void;
   onReactivate?: (student: Student) => void;
   onDelete?: (student: Student) => Promise<void> | void;
+  onSetCustomPassword?: (studentId: string, newPassword: string) => Promise<void>;
+  onShowToast?: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
 }
 
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
@@ -29,6 +31,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   onArchive,
   onReactivate,
   onDelete,
+  onSetCustomPassword,
+  onShowToast,
 }) => {
   const [subtab, setSubtab] = useState<'overview' | 'barcode' | 'absensi' | 'pembayaran' | 'rapor' | 'berkas'>('overview');
   const [isBarcodeCardOpen, setIsBarcodeCardOpen] = useState(false);
@@ -56,6 +60,48 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
       setDeleteErrorMessage(err?.message || 'Gagal menghapus data siswa dari database. Data tetap dipertahankan.');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Password Management States (Admin Only)
+  const [isSetPasswordOpen, setIsSetPasswordOpen] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const handleSaveCustomPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!student || !onSetCustomPassword) return;
+
+    const cleanPass = newPasswordInput.trim();
+    if (cleanPass.length < 6) {
+      setPasswordError('Kata sandi baru minimal harus 6 karakter.');
+      return;
+    }
+    if (cleanPass !== confirmPasswordInput.trim()) {
+      setPasswordError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setIsSavingPassword(true);
+    setPasswordError(null);
+    try {
+      await onSetCustomPassword(student.id, cleanPass);
+      setNewPasswordInput('');
+      setConfirmPasswordInput('');
+      setIsSetPasswordOpen(false);
+      if (onShowToast) {
+        onShowToast(`✓ Kata sandi akun ananda ${student.name} (${student.id}) berhasil diperbarui dan aktif di database.`, 'success');
+      }
+    } catch (err: any) {
+      setPasswordError(err?.message || 'Gagal menyimpan kata sandi ke database.');
+      if (onShowToast) {
+        onShowToast(`Gagal menyimpan kata sandi: ${err?.message || 'Gangguan koneksi database'}. Data tidak diubah.`, 'error');
+      }
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
@@ -208,7 +254,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         {/* Subtab Contents */}
         <div className="mt-4 text-xs">
           {subtab === 'overview' && (
-            <div className="grid grid-cols-2 gap-3.5">
+            <>
+              <div className="grid grid-cols-2 gap-3.5">
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="text-slate-500 block text-[10px]">Tempat, Tanggal Lahir</span>
                 <span className="font-bold text-slate-900 text-sm">{student.birthPlace || 'Karawang'}, {birthFormatted}</span>
@@ -229,7 +276,135 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 <span className="font-bold text-emerald-700 font-mono text-sm tabular-nums">{student.phone}</span>
               </div>
             </div>
-          )}
+
+            {/* Panel Status & Pengaturan Kata Sandi Portal (Khusus Admin) */}
+            <div className="mt-3.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-900 text-xs block">
+                      Akses Portal Orang Tua / Siswa
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      Status Sandi: {student.customPassword ? (
+                        <span className="text-emerald-700 font-semibold">Telah Aktif (Password Khusus)</span>
+                      ) : (
+                        <span className="text-amber-700 font-semibold">Belum Diatur (Perlu Aktivasi Admin)</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {onSetCustomPassword && !isSetPasswordOpen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSetPasswordOpen(true);
+                      setNewPasswordInput('');
+                      setConfirmPasswordInput('');
+                      setPasswordError(null);
+                    }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[11px] shadow-xs transition active:scale-95 flex items-center gap-1.5"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>{student.customPassword ? 'Atur Ulang Sandi' : 'Aktivasi Sandi'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Form Input Password Baru Admin */}
+              {isSetPasswordOpen && (
+                <form onSubmit={handleSaveCustomPassword} className="pt-2 border-t border-slate-200 space-y-2.5">
+                  <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900">
+                    <p className="font-bold mb-0.5">Verifikasi Manual Admin BFA:</p>
+                    <p>
+                      Pastikan permohonan telah diverifikasi bersama orang tua ananda <strong>{student.name}</strong> ({student.phone}). Kata sandi <strong>tidak akan ditampilkan kembali</strong> setelah disimpan demi menjaga kerahasiaan atlet.
+                    </p>
+                  </div>
+
+                  {passwordError && (
+                    <div className="p-2 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-[11px] font-medium flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{passwordError}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Kata Sandi Baru:
+                      </label>
+                      <input
+                        type={showPasswordInput ? 'text' : 'password'}
+                        required
+                        value={newPasswordInput}
+                        onChange={(e) => setNewPasswordInput(e.target.value)}
+                        placeholder="Minimal 6 karakter"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Konfirmasi Sandi:
+                      </label>
+                      <input
+                        type={showPasswordInput ? 'text' : 'password'}
+                        required
+                        value={confirmPasswordInput}
+                        onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                        placeholder="Ulangi sandi baru"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordInput(!showPasswordInput)}
+                      className="text-[11px] text-slate-500 hover:text-slate-800"
+                    >
+                      {showPasswordInput ? 'Sembunyikan karakter' : 'Tampilkan karakter'}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isSavingPassword}
+                        onClick={() => {
+                          setIsSetPasswordOpen(false);
+                          setNewPasswordInput('');
+                          setConfirmPasswordInput('');
+                          setPasswordError(null);
+                        }}
+                        className="px-3 py-1.5 text-slate-500 hover:text-slate-800 rounded-xl font-bold text-[11px] transition"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingPassword}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-black text-[11px] shadow-xs transition active:scale-95 flex items-center gap-1.5"
+                      >
+                        {isSavingPassword ? (
+                          <span>Menyimpan...</span>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Simpan Sandi</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+          </>
+        )}
 
           {subtab === 'barcode' && (
             <div className="space-y-4">
