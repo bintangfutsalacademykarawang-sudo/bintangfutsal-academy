@@ -82,7 +82,7 @@ export function createBackendRouter(options: RouterOptions = {}): Router {
 
   const verifyAdminAuth = async (req: Request): Promise<{ uid: string; claims: Record<string, any> }> => {
     const authInfo = await verifyTokenAndGetClaims(req);
-    const isAdmin = authInfo.claims.admin === true || authInfo.claims.role === 'admin' || authInfo.email === 'admin@bfahub.internal' || authInfo.email === 'edysun@bfahub.internal';
+    const isAdmin = authInfo.claims.admin === true || authInfo.claims.role === 'admin';
     if (!isAdmin) {
       const err: any = new Error('Akses ditolak: Hanya peran Admin yang berhak melakukan operasi ini (403)');
       err.statusCode = 403;

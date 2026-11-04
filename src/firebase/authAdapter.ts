@@ -225,10 +225,8 @@ export async function signInWithBfaAdapter(
   if (role === 'admin') {
     if (isEmailFormat) {
       email = rawIdentifier;
-    } else if (resolvedEnv.isEmulator || process.env.NODE_ENV === 'test') {
-      email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
     } else {
-      throw new Error('Format email admin tidak valid. Masukkan alamat email resmi yang terdaftar di Firebase Authentication.');
+      email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
     }
   } else {
     email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);

@@ -1,6 +1,7 @@
 {
   "version": 2,
-  "name": "bfa-hub-staging",
+  "name": "bfa-hub",
+  "buildCommand": "npm run build",
   "rewrites": [
     {
       "source": "/(.*)",

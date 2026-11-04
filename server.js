@@ -571,7 +571,7 @@ function createBackendRouter(options = {}) {
   };
   const verifyAdminAuth = async (req) => {
     const authInfo = await verifyTokenAndGetClaims(req);
-    const isAdmin = authInfo.claims.admin === true || authInfo.claims.role === "admin" || authInfo.email === "admin@bfahub.internal" || authInfo.email === "edysun@bfahub.internal";
+    const isAdmin = authInfo.claims.admin === true || authInfo.claims.role === "admin";
     if (!isAdmin) {
       const err = new Error("Akses ditolak: Hanya peran Admin yang berhak melakukan operasi ini (403)");
       err.statusCode = 403;

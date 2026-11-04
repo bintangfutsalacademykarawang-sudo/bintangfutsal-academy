@@ -15,7 +15,8 @@
     "test": "NODE_ENV=test tsx tests/env-guard.test.ts && NODE_ENV=test tsx tests/attendance_and_login.test.ts",
     "test:staging": "npx tsx tests/staging-backend.test.ts && npx tsx tests/frontend-backend-integration.test.ts",
     "test:emulator": "tsx tests/emulator-synthetic.test.ts",
-    "emulators:start": "firebase emulators:start --only auth,firestore"
+    "emulators:start": "firebase emulators:start --only auth,firestore",
+    "provision:prod-admin": "tsx scripts/provision-prod-admin.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
