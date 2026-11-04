@@ -376,14 +376,17 @@ export default function App() {
     if (students.length > 0) {
       try {
         const existing = localStorage.getItem('bfa_students');
+        let existingLength = 0;
         if (existing) {
-          const parsed = JSON.parse(existing);
-          if (Array.isArray(parsed) && parsed.length > students.length && parsed.length >= 20) {
-            console.warn('[Cache Safety] Preserving larger valid student cache in localStorage:', parsed.length);
-            return;
-          }
+          try {
+            const parsed = JSON.parse(existing);
+            if (Array.isArray(parsed)) existingLength = parsed.length;
+          } catch {}
         }
-        localStorage.setItem('bfa_students', JSON.stringify(students));
+        if (students.length >= existingLength) {
+          localStorage.setItem('bfa_students', JSON.stringify(students));
+          localStorage.setItem('bfa_students_cached_at', new Date().toLocaleTimeString('id-ID'));
+        }
       } catch (e) {
         console.error(e);
       }
@@ -1131,14 +1134,10 @@ export default function App() {
     };
   }, [authState, currentUser, isScheduleActive]);
 
-  // Lifecycle-scoped listener for Coaches: Active ONLY when admin is on 'coaches' route or schedule modal is open
+  // Persistent listener for Coaches: Active whenever an admin is authenticated
   useEffect(() => {
     // Strict Auth Guard: Never trigger Firestore queries or listeners until Firebase Auth session is verified
-    if (authState !== 'authenticated' || !currentUser) {
-      return;
-    }
-
-    if (role !== 'admin' || (currentRoute !== 'coaches' && !isCreateScheduleOpen)) {
+    if (authState !== 'authenticated' || !currentUser || currentUser.role !== 'admin') {
       return;
     }
 
@@ -1147,16 +1146,19 @@ export default function App() {
       const unsubscribe = onSnapshot(
         coachesCol,
         (snapshot) => {
-          if (!snapshot.empty) {
-            const loaded: Coach[] = [];
-            snapshot.forEach((docSnap) => {
-              const data = docSnap.data() as Coach;
-              if (data && data.id && data.name) {
-                loaded.push(data);
-              }
-            });
-            loaded.sort((a, b) => a.id.localeCompare(b.id));
+          const loaded: Coach[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as Coach;
+            if (data && data.id && data.name) {
+              loaded.push(data);
+            }
+          });
+          loaded.sort((a, b) => a.id.localeCompare(b.id));
+          if (loaded.length > 0) {
             setCoaches(loaded);
+            try {
+              sessionStorage.setItem('bfa_coaches_sim', JSON.stringify(loaded));
+            } catch {}
           }
         },
         (error) => {
@@ -1170,7 +1172,7 @@ export default function App() {
     } catch (err) {
       console.warn('[Firestore] coaches subscription error:', err);
     }
-  }, [authState, currentUser, role, currentRoute, isCreateScheduleOpen]);
+  }, [authState, currentUser, currentUser?.role]);
 
   // Coach Management Handlers (Safety Guard: WRITE_ENABLED = false by default in Preview)
   const handleSaveCoach = async (coachData: Coach) => {

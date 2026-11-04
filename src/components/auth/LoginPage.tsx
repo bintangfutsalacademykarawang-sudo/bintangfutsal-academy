@@ -23,6 +23,7 @@ import {
   isFirestoreOfflineError 
 } from '../../firebase';
 import { validateStudentPassword } from '../../utils/authUtils';
+import { signInWithBfaAdapter } from '../../firebase/authAdapter';
 
 interface LoginPageProps {
   students: Student[];
@@ -54,9 +55,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [activeTab, setActiveTab] = useState<'parent' | 'admin'>('parent');
   
   // Parent Form State
-  const [parentIdentifier, setParentIdentifier] = useState(prefilledIdentifier);
-  const [parentPassword, setParentPassword] = useState('');
-  const [showParentPassword, setShowParentPassword] = useState(false);
+  const [parentPhone, setParentPhone] = useState(() => {
+    try {
+      const remembered = localStorage.getItem('bfa_remembered_parent_id') || prefilledIdentifier;
+      if (remembered.includes('|')) {
+        return remembered.split('|')[0] || '';
+      }
+      return remembered.startsWith('08') || remembered.startsWith('62') ? remembered : '';
+    } catch {
+      return prefilledIdentifier;
+    }
+  });
+
+  const [parentStudentId, setParentStudentId] = useState(() => {
+    try {
+      const remembered = localStorage.getItem('bfa_remembered_parent_id');
+      if (remembered && remembered.includes('|')) {
+        return remembered.split('|')[1] || '';
+      }
+      if (remembered && !remembered.startsWith('08') && !remembered.startsWith('62')) {
+        return remembered;
+      }
+    } catch {}
+    return '';
+  });
 
   // Admin Form State
   const [adminUsername, setAdminUsername] = useState(() => {
@@ -71,199 +93,114 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isSelectChildModalOpen, setIsSelectChildModalOpen] = useState(false);
   const [isVerifyingParent, setIsVerifyingParent] = useState(false);
 
-  // Handle Parent Login Submission
+  // Handle Parent Login Submission (Requires BOTH WhatsApp number AND Student ID matching the same student)
   const handleParentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isVerifyingParent) return;
-    const rawInput = parentIdentifier.trim();
-    const cleanPass = parentPassword.trim().toLowerCase();
+    const phoneInput = parentPhone.trim();
+    const studentIdInput = parentStudentId.trim();
 
-    if (!rawInput) {
-      onShowToast('Silakan masukkan ID Siswa (contoh: BFA-001) atau Nomor WhatsApp yang terdaftar.', 'warning');
+    if (!phoneInput || !studentIdInput) {
+      onShowToast('Wajib memasukkan Nomor WhatsApp terdaftar DAN ID Siswa (NIS).', 'warning');
       return;
     }
 
-    if (!cleanPass) {
-      onShowToast('Silakan masukkan password akses akun.', 'warning');
+    const normalizedPhone = normalizePhoneNumber(phoneInput);
+    if (!isValidIndonesianMobile(normalizedPhone)) {
+      onShowToast('Nomor WhatsApp tidak valid. Pastikan diawali 08... (minimal 10 digit).', 'warning');
       return;
     }
 
-    // 1. Strict exact match against Student ID (case-insensitive & formatting-tolerant)
-    const cleanIdInput = rawInput.replace(/[\s-]/g, '').toUpperCase();
-    let matchedById = students.filter(
+    const cleanIdInput = studentIdInput.replace(/[\s-]/g, '').toUpperCase();
+
+    // 1. Find student by Student ID (local cache or Firestore fetch)
+    let matchedStudent: Student | null = null;
+    const foundLocalById = students.find(
       (s) => s.id && (
-        s.id.trim().toUpperCase() === rawInput.toUpperCase() ||
+        s.id.trim().toUpperCase() === studentIdInput.toUpperCase() ||
         s.id.replace(/[\s-]/g, '').toUpperCase() === cleanIdInput
       )
     );
 
-    // 2. Strict normalized exact match against WhatsApp mobile number
-    const normalizedInput = normalizePhoneNumber(rawInput);
-    let matchedByPhone: Student[] = [];
-    if (isValidIndonesianMobile(normalizedInput)) {
-      matchedByPhone = students.filter((s) => isExactPhoneMatch(s.phone, normalizedInput));
-    }
-
-    // Fallback: If not in local cache, query single student document or matching phone records from Firestore
-    if (matchedById.length === 0 && matchedByPhone.length === 0) {
-      const isLikelyStudentId = cleanIdInput.startsWith('BFA') || /^BFA/i.test(rawInput) || /^\d{1,3}$/.test(rawInput);
-      const isLikelyMobile = isValidIndonesianMobile(normalizedInput);
-
-      if (isLikelyStudentId || isLikelyMobile) {
-        setIsVerifyingParent(true);
-        try {
-          if (isLikelyStudentId) {
-            const directStudent = await fetchSingleStudentById(rawInput);
-            if (directStudent) {
-              matchedById = [directStudent];
-            }
-          } else if (isLikelyMobile) {
-            const directStudents = await fetchStudentsByPhone(normalizedInput);
-            if (directStudents && directStudents.length > 0) {
-              matchedByPhone = directStudents;
-            }
-          }
-        } catch (fetchErr: any) {
-          setIsVerifyingParent(false);
-          if (isFirestoreQuotaError(fetchErr)) {
-            onShowToast(
-              'Batas kuota harian cloud (Firestore) sedang terlampaui. Silakan coba beberapa saat lagi atau hubungi Admin BFA.',
-              'warning'
-            );
-            return;
-          }
-          if (isFirestoreOfflineError(fetchErr)) {
-            onShowToast(
-              'Perangkat offline atau koneksi internet terputus. Pastikan perangkat terhubung ke internet dan coba lagi.',
-              'warning'
-            );
-            return;
-          }
-          onShowToast(
-            `Gagal memverifikasi akun ke database: ${fetchErr?.message || 'Gangguan koneksi'}. Silakan coba lagi.`,
-            'error'
-          );
-          return;
-        } finally {
-          setIsVerifyingParent(false);
+    if (foundLocalById) {
+      matchedStudent = foundLocalById;
+    } else {
+      setIsVerifyingParent(true);
+      try {
+        const directStudent = await fetchSingleStudentById(studentIdInput);
+        if (directStudent) {
+          matchedStudent = directStudent;
         }
+      } catch (fetchErr: any) {
+        setIsVerifyingParent(false);
+        if (isFirestoreQuotaError(fetchErr)) {
+          onShowToast('Batas kuota harian cloud (Firestore) terlampaui. Silakan coba beberapa saat lagi.', 'warning');
+          return;
+        }
+        if (isFirestoreOfflineError(fetchErr)) {
+          onShowToast('Perangkat offline atau koneksi internet terputus.', 'warning');
+          return;
+        }
+        onShowToast(`Gagal memverifikasi ke database: ${fetchErr?.message || 'Gangguan koneksi'}.`, 'error');
+        return;
+      } finally {
+        setIsVerifyingParent(false);
       }
     }
 
-    // Combine exact matches (ID takes priority if matched, otherwise Phone matches)
-    const matchedList = matchedById.length > 0 ? matchedById : matchedByPhone;
-
-    if (matchedList.length === 0) {
-      if (cloudSyncStatus?.isQuotaExhausted && cloudSyncStatus?.isPartialCache) {
-        onShowToast(
-          'Data siswa belum tersinkronisasi lengkap dari Cloud karena batas kuota Firestore sedang terlampaui. Akun siswa tetap tersimpan aman di database Cloud Firebase.',
-          'warning'
-        );
-      } else {
-        onShowToast(
-          'ID Siswa atau Nomor WhatsApp tidak ditemukan di database. Pastikan nomor diawali 08... (minimal 10 digit) atau gunakan ID Siswa resmi (contoh: BFA-001).',
-          'error'
-        );
-      }
+    if (!matchedStudent) {
+      onShowToast('ID Siswa (NIS) atau Nomor WhatsApp tidak cocok atau tidak ditemukan di database.', 'error');
       return;
     }
 
-    // ---------------- STRICT REGISTRATION STATUS VERIFICATION GUARD ----------------
-    // Skenario 1: Pencocokan langsung dengan ID Siswa / ID Pendaftaran
-    if (matchedById.length > 0) {
-      const targetById = matchedById[0];
-      if (targetById.registrationStatus === 'MENUNGGU_VERIFIKASI') {
-        onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
-        return;
-      }
-      if (targetById.registrationStatus === 'DITOLAK') {
-        onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
-        return;
-      }
+    // 2. Strict check: Both WhatsApp AND Student ID must match the same student document
+    const isPhoneMatching = isExactPhoneMatch(matchedStudent.phone, normalizedPhone);
+    if (!isPhoneMatching) {
+      onShowToast('Nomor WhatsApp dan ID Siswa tidak cocok atau tidak terdaftar untuk siswa yang sama.', 'error');
+      return;
     }
 
-    // Skenario 2: Pencocokan dengan Nomor WhatsApp
-    // Saring akun yang telah disetujui / aktif vs yang masih menunggu verifikasi / ditolak
-    const pendingByPhone = matchedByPhone.filter((s) => s.registrationStatus === 'MENUNGGU_VERIFIKASI');
-    const rejectedByPhone = matchedByPhone.filter((s) => s.registrationStatus === 'DITOLAK');
-    const approvedByPhone = matchedByPhone.filter(
-      (s) => s.registrationStatus !== 'MENUNGGU_VERIFIKASI' && s.registrationStatus !== 'DITOLAK'
-    );
-
-    // Jika seluruh pendaftaran untuk nomor WhatsApp ini belum disetujui
-    if (matchedById.length === 0 && approvedByPhone.length === 0) {
-      if (pendingByPhone.length > 0) {
-        onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
-        return;
-      }
-      if (rejectedByPhone.length > 0) {
-        onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
-        return;
-      }
+    // 3. Registration status verification guard
+    if (matchedStudent.registrationStatus === 'MENUNGGU_VERIFIKASI') {
+      onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
+      return;
     }
-
-    // Daftar siswa yang memenuhi syarat otorisasi (eligible)
-    const eligibleStudents = matchedById.length > 0 ? matchedById : approvedByPhone;
-
-    // Check if password is valid for each eligible student
-    let savedCustomPasswords: Record<string, string> = {};
-    try {
-      const raw = localStorage.getItem('bfa_student_passwords');
-      if (raw) savedCustomPasswords = JSON.parse(raw);
-    } catch {}
-
-    const isStudentPasswordValid = (st: Student) => {
-      const res = validateStudentPassword(st, cleanPass, savedCustomPasswords);
-      return res.isValid;
-    };
-
-    const validStudents = eligibleStudents.filter(isStudentPasswordValid);
-
-    if (validStudents.length === 0) {
-      const hasUnset = eligibleStudents.some((st) => {
-        const res = validateStudentPassword(st, cleanPass, savedCustomPasswords);
-        return res.reason === 'NO_CUSTOM_PASSWORD';
-      });
-
-      if (hasUnset) {
-        onShowToast(
-          'Akun belum memiliki kata sandi khusus atau kata sandi yang dimasukkan salah. Silakan klik "Bantuan / Lupa Password?" untuk panduan aktivasi/reset kata sandi melalui Admin BFA.',
-          'error'
-        );
-      } else {
-        onShowToast('Password yang Anda masukkan salah. Silakan coba lagi atau gunakan tombol "Lupa Password?".', 'error');
-      }
+    if (matchedStudent.registrationStatus === 'DITOLAK') {
+      onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
       return;
     }
 
     if (rememberMe) {
       try {
-        localStorage.setItem('bfa_remembered_parent_id', rawInput);
+        localStorage.setItem('bfa_remembered_parent_id', `${phoneInput}|${studentIdInput}`);
       } catch {}
     }
 
-    // Scenario A: Exactly 1 valid approved student matched
-    if (validStudents.length === 1) {
-      const target = validStudents[0];
-      onLogin({
-        role: 'parent',
-        name: target.parentName || `Wali ${target.name}`,
-        emailOrPhone: target.phone,
-        studentId: target.id,
-        studentName: target.name,
-      }, cleanPass);
-      onShowToast(`Selamat datang, ${target.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${target.name}.`, 'success');
+    // Check if WhatsApp matches multiple siblings (Family account)
+    const siblings = students.filter(
+      (s) => isExactPhoneMatch(s.phone, normalizedPhone) &&
+             s.registrationStatus !== 'MENUNGGU_VERIFIKASI' &&
+             s.registrationStatus !== 'DITOLAK'
+    );
+
+    if (siblings.length > 1) {
+      setCandidateStudents(siblings);
+      setIsSelectChildModalOpen(true);
       return;
     }
 
-    // Scenario B: 1 Phone number registered for multiple children (Family / Siblings)
-    // Present clear, unambiguous selection modal with only approved children
-    setCandidateStudents(validStudents);
-    setIsSelectChildModalOpen(true);
+    // Successful login for single matched student
+    onLogin({
+      role: 'parent',
+      name: matchedStudent.parentName || `Wali ${matchedStudent.name}`,
+      emailOrPhone: matchedStudent.phone,
+      studentId: matchedStudent.id,
+      studentName: matchedStudent.name,
+    });
+    onShowToast(`Selamat datang, ${matchedStudent.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${matchedStudent.name}.`, 'success');
   };
 
   const handleSelectChild = (child: Student) => {
-    // Secondary authorization check
     if (child.registrationStatus === 'MENUNGGU_VERIFIKASI') {
       onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
       return;
@@ -281,18 +218,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       emailOrPhone: child.phone,
       studentId: child.id,
       studentName: child.name,
-    }, parentPassword.trim().toLowerCase());
+    });
     onShowToast(`Selamat datang, ${child.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${child.name}.`, 'success');
   };
 
-  // Handle Admin Login Submission
-  const handleAdminSubmit = (e: React.FormEvent) => {
+  // Handle Admin Login Submission via Firebase Auth
+  const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const user = adminUsername.trim();
     const pass = adminPassword.trim();
 
-    if (!user) {
-      onShowToast('Silakan isi ID / Username Admin.', 'warning');
+    if (!user || !pass) {
+      onShowToast('Silakan isi Username dan Password Admin.', 'warning');
       return;
     }
 
@@ -300,28 +237,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       try { localStorage.setItem('bfa_remembered_admin_user', adminUsername); } catch {}
     }
 
-    let customAdminPass = '';
     try {
-      customAdminPass = localStorage.getItem('bfa_custom_admin_password') || '';
-    } catch {}
-
-    // Keamanan: Jika admin telah menyetel customAdminPass, password bawaan 'adminbfa' DITOLAK
-    // dan HANYA customAdminPass yang diterima. Password bawaan hanya berlaku sebelum password kustom disetel.
-    const isPassCorrect = customAdminPass ? pass === customAdminPass : pass === 'adminbfa';
-    const isAccountAdmin = user.toLowerCase() === 'admin' && isPassCorrect;
-    const isAccountEdySun = user.toLowerCase() === 'edysun' && isPassCorrect;
-
-    if (isAccountAdmin || isAccountEdySun) {
-      const staffName = isAccountEdySun ? 'EdySun (Management BFA)' : 'Admin BFA';
-      const staffEmail = isAccountEdySun ? 'edysun@bintangfutsal.com' : 'admin@bintangfutsal.com';
-      onLogin({
+      const session = await signInWithBfaAdapter({
+        identifier: user,
+        password: pass,
         role: 'admin',
-        name: staffName,
-        emailOrPhone: staffEmail,
-      }, pass);
-      onShowToast(`Selamat datang, ${staffName}! Berhasil masuk ke portal manajemen BFA.`, 'success');
-    } else {
-      onShowToast('Username atau Password Admin salah. Silakan periksa kembali data login Anda atau klik "Lupa Password?".', 'error');
+      });
+      onLogin(session.authUser, session.token);
+      onShowToast(`Selamat datang, ${session.authUser.name}! Berhasil masuk ke portal manajemen BFA via Firebase Auth.`, 'success');
+    } catch (err: any) {
+      onShowToast(`Login Admin gagal: ${err.message || 'Kredensial salah atau akun belum terdaftar di Firebase Auth'}.`, 'error');
     }
   };
 
@@ -337,8 +262,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       onResetStudentPassword(studentId, newPassword);
     }
 
-    setParentIdentifier(studentId);
-    setParentPassword(newPassword);
+    setParentStudentId(studentId);
   };
 
   const handleResetAdminPasswordInternal = (newPassword: string) => {
@@ -427,56 +351,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ID Siswa atau Nomor WhatsApp Terdaftar *
+                  Nomor WhatsApp Terdaftar *
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     required
-                    value={parentIdentifier}
-                    onChange={(e) => setParentIdentifier(e.target.value)}
-                    placeholder="Contoh: BFA-001 atau 081234567890"
+                    value={parentPhone}
+                    onChange={(e) => setParentPhone(e.target.value)}
+                    placeholder="Contoh: 081234567890"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
                   />
                 </div>
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Masukkan ID Siswa resmi (BFA-001, BFA-002, dll.) atau No. WhatsApp terdaftar.
+                  Nomor WhatsApp orang tua yang terdaftar (diawali 08...).
                 </span>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-slate-700">
-                    Password Akses *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsForgotPasswordOpen(true)}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline transition"
-                  >
-                    Lupa Password?
-                  </button>
-                </div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ID Siswa / NIS (Contoh: BFA-001) *
+                </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Shield className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type={showParentPassword ? 'text' : 'password'}
+                    type="text"
                     required
-                    value={parentPassword}
-                    onChange={(e) => setParentPassword(e.target.value)}
-                    placeholder="Masukkan password"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-10 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono"
+                    value={parentStudentId}
+                    onChange={(e) => setParentStudentId(e.target.value)}
+                    placeholder="Contoh: BFA-001"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-mono uppercase"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowParentPassword(!showParentPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                  >
-                    {showParentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
                 </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Masukkan NIS / ID Siswa ananda yang terdaftar di BFA.
+                </span>
               </div>
+
+
 
               <div className="flex items-center justify-between text-xs pt-1">
                 <label className="flex items-center space-x-2 cursor-pointer text-slate-600">
@@ -668,7 +581,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 Pilih Ananda untuk Membuka Dashboard
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Nomor WhatsApp <strong className="text-blue-900 font-mono">{parentIdentifier}</strong> terdaftar untuk {candidateStudents.length} siswa di akademi BFA Karawang:
+                Nomor WhatsApp <strong className="text-blue-900 font-mono">{parentPhone}</strong> terdaftar untuk {candidateStudents.length} siswa di akademi BFA Karawang:
               </p>
             </div>
 

@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "tsx server.ts",
     "dev:emulator": "vite --mode emulator --port=3000 --host=0.0.0.0",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --target=node20 --outfile=server.js --external:express --external:vite",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --target=node20 --format=esm --outfile=server.js --external:express --external:vite --external:firebase-admin",
     "build:staging": "vite build --mode staging",
-    "start": "node server.js",
+    "start": "npm run build && node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",

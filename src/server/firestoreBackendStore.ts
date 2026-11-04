@@ -6,7 +6,7 @@
  * backend staging ke Firestore project 'bfa-hub-staging'.
  */
 
-import { initializeApp, getApps, App } from 'firebase-admin/app';
+import { initializeApp, getApps, App, cert, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Firestore, Transaction } from 'firebase-admin/firestore';
 import { BackendDataStore } from './trustedBackendService';
 import { Student, Invoice, Attendance, CashMutation, PaymentVerificationRequest } from '../types';
@@ -37,7 +37,52 @@ export class FirestoreBackendStore implements BackendDataStore {
     if (existing) {
       app = existing;
     } else {
-      app = initializeApp({ projectId }, 'bfa-staging-admin-app');
+      try {
+        if (projectId === STAGING_PROJECT_ID) {
+          const rawJsonEnv = process.env.FIREBASE_STAGING_SERVICE_ACCOUNT_JSON;
+          const isProd = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+
+          if (!rawJsonEnv || !rawJsonEnv.trim().startsWith('{')) {
+            if (isProd) {
+              throw new Error('FATAL: Variabel lingkungan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON wajib diisi dengan Service Account JSON staging yang valid untuk bfa-hub-staging di production/cloud staging. Fallback ke applicationDefault() dilarang keras.');
+            } else {
+              console.warn('[FirestoreBackendStore] WARNING: FIREBASE_STAGING_SERVICE_ACCOUNT_JSON tidak ditemukan di development. Menggunakan applicationDefault() untuk preview lokal.');
+              app = initializeApp({
+                credential: applicationDefault(),
+                projectId: STAGING_PROJECT_ID,
+              }, 'bfa-staging-admin-app');
+            }
+          } else {
+            const trimmed = rawJsonEnv.trim();
+            const parsed = JSON.parse(trimmed);
+            if (parsed.project_id === 'future-wonder-jwh4c' || parsed.project_id === 'production') {
+              throw new Error('FATAL: Kredensial produksi terdeteksi pada konfigurasi staging! Akses ditolak secara mutlak.');
+            }
+            if (parsed.project_id && parsed.project_id !== STAGING_PROJECT_ID) {
+              throw new Error(`FATAL: Project ID "${parsed.project_id}" tidak cocok dengan project staging resmi ("${STAGING_PROJECT_ID}").`);
+            }
+
+            app = initializeApp({
+              credential: cert(parsed),
+              projectId: STAGING_PROJECT_ID,
+            }, 'bfa-staging-admin-app');
+          }
+        } else {
+          app = initializeApp({
+            projectId: 'demo-bfa-hub',
+          }, 'bfa-staging-admin-app');
+        }
+
+        const activeProjId = app.options.projectId;
+        if (activeProjId === 'future-wonder-jwh4c') {
+          throw new Error('FATAL: Firebase Admin terinisialisasi ke project produksi future-wonder-jwh4c!');
+        }
+      } catch (err: any) {
+        throw new Error(
+          `[FirestoreBackendStore] FATAL: Gagal menginisialisasi Firebase Admin SDK untuk project "${projectId}". ` +
+          `Pastikan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON disetel dengan benar. Detail: ${err.message}`
+        );
+      }
     }
     this.db = getFirestore(app);
   }

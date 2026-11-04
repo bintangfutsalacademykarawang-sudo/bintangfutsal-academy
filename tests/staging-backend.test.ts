@@ -263,6 +263,7 @@ async function runStagingTestSuite() {
     .post('/api/invoices/pay')
     .set('Authorization', `Bearer ${parentToken}`)
     .send({ invoiceId, amount: 5000, method: 'Tunai', staff: 'Parent' });
+  console.log('STATUS 7.2:', resParentForbidden.status, resParentForbidden.body);
   assert(resParentForbidden.status === 403, '7.2 [NEGATIVE] Token parent mencoba mengakses endpoint admin ditolak (403 Forbidden)');
 
   // Test 7.3: Health check saat store error mengembalikan status 503 dan status DEGRADED

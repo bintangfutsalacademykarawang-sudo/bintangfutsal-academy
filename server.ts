@@ -10,6 +10,7 @@ import { FirestoreBackendStore } from './src/server/firestoreBackendStore';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,24 +37,49 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
   const port = Number(process.env.PORT) || 3000;
 
-  if (isProd || fs.existsSync(path.resolve(__dirname, 'dist', 'index.html'))) {
-    // Serve static frontend build in production
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.resolve(distPath, 'index.html'));
-    });
+  const distPath = path.resolve(__dirname, 'dist');
+  const indexHtmlPath = path.resolve(distPath, 'index.html');
+
+  if (isProd) {
+    // Production Mode: Serve static build from dist directory
+    if (!fs.existsSync(indexHtmlPath)) {
+      console.log('[BFA HUB Server] Production: dist/index.html tidak ditemukan. Menjalankan vite build...');
+      try {
+        execSync('npx vite build', { stdio: 'inherit', cwd: __dirname });
+      } catch (buildErr: any) {
+        console.error('[BFA HUB Server] Gagal membangun production build:', buildErr?.message);
+      }
+    }
+    if (fs.existsSync(indexHtmlPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) {
+          return next();
+        }
+        res.sendFile(indexHtmlPath);
+      });
+    } else {
+      app.get('*', (req, res) => {
+        if (req.path.startsWith('/api')) return;
+        res.status(500).send('Production error: dist/index.html not found.');
+      });
+    }
   } else {
-    // Use Vite dev server middleware in development
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    // Development / Preview Mode: Use Vite dev server middleware without requiring dist/index.html
+    console.log('[BFA HUB Server] Development/Preview Mode: Menginisialisasi Vite dev server middleware...');
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr: any) {
+      console.error('[BFA HUB Server] Gagal menginisialisasi Vite dev middleware:', viteErr?.message);
+    }
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[BFA HUB Production Server] Running on http://0.0.0.0:${port} (Production mode: ${isProd})`);
+    console.log(`[BFA HUB Server] Running on http://0.0.0.0:${port} (Production mode: ${isProd})`);
   });
 }
 
