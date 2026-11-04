@@ -218,7 +218,21 @@ export async function signInWithBfaAdapter(
       : (credentials.identifier.toLowerCase().startsWith('coach') ? 'coach' : 'parent')
   );
 
-  const email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
+  const rawIdentifier = (credentials.identifier || '').trim();
+  let email = rawIdentifier;
+  const isEmailFormat = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier);
+
+  if (role === 'admin') {
+    if (isEmailFormat) {
+      email = rawIdentifier;
+    } else if (resolvedEnv.isEmulator || process.env.NODE_ENV === 'test') {
+      email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
+    } else {
+      throw new Error('Format email admin tidak valid. Masukkan alamat email resmi yang terdaftar di Firebase Authentication.');
+    }
+  } else {
+    email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
+  }
 
   try {
     const cred = await signInWithEmailAndPassword(auth, email, credentials.password);

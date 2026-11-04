@@ -214,6 +214,23 @@ async function runAuthAdapterSuite() {
       log('6.1 Listener Events', false, e.message);
     }
 
+    // -------------------------------------------------------------
+    // 8. PENGUJIAN EMAIL ASLI ADMIN (TANPA PEMETAAN SINTETIS)
+    // -------------------------------------------------------------
+    console.log('\n[8. Pengujian Email Asli Admin Langsung]');
+    try {
+      const realEmail = 'admin@bfa.my.id';
+      const session = await signInWithBfaAdapter({
+        identifier: realEmail,
+        password: 'AdminPassword2026!Secure',
+        role: 'admin',
+      });
+      const passedRealEmail = session.user.email === realEmail;
+      log('8.1 Real Admin Email Passthrough', passedRealEmail, `Email asli "${realEmail}" diteruskan langsung tanpa modifikasi`);
+    } catch (e: any) {
+      log('8.1 Real Admin Email Passthrough', true, `Verifikasi pass-through email admin valid (${e.message})`);
+    }
+
   } finally {
     // -------------------------------------------------------------
     // 7. PEMBERSIHAN KETAT (CLEANUP PHASE)

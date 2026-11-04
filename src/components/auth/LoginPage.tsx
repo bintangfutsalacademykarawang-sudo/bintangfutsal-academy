@@ -465,21 +465,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Username Admin *
+                  Email Admin *
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="text"
+                    type="email"
                     required
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
-                    placeholder="Contoh: Admin atau EdySun"
+                    placeholder="Contoh: admin@bfa.my.id"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9.5 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
                   />
                 </div>
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Gunakan ID akun resmi manajemen BFA Karawang.
+                  Gunakan alamat email akun manajemen BFA Karawang yang terdaftar di Firebase Auth.
                 </span>
               </div>
 

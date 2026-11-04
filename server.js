@@ -794,11 +794,21 @@ var FirestoreBackendStore = class {
       app = existing;
     } else {
       try {
-        let credentialOption = applicationDefault();
-        const rawJsonEnv = process.env.FIREBASE_STAGING_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-        if (rawJsonEnv) {
-          const trimmed = rawJsonEnv.trim();
-          if (trimmed.startsWith("{")) {
+        if (projectId === STAGING_PROJECT_ID) {
+          const rawJsonEnv = process.env.FIREBASE_STAGING_SERVICE_ACCOUNT_JSON;
+          const isProd = process.env.NODE_ENV === "production" || process.env.VERCEL;
+          if (!rawJsonEnv || !rawJsonEnv.trim().startsWith("{")) {
+            if (isProd) {
+              throw new Error("FATAL: Variabel lingkungan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON wajib diisi dengan Service Account JSON staging yang valid untuk bfa-hub-staging di production/cloud staging. Fallback ke applicationDefault() dilarang keras.");
+            } else {
+              console.warn("[FirestoreBackendStore] WARNING: FIREBASE_STAGING_SERVICE_ACCOUNT_JSON tidak ditemukan di development. Menggunakan applicationDefault() untuk preview lokal.");
+              app = initializeApp({
+                credential: applicationDefault(),
+                projectId: STAGING_PROJECT_ID
+              }, "bfa-staging-admin-app");
+            }
+          } else {
+            const trimmed = rawJsonEnv.trim();
             const parsed = JSON.parse(trimmed);
             if (parsed.project_id === "future-wonder-jwh4c" || parsed.project_id === "production") {
               throw new Error("FATAL: Kredensial produksi terdeteksi pada konfigurasi staging! Akses ditolak secara mutlak.");
@@ -806,20 +816,23 @@ var FirestoreBackendStore = class {
             if (parsed.project_id && parsed.project_id !== STAGING_PROJECT_ID) {
               throw new Error(`FATAL: Project ID "${parsed.project_id}" tidak cocok dengan project staging resmi ("${STAGING_PROJECT_ID}").`);
             }
-            credentialOption = cert(parsed);
+            app = initializeApp({
+              credential: cert(parsed),
+              projectId: STAGING_PROJECT_ID
+            }, "bfa-staging-admin-app");
           }
+        } else {
+          app = initializeApp({
+            projectId: "demo-bfa-hub"
+          }, "bfa-staging-admin-app");
         }
-        app = initializeApp({
-          credential: credentialOption,
-          projectId: STAGING_PROJECT_ID
-        }, "bfa-staging-admin-app");
         const activeProjId = app.options.projectId;
         if (activeProjId === "future-wonder-jwh4c") {
           throw new Error("FATAL: Firebase Admin terinisialisasi ke project produksi future-wonder-jwh4c!");
         }
       } catch (err) {
         throw new Error(
-          `[FirestoreBackendStore] FATAL: Gagal menginisialisasi Firebase Admin SDK untuk project "${STAGING_PROJECT_ID}". Pastikan kredensial Service Account staging valid dan disetel melalui environment variable. Detail: ${err.message}`
+          `[FirestoreBackendStore] FATAL: Gagal menginisialisasi Firebase Admin SDK untuk project "${projectId}". Pastikan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON disetel dengan benar. Detail: ${err.message}`
         );
       }
     }
