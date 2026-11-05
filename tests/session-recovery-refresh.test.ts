@@ -70,11 +70,11 @@ function runSessionRecoveryTests() {
     'Admin 1 dengan custom claims { admin: true } berhasil dikenali sebagai Admin yang sah'
   );
 
-  // Kasus: Claims memuat { admin: "true" } (string boolean)
+  // Kasus: Claims memuat { admin: "true" } (string boolean) - HARUS DITOLAK
   const claimsAdminStringTrue = { admin: 'true' };
   assert(
-    isBfaAdminUser(claimsAdminStringTrue, admin1User as any),
-    'Admin 1 dengan custom claims { admin: "true" } berhasil dikenali sebagai Admin yang sah'
+    !isBfaAdminUser(claimsAdminStringTrue, admin1User as any),
+    'Admin 1 dengan custom claims { admin: "true" } (string) DITOLAK sebagai Admin (harus boolean true)'
   );
 
   // Kasus: Email admin@bfa.my.id dengan claims { admin: true }
@@ -137,7 +137,54 @@ function runSessionRecoveryTests() {
     'Pengguna luar tanpa klaim admin ditolak sebagai Admin'
   );
 
-  // Verifikasi Kritis: Akun dengan email admin/edysun jika TIDAK memiliki custom claims WAJIB DITOLAK
+  // ------------------------------------------------------------------
+  // 3.1. Pengujian Temporary Admin Allowlist UIDs (Admin 1 & Admin 2 tanpa claims)
+  // ------------------------------------------------------------------
+  console.log('\n--- 3.1 Pengujian Temporary Admin Allowlist UIDs ---');
+
+  const tempAdmin1User: MockFirebaseUser = {
+    uid: 'UbYPHGfX3gTL8H38GTg50nATd042',
+    email: 'admin1.temp@bfa.my.id',
+    displayName: 'Admin 1 Temp',
+  };
+  const tempAdmin2User: MockFirebaseUser = {
+    uid: 'h826b0NzwyRePEG2TvWCekIw7AG2',
+    email: 'admin2.temp@bfa.my.id',
+    displayName: 'Admin 2 Temp',
+  };
+
+  assert(
+    isBfaAdminUser({}, tempAdmin1User as any),
+    'Admin 1 UID (UbYPHGfX3gTL8H38GTg50nATd042) diterima sebagai Admin via Temporary Allowlist'
+  );
+  assert(
+    isBfaAdminUser({}, tempAdmin2User as any),
+    'Admin 2 UID (h826b0NzwyRePEG2TvWCekIw7AG2) diterima sebagai Admin via Temporary Allowlist'
+  );
+
+  // Uji kadaluarsa (mocking date after Feb 13, 2027)
+  const originalDate = Date;
+  class MockDate extends Date {
+    constructor(...args: any[]) {
+      if (args.length === 0) {
+        super('2027-02-14T00:00:00Z');
+      } else {
+        super(...(args as [any]));
+      }
+    }
+  }
+  (global as any).Date = MockDate;
+
+  assert(
+    !isBfaAdminUser({}, tempAdmin1User as any),
+    'Admin 1 UID ditolak setelah melewati tanggal kadaluarsa (Feb 13, 2027)'
+  );
+  assert(
+    !isBfaAdminUser({}, tempAdmin2User as any),
+    'Admin 2 UID ditolak setelah melewati tanggal kadaluarsa (Feb 13, 2027)'
+  );
+
+  (global as any).Date = originalDate;
   const adminEmailNoClaims: MockFirebaseUser = {
     uid: 'admin-fake-uid',
     email: 'admin@bfahub.internal',
