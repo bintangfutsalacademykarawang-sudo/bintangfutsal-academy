@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, RegistrationStatus } from '../../types';
+import { Student, RegistrationStatus, ApprovalDiagnosticResult } from '../../types';
 import { 
   UserCheck, 
   Clock, 
@@ -26,10 +26,11 @@ import {
 import { calculateAgeAndGroup, CURRENT_SYSTEM_YEAR } from '../../data/initialData';
 import { BFALogo } from '../common/BFALogo';
 import { WhatsAppAccountNotificationModal } from '../modals/WhatsAppAccountNotificationModal';
+import { ApprovalDiagnosticModal } from '../modals/ApprovalDiagnosticModal';
 
 interface AdminRegistrationsViewProps {
   students: Student[];
-  onApprove: (studentId: string) => Promise<void>;
+  onApprove: (studentId: string) => Promise<ApprovalDiagnosticResult>;
   onReject: (studentId: string, reason: string) => Promise<void>;
   onShowToast: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
   adminName?: string;
@@ -43,6 +44,7 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
   adminName = 'Admin BFA',
 }) => {
   // Filter States
+
   const [activeTab, setActiveTab] = useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [kuFilter, setKuFilter] = useState('Semua');
@@ -50,6 +52,10 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
   // Action Dialog States
   const [studentToApprove, setStudentToApprove] = useState<Student | null>(null);
   const [isApproving, setIsApproving] = useState(false);
+
+  // Android Diagnostic State (kept strictly in React useState, never localStorage)
+  const [diagnosticResult, setDiagnosticResult] = useState<ApprovalDiagnosticResult | null>(null);
+  const [diagnosticTargetStudent, setDiagnosticTargetStudent] = useState<Student | null>(null);
 
   const [studentToReject, setStudentToReject] = useState<Student | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -115,27 +121,41 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
     });
   }, [registrants, activeTab, kuFilter, searchQuery]);
 
-  // Confirm Approve Handler
+  // Confirm Approve Handler with Telemetry & Android Diagnostic Modal
   const handleConfirmApprove = async () => {
     if (!studentToApprove || isApproving) return;
     setIsApproving(true);
     const approvedStudent = studentToApprove;
+    setDiagnosticTargetStudent(approvedStudent);
+
     try {
-      await onApprove(approvedStudent.id);
-      onShowToast(
-        `✓ Pendaftaran ananda ${approvedStudent.name} (${approvedStudent.id}) berhasil DISETUJUI! Akun siswa aktif & dapat masuk Portal Orang Tua.`,
-        'success'
-      );
-      setStudentToApprove(null);
-      // Buka modal pratinjau WhatsApp info login untuk orang tua/wali siswa yang baru disetujui
-      setStudentForWhatsApp(approvedStudent);
+      const result = await onApprove(approvedStudent.id);
+      setDiagnosticResult(result);
+
+      if (result.promiseStatus === 'RESOLVED') {
+        onShowToast(
+          `✓ Pendaftaran ananda ${approvedStudent.name} (${approvedStudent.id}) berhasil DISETUJUI! Akun siswa aktif & dapat masuk Portal Orang Tua.`,
+          'success'
+        );
+        setStudentToApprove(null);
+        // Buka modal pratinjau WhatsApp info login untuk orang tua/wali siswa yang baru disetujui
+        setStudentForWhatsApp(approvedStudent);
+      } else {
+        onShowToast(
+          `Gagal menyetujui pendaftaran (${result.errorDetails?.code || 'REJECTED'}): ${result.errorDetails?.message || 'Error koneksi Firestore'}`,
+          'error'
+        );
+        setStudentToApprove(null);
+      }
     } catch (err: any) {
       console.error('Gagal menyetujui pendaftaran:', err);
       onShowToast(`Gagal menyetujui pendaftaran: ${err?.message || 'Error koneksi Firestore'}`, 'error');
+      setStudentToApprove(null);
     } finally {
       setIsApproving(false);
     }
   };
+
 
   // Confirm Reject Handler
   const handleConfirmReject = async () => {
@@ -889,6 +909,16 @@ export const AdminRegistrationsView: React.FC<AdminRegistrationsViewProps> = ({
         onShowToast={onShowToast}
       />
 
+      {/* ---------------- 9. MODAL DIAGNOSTIK APPROVAL ANDROID ---------------- */}
+      <ApprovalDiagnosticModal
+        isOpen={!!diagnosticResult}
+        onClose={() => setDiagnosticResult(null)}
+        result={diagnosticResult}
+        studentName={diagnosticTargetStudent?.name}
+        studentId={diagnosticTargetStudent?.id}
+      />
+
     </div>
   );
 };
+

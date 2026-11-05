@@ -17,8 +17,11 @@ import {
   AuthUser, 
   StudentReport, 
   TrainingSchedule,
-  PaymentVerificationRequest 
+  PaymentVerificationRequest,
+  ApprovalDiagnosticResult 
 } from './types';
+import { runApprovalWithDiagnostics } from './utils/approvalDiagnostic';
+
 import { 
   INITIAL_STUDENTS, 
   INITIAL_CASH_MUTATIONS, 
@@ -2413,13 +2416,13 @@ export default function App() {
     }
   };
 
-  // Admin Action: Setujui Pendaftaran Calon Siswa Baru
-  const handleApproveRegistration = async (studentId: string) => {
-    try {
-      const adminName = currentUser?.name || 'Admin BFA';
-      await approveStudentRegistration(studentId, adminName);
+  // Admin Action: Setujui Pendaftaran Calon Siswa Baru (with Forensic Android Diagnostics Telemetry)
+  const handleApproveRegistration = async (studentId: string): Promise<ApprovalDiagnosticResult> => {
+    const adminName = currentUser?.name || 'Admin BFA';
+    const { result, success } = await runApprovalWithDiagnostics(studentId, adminName);
 
-      // Update state in memory (pure callback; cache is persisted reactively via useEffect([students]))
+    if (success) {
+      // Update state in memory ONLY when transaction resolves successfully
       setStudents((prev) =>
         prev.map((s) =>
           s.id === studentId
@@ -2444,11 +2447,11 @@ export default function App() {
         }));
         saveReportToFirestore(target.id, defaultRep).catch((e) => console.warn('Report sync on approval:', e));
       }
-    } catch (err: any) {
-      console.error('Gagal menyetujui pendaftaran:', err);
-      throw err;
     }
+
+    return result;
   };
+
 
   // Admin Action: Tolak Pendaftaran Calon Siswa Baru
   const handleRejectRegistration = async (studentId: string, reason: string) => {

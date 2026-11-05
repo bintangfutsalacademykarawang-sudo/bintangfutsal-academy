@@ -136,18 +136,33 @@ export async function setAdapterCustomClaims(
     customAttributes: JSON.stringify(claims),
   };
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer owner',
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer owner',
+      },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`[setAdapterCustomClaims] Gagal menetapkan claims pada emulator: ${errText}`);
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`[setAdapterCustomClaims] Gagal menetapkan claims pada emulator: ${errText}`);
+    }
+  } catch (err: any) {
+    if (
+      err?.name === 'TypeError' ||
+      err?.message?.includes('fetch') ||
+      err?.message?.includes('NetworkError') ||
+      String(err).includes('Failed to fetch')
+    ) {
+      throw new Error(
+        `Auth Emulator (${host}:${port}) tidak aktif atau tidak dapat dijangkau. ` +
+        `Pastikan Firebase Emulator Suite sedang berjalan.`
+      );
+    }
+    throw err;
   }
 }
 
@@ -285,6 +300,32 @@ export async function signInWithBfaAdapter(
     email = resolveBfaSyntheticEmail(credentials.identifier, role, credentials.studentId);
   }
 
+  // FAIL-CLOSED ISOLATION & EMULATOR AUTOMATIC PROVISIONING GUARD
+  // Execute ONLY when running in emulator mode with target project demo-bfa-hub
+  if (resolvedEnv.isEmulator && resolvedEnv.config?.projectId === ADAPTER_EMULATOR_PROJECT_ID) {
+    try {
+      const defaultName = role === 'admin'
+        ? (email.includes('edysun') ? 'Coach Edysun' : 'Admin BFA')
+        : (credentials.studentName || 'Wali Siswa');
+
+      await ensureSyntheticAccountProvisioned(email, credentials.password, role, {
+        displayName: credentials.staffName || defaultName,
+        studentId: credentials.studentId,
+        studentName: credentials.studentName,
+        coachId: credentials.coachId,
+      });
+    } catch (provisionErr: any) {
+      if (
+        provisionErr?.message?.includes('tidak dapat dijangkau') ||
+        provisionErr?.message?.includes('FAIL-CLOSED') ||
+        provisionErr?.message?.includes('tidak aktif')
+      ) {
+        throw provisionErr;
+      }
+      console.warn('[signInWithBfaAdapter] Emulator provisioning notice:', provisionErr?.message);
+    }
+  }
+
   try {
     const cred = await signInWithEmailAndPassword(auth, email, credentials.password);
     const tokenResult = await getIdTokenResult(cred.user, true);
@@ -330,6 +371,7 @@ export async function signInWithBfaAdapter(
     throw new Error(`Autentikasi Firebase Auth gagal: ${err.message || 'Kredensial tidak valid'}`);
   }
 }
+
 
 /**
  * Logout sesi aktif dari Firebase Auth dan bersihkan seluruh kunci sesi Admin lokal.

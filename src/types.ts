@@ -188,3 +188,23 @@ export interface AuthUser {
   studentId?: string;
   studentName?: string;
 }
+
+export interface ApprovalDiagnosticResult {
+  checkTimestamp: string;
+  transactionTimestamp?: string;
+  adminUid: string;
+  isAllowlistedUid: boolean;
+  claimsCheckFailed: boolean;
+  claimsErrorMessage?: string;
+  claims: {
+    role: string | boolean | null;
+    admin: boolean | null;
+  };
+  promiseStatus: 'RESOLVED' | 'REJECTED';
+  errorDetails?: {
+    name: string;
+    code: string;
+    message: string;
+  };
+}
+

@@ -15,16 +15,54 @@ const app = express();
 app.use(express.json());
 
 let store: FirestoreBackendStore | undefined;
+let storeInitError: string | null = null;
 try {
   store = new FirestoreBackendStore('bfa-hub-staging');
   console.log('[Vercel Catch-All] Successfully initialized FirestoreBackendStore for bfa-hub-staging.');
 } catch (err: any) {
-  console.error('[Vercel Catch-All] FATAL: Failed to initialize FirestoreBackendStore:', err.message);
+  storeInitError = err?.message || 'Gagal menginisialisasi FirestoreBackendStore';
+  console.error('[Vercel Catch-All] FATAL: Failed to initialize FirestoreBackendStore:', storeInitError);
 }
 
-const apiRouter = createBackendRouter({ store: store as any, env: 'staging' });
-app.use('/api', apiRouter);
-app.use('/', apiRouter);
+if (!store) {
+  // Safe Fail-Closed: Return structured JSON diagnostic errors when backend store is unconfigured
+  app.use('/api/health', (_req, res) => {
+    return res.status(503).json({
+      status: 'DEGRADED',
+      service: 'bfa-hub-trusted-backend',
+      environment: 'staging',
+      projectId: 'bfa-hub-staging',
+      firebaseAdminInitialized: true,
+      firestoreAccessible: false,
+      error: storeInitError,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.use('/api', (_req, res) => {
+    return res.status(503).json({
+      success: false,
+      error: {
+        code: 'BACKEND_UNCONFIGURED',
+        message: `Layanan backend Firestore belum terkonfigurasi: ${storeInitError}`,
+      },
+    });
+  });
+
+  app.use('/', (_req, res) => {
+    return res.status(503).json({
+      success: false,
+      error: {
+        code: 'BACKEND_UNCONFIGURED',
+        message: `Layanan backend Firestore belum terkonfigurasi: ${storeInitError}`,
+      },
+    });
+  });
+} else {
+  const apiRouter = createBackendRouter({ store, env: 'staging' });
+  app.use('/api', apiRouter);
+  app.use('/', apiRouter);
+}
 
 // Express Catch-All 404 & Error Handler for Vercel Serverless Function
 app.use((_req, res) => {
