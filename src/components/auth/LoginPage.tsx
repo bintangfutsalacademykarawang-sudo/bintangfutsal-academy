@@ -24,6 +24,9 @@ import {
 } from '../../firebase';
 import { validateStudentPassword } from '../../utils/authUtils';
 import { signInWithBfaAdapter } from '../../firebase/authAdapter';
+import { signInWithCustomToken } from 'firebase/auth';
+import { auth } from '../../firebase';
+import { backendApi } from '../../services/backendApiAdapter';
 
 interface LoginPageProps {
   students: Student[];
@@ -189,7 +192,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    // Successful login for single matched student
+    // Successful login for single matched student via backend-validated Custom Token
+    try {
+      const res = await backendApi.loginParent(phoneInput, matchedStudent.id);
+      if (!res || !res.success) {
+        onShowToast(res?.error?.message || res?.message || 'Autentikasi gagal diverifikasi server.', 'error');
+        return;
+      }
+      if (res.token) {
+        if (!res.token.startsWith('bfa_parent_token_')) {
+          await signInWithCustomToken(auth, res.token);
+        }
+      } else {
+        onShowToast('Token otorisasi server tidak diterima.', 'error');
+        return;
+      }
+    } catch (e: any) {
+      onShowToast(e?.message || 'Gagal memverifikasi autentikasi ke server.', 'error');
+      return;
+    }
+
     onLogin({
       role: 'parent',
       name: matchedStudent.parentName || `Wali ${matchedStudent.name}`,
@@ -200,13 +222,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     onShowToast(`Selamat datang, ${matchedStudent.parentName || 'Orang Tua'}! Berhasil masuk ke portal ananda ${matchedStudent.name}.`, 'success');
   };
 
-  const handleSelectChild = (child: Student) => {
+  const handleSelectChild = async (child: Student) => {
     if (child.registrationStatus === 'MENUNGGU_VERIFIKASI') {
       onShowToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
       return;
     }
     if (child.registrationStatus === 'DITOLAK') {
       onShowToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
+      return;
+    }
+
+    try {
+      const res = await backendApi.loginParent(child.phone || parentPhone, child.id);
+      if (!res || !res.success) {
+        onShowToast(res?.error?.message || res?.message || 'Gagal memvalidasi akun anak terpilih.', 'error');
+        return;
+      }
+      if (res.token) {
+        if (!res.token.startsWith('bfa_parent_token_')) {
+          await signInWithCustomToken(auth, res.token);
+        }
+      } else {
+        onShowToast('Token otorisasi server tidak diterima untuk siswa ini.', 'error');
+        return;
+      }
+    } catch (e: any) {
+      onShowToast(e?.message || 'Gagal memverifikasi autentikasi ke server.', 'error');
       return;
     }
 

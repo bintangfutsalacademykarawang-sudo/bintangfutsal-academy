@@ -34,6 +34,15 @@ function normalizePhoneNumber(rawPhone) {
 }
 
 // src/server/trustedBackendService.ts
+import admin from "firebase-admin";
+import crypto from "crypto";
+if (!admin.apps.length) {
+  try {
+    admin.initializeApp();
+  } catch (e) {
+    console.warn("Firebase Admin init notice:", e?.message || "Init skipped");
+  }
+}
 var INITIAL_CONFIRMED_SEQUENCE = 38;
 var InMemoryBackendStore = class {
   constructor() {
@@ -456,11 +465,43 @@ var TrustedBackendService = class {
       }
     }
     const matchedIds = matchingStudents.map((s) => s.id);
-    const syntheticToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
+    const opaqueUid = "parent_" + crypto.createHash("sha256").update(`bfa_parent_uid_${normalizedPhone}`).digest("hex").slice(0, 24);
+    const isEmulatorOrTest = process.env.NODE_ENV === "test" || process.env.VITE_USE_EMULATOR === "true" || !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
+    let customToken = "";
+    const claims = {
+      role: "parent",
+      studentId: targetStudent.id,
+      studentIds: matchedIds
+    };
+    if (admin.apps.length) {
+      try {
+        customToken = await admin.auth().createCustomToken(opaqueUid, claims);
+      } catch (adminErr) {
+        if (isEmulatorOrTest) {
+          customToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
+        } else {
+          return {
+            success: false,
+            status: "AUTH_TOKEN_FAILED",
+            message: "Layanan autentikasi server (Firebase Token) gagal menerbitkan token resmi. Periksa izin signing server."
+          };
+        }
+      }
+    } else {
+      if (isEmulatorOrTest) {
+        customToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
+      } else {
+        return {
+          success: false,
+          status: "AUTH_TOKEN_FAILED",
+          message: "Layanan Firebase Admin belum siap di server produksi."
+        };
+      }
+    }
     return {
       success: true,
       status: "AUTHENTICATED",
-      token: syntheticToken,
+      token: customToken,
       user: {
         role: "parent",
         name: targetStudent.parentName,

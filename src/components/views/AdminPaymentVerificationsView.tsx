@@ -104,7 +104,12 @@ export const AdminPaymentVerificationsView: React.FC<AdminPaymentVerificationsVi
       setApprovalNote('');
     } catch (err: any) {
       console.error('Approval failed:', err);
-      onShowToast?.(err?.message || 'Gagal menyetujui pembayaran.', 'error');
+      const msg = err?.message || 'Gagal menyetujui pembayaran.';
+      onShowToast?.(msg, msg.includes('sudah pernah disetujui') ? 'warning' : 'error');
+      if (msg.includes('sudah pernah disetujui') || msg.includes('already approved')) {
+        setRequestToApprove(null);
+        setApprovalNote('');
+      }
     } finally {
       setIsApproving(false);
     }
