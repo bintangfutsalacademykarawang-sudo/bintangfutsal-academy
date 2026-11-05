@@ -6,6 +6,10 @@
 import express from 'express';
 import { createBackendRouter } from '../src/server/backendRouter';
 import { FirestoreBackendStore } from '../src/server/firestoreBackendStore';
+import { initFirebaseAdmin } from '../src/server/firebaseAdminInit';
+
+// Inisialisasi Firebase Admin untuk lingkungan Vercel Serverless
+initFirebaseAdmin();
 
 const app = express();
 app.use(express.json());

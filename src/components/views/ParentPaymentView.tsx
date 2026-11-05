@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RouteId, Student, Invoice, PaymentVerificationRequest } from '../../types';
-import { savePaymentVerificationRequest } from '../../firebase';
+import { 
+  savePaymentVerificationRequest, 
+  getPaymentVerificationRequest, 
+  formatFirestoreErrorMessage, 
+  auth 
+} from '../../firebase';
+import { getIdTokenResult, signInWithCustomToken } from 'firebase/auth';
+import { backendApi } from '../../services/backendApiAdapter';
 import { 
   QrCode, 
   CheckCircle2, 
@@ -125,6 +132,24 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [activeReqId, setActiveReqId] = useState<string>('');
+  const [activeRefNum, setActiveRefNum] = useState<string>('');
+
+  // Helper untuk memastikan token idempotensi stabil pada retry pengiriman
+  const getOrCreateIdempotencyTokens = () => {
+    let reqId = activeReqId;
+    let refNum = activeRefNum;
+    if (!reqId) {
+      const cleanStudentId = student?.id ? student.id.replace(/[^a-zA-Z0-9_-]/g, '') : 'SISWA';
+      reqId = `PVR-${cleanStudentId}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      setActiveReqId(reqId);
+    }
+    if (!refNum) {
+      refNum = `CONF-BFA-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+      setActiveRefNum(refNum);
+    }
+    return { reqId, refNum };
+  };
 
   const handleConfirmPaymentSubmitted = async () => {
     if (isSubmitting) return;
@@ -135,12 +160,85 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
       return;
     }
 
-    const refNum = `CONF-BFA-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-    const reqId = `PVR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const { reqId, refNum } = getOrCreateIdempotencyTokens();
     setIsSubmitting(true);
 
     try {
+      // 1. Verifikasi status autentikasi Firebase Auth sebelum mengirim
+      let currentUser = auth.currentUser;
+      if (!currentUser) {
+        // Coba pulihkan sesi Firebase Auth jika informasi wali tersedia
+        if (student?.phone && student?.id) {
+          try {
+            const authRes = await backendApi.loginParent(student.phone, student.id);
+            if (authRes && authRes.success && authRes.token && !authRes.token.startsWith('bfa_parent_token_')) {
+              await signInWithCustomToken(auth, authRes.token);
+              currentUser = auth.currentUser;
+            }
+          } catch (recoverErr) {
+            console.warn('[ParentPayment] Gagal memulihkan sesi Firebase Auth:', recoverErr);
+          }
+        }
+      }
+
+      if (!currentUser) {
+        const errText = 'Sesi autentikasi Firebase Auth tidak aktif (unauthenticated). Silakan keluar dan login kembali dengan WhatsApp & NIS.';
+        setSubmitError(errText);
+        onShowToast?.(errText, 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Verifikasi kesesuaian klaim token (studentId) dengan siswa aktif
+      try {
+        let tokenRes = await getIdTokenResult(currentUser, false);
+        let claims = tokenRes.claims;
+
+        if (claims.role !== 'parent' || claims.studentId !== student?.id) {
+          console.warn(`[ParentPayment] Klaim token (${claims.studentId}) tidak cocok dengan ananda (${student?.id}), me-refresh token...`);
+          if (student?.phone && student?.id) {
+            const authRes = await backendApi.loginParent(student.phone, student.id);
+            if (authRes && authRes.success && authRes.token && !authRes.token.startsWith('bfa_parent_token_')) {
+              await signInWithCustomToken(auth, authRes.token);
+              currentUser = auth.currentUser;
+              if (currentUser) {
+                tokenRes = await getIdTokenResult(currentUser, true);
+                claims = tokenRes.claims;
+              }
+            }
+          }
+        }
+
+        if (claims.role !== 'parent' || claims.studentId !== student?.id) {
+          const errText = `Akses ditolak: Sesi autentikasi tidak sesuai dengan data siswa ${childName} (${student?.id || ''}). Silakan login ulang.`;
+          setSubmitError(errText);
+          onShowToast?.(errText, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (claimErr: any) {
+        console.warn('[ParentPayment] Pengecekan klaim token gagal:', claimErr);
+      }
+
       const pvrMethod = selectedMethod === 'Tunai' ? 'Pembayaran Tunai di Lapangan' : selectedMethod;
+
+      // 3. Pengecekan idempotensi database: jika request dengan ID ini sudah pernah tersimpan,
+      // langsung transisikan ke halaman sukses tanpa membuat duplikasi atau memicu error update.
+      try {
+        const existingReq = await getPaymentVerificationRequest(reqId);
+        if (existingReq) {
+          setLastTrxId(existingReq.referenceNumber || refNum);
+          setSubmitError(null);
+          setStep('success');
+          onPaymentSuccess(existingReq.paymentMethod || pvrMethod, existingReq.referenceNumber || refNum, existingReq);
+          onShowToast?.(`Permintaan konfirmasi (${existingReq.referenceNumber || refNum}) sudah tercatat di antrean Admin BFA dan sedang menunggu verifikasi.`, 'info');
+          setIsSubmitting(false);
+          return;
+        }
+      } catch (idempErr) {
+        console.warn('[ParentPayment] Pengecekan keberadaan dokumen dilewati:', idempErr);
+      }
+
       const pvrData: PaymentVerificationRequest = {
         id: reqId,
         referenceNumber: refNum,
@@ -171,7 +269,7 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
       onShowToast?.(`✓ Konfirmasi pembayaran (${refNum}) berhasil terkirim ke antrean Admin BFA!`, 'success');
     } catch (err: any) {
       console.error('Simpan request konfirmasi pembayaran ke server gagal:', err);
-      const errMsg = 'Gagal mengirim konfirmasi ke server. Periksa koneksi internet, lalu coba lagi.';
+      const errMsg = formatFirestoreErrorMessage(err);
       setSubmitError(errMsg);
       onShowToast?.(errMsg, 'error');
     } finally {
@@ -747,6 +845,8 @@ export const ParentPaymentView: React.FC<ParentPaymentViewProps> = ({
               disabled={isSubmitting}
               onClick={() => {
                 setSubmitError(null);
+                setActiveReqId('');
+                setActiveRefNum('');
                 setStep('checkout');
               }}
               className="w-full py-2 bg-transparent hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition disabled:opacity-50"

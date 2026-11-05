@@ -14,13 +14,10 @@ import { normalizePhoneNumber } from '../utils/phoneUtils';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp();
-  } catch (e: any) {
-    console.warn('Firebase Admin init notice:', e?.message || 'Init skipped');
-  }
-}
+import { initFirebaseAdmin } from './firebaseAdminInit';
+import { generateFirebaseCustomTokenKeyless, WifSignerConfig } from './keylessWifSigner';
+
+initFirebaseAdmin();
 import { 
   Student, 
   Invoice, 
@@ -209,6 +206,9 @@ export class InMemoryBackendStore implements BackendDataStore {
   }
 
   // Debug Helpers
+  getAllPaymentVerifications(): PaymentVerificationRequest[] {
+    return Array.from(this.paymentVerifications.values());
+  }
   getAllCashMutations(): CashMutation[] {
     return Array.from(this.cashMutations.values());
   }
@@ -570,6 +570,9 @@ export class TrustedBackendService {
     phone: string;
     studentId?: string;
     password?: string;
+    oidcToken?: string;
+    wifConfig?: WifSignerConfig;
+    customTokenSigner?: (p: { uid: string; claims: Record<string, any> }) => Promise<string>;
   }): Promise<ParentAuthResult> {
     const normalizedPhone = normalizePhoneNumber(params.phone);
     if (!normalizedPhone) {
@@ -652,40 +655,89 @@ export class TrustedBackendService {
     const matchedIds = matchingStudents.map(s => s.id);
     const opaqueUid = 'parent_' + crypto.createHash('sha256').update(`bfa_parent_uid_${normalizedPhone}`).digest('hex').slice(0, 24);
 
-    const isEmulatorOrTest = process.env.NODE_ENV === 'test' || 
+    const isProduction = this.env === 'production' || process.env.NODE_ENV === 'production';
+    const isEmulatorOrTest = !isProduction && (
+      this.env === 'staging' || 
+      process.env.NODE_ENV === 'test' || 
+      process.env.NODE_ENV === 'development' ||
       process.env.VITE_USE_EMULATOR === 'true' || 
-      !!process.env.FIREBASE_AUTH_EMULATOR_HOST;
+      !!process.env.FIREBASE_AUTH_EMULATOR_HOST
+    );
 
-    let customToken = '';
     const claims = {
       role: 'parent',
       studentId: targetStudent.id,
       studentIds: matchedIds,
     };
 
-    if (admin.apps.length) {
+    let customToken = '';
+
+    // 1. Injeksi signer eksternal (misal untuk mock dalam unit/integration testing)
+    if (params.customTokenSigner) {
       try {
-        customToken = await admin.auth().createCustomToken(opaqueUid, claims);
-      } catch (adminErr: any) {
+        customToken = await params.customTokenSigner({ uid: opaqueUid, claims });
+      } catch (signerErr: any) {
+        if (!isEmulatorOrTest) {
+          return {
+            success: false,
+            status: 'AUTH_TOKEN_FAILED',
+            message: 'Layanan autentikasi custom signer gagal menerbitkan token.',
+          };
+        }
+      }
+    }
+
+    // 2. Jalur Keyless Workload Identity Federation (WIF) / Vercel OIDC
+    if (!customToken) {
+      const hasWifConfig = Boolean(
+        params.wifConfig ||
+        ((process.env.GCP_WORKLOAD_IDENTITY_PROVIDER || process.env.VERCEL_OIDC_AUDIENCE) &&
+         (process.env.FIREBASE_SERVICE_ACCOUNT_EMAIL || process.env.FIREBASE_SERVICE_ACCOUNT_ID || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL))
+      );
+
+      if (hasWifConfig) {
+        try {
+          customToken = await generateFirebaseCustomTokenKeyless({
+            uid: opaqueUid,
+            claims,
+            config: params.wifConfig,
+            oidcToken: params.oidcToken,
+          });
+        } catch (wifErr: any) {
+          console.warn('[TrustedBackend] Keyless WIF signing attempt failed, falling back:', wifErr?.message);
+        }
+      }
+    }
+
+    // 3. Fallback ke Firebase Admin SDK (ADC / Service Account Env)
+    if (!customToken) {
+      if (!admin.apps.length) {
+        initFirebaseAdmin();
+      }
+      if (admin.apps.length) {
+        try {
+          customToken = await admin.auth().createCustomToken(opaqueUid, claims);
+        } catch (adminErr: any) {
+          if (isEmulatorOrTest) {
+            customToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
+          } else {
+            return {
+              success: false,
+              status: 'AUTH_TOKEN_FAILED',
+              message: 'Layanan autentikasi server (Firebase Token) gagal menerbitkan token resmi. Periksa konfigurasi WIF / izin signing server.',
+            };
+          }
+        }
+      } else {
         if (isEmulatorOrTest) {
           customToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
         } else {
           return {
             success: false,
             status: 'AUTH_TOKEN_FAILED',
-            message: 'Layanan autentikasi server (Firebase Token) gagal menerbitkan token resmi. Periksa izin signing server.',
+            message: 'Layanan Firebase Admin belum siap di server produksi.',
           };
         }
-      }
-    } else {
-      if (isEmulatorOrTest) {
-        customToken = `bfa_parent_token_${targetStudent.id}_${Date.now()}`;
-      } else {
-        return {
-          success: false,
-          status: 'AUTH_TOKEN_FAILED',
-          message: 'Layanan Firebase Admin belum siap di server produksi.',
-        };
       }
     }
 

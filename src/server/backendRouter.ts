@@ -65,7 +65,12 @@ export function createBackendRouter(options: RouterOptions = {}): Router {
     }
 
     try {
-      const appInstance = getApp('bfa-staging-admin-app');
+      let appInstance;
+      try {
+        appInstance = getApp('bfa-staging-admin-app');
+      } catch {
+        appInstance = getApp();
+      }
       const decoded = await getAuth(appInstance).verifyIdToken(token);
       return {
         uid: decoded.uid,
@@ -172,10 +177,14 @@ export function createBackendRouter(options: RouterOptions = {}): Router {
         });
       }
 
+      const oidcHeader = req.headers['x-vercel-oidc-token'];
+      const oidcToken = typeof oidcHeader === 'string' && oidcHeader.trim() ? oidcHeader.trim() : undefined;
+
       const result = await service.authenticateParentAndIssueToken({
         phone,
         studentId,
         password,
+        oidcToken,
       });
 
       if (!result.success) {

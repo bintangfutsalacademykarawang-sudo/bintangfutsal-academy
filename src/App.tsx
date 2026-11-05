@@ -115,8 +115,11 @@ import {
   deleteStudentFromFirestore,
   isFirestoreQuotaError,
   db,
+  auth,
   resolvedEnv
 } from './firebase';
+import { signInWithCustomToken } from 'firebase/auth';
+import { backendApi } from './services/backendApiAdapter';
 import {
   subscribeToBfaAuthState,
   signInWithBfaAdapter,
@@ -192,30 +195,43 @@ export default function App() {
       if (!isMounted) return;
 
       if (session && session.authUser) {
-        // 1. Firebase Auth has a verified Admin session
-        setCurrentUser(session.authUser);
-        setRole('admin');
-        setAuthState('authenticated');
-        try {
-          localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
-          localStorage.setItem('bfa_active_role', 'admin');
-        } catch {}
+        if (session.authUser.role === 'admin') {
+          // 1. Firebase Auth has a verified Admin session
+          setCurrentUser(session.authUser);
+          setRole('admin');
+          setAuthState('authenticated');
+          try {
+            localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
+            localStorage.setItem('bfa_active_role', 'admin');
+          } catch {}
 
-        // Ensure currentRoute is restored to an admin route, never stuck in a parent- route
-        setCurrentRoute((prev) => {
-          if (!prev || prev.startsWith('parent-')) {
-            try {
-              const savedRoute = localStorage.getItem('bfa_current_route');
-              if (savedRoute && !savedRoute.startsWith('parent-')) {
-                return savedRoute as RouteId;
-              }
-            } catch {}
-            return 'dashboard';
-          }
-          return prev;
-        });
+          // Ensure currentRoute is restored to an admin route, never stuck in a parent- route
+          setCurrentRoute((prev) => {
+            if (!prev || prev.startsWith('parent-')) {
+              try {
+                const savedRoute = localStorage.getItem('bfa_current_route');
+                if (savedRoute && !savedRoute.startsWith('parent-')) {
+                  return savedRoute as RouteId;
+                }
+              } catch {}
+              return 'dashboard';
+            }
+            return prev;
+          });
+        } else if (session.authUser.role === 'parent') {
+          // 2. Firebase Auth has a verified Parent session (Custom Token with claims.role === 'parent')
+          setCurrentUser(session.authUser);
+          setRole('parent');
+          setAuthState('authenticated');
+          try {
+            localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
+            localStorage.setItem('bfa_parent_session', JSON.stringify(session.authUser));
+            localStorage.setItem('bfa_active_role', 'parent');
+          } catch {}
+          setCurrentRoute((prev) => (prev && prev.startsWith('parent-') ? prev : 'parent-dashboard'));
+        }
       } else {
-        // 2. Firebase Auth has NO admin session.
+        // 3. Firebase Auth session is not available or unverified.
         // Check if there is an active verified Parent/Siswa session in localStorage.
         let recoveredParent: AuthUser | null = null;
         try {
@@ -2854,7 +2870,7 @@ Official Performance Report • BFA Karawang
   };
 
   // Switch active child for multi-student family accounts
-  const handleSwitchStudent = (newStudentId: string) => {
+  const handleSwitchStudent = async (newStudentId: string) => {
     const cleanNewId = newStudentId.trim().toUpperCase();
     const targetStudent = students.find((s) => s.id && s.id.trim().toUpperCase() === cleanNewId);
     if (!targetStudent) {
@@ -2868,6 +2884,19 @@ Official Performance Report • BFA Karawang
         showToast('Akses ditolak: Siswa ini bukan bagian dari akun keluarga Anda.', 'error');
         return;
       }
+    }
+
+    // Update Firebase Auth Custom Token to targetStudent so claims.studentId matches active child!
+    try {
+      const phoneToUse = targetStudent.phone || currentUser?.emailOrPhone || '';
+      if (phoneToUse && targetStudent.id) {
+        const res = await backendApi.loginParent(phoneToUse, targetStudent.id);
+        if (res && res.success && res.token && !res.token.startsWith('bfa_parent_token_')) {
+          await signInWithCustomToken(auth, res.token);
+        }
+      }
+    } catch (tokenErr) {
+      console.warn('[SwitchStudent] Pembaruan Firebase Custom Token untuk saudara:', tokenErr);
     }
 
     const updatedUser: AuthUser = {

@@ -7,6 +7,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createBackendRouter } from './src/server/backendRouter';
 import { FirestoreBackendStore } from './src/server/firestoreBackendStore';
+import { initFirebaseAdmin } from './src/server/firebaseAdminInit';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -16,6 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  initFirebaseAdmin();
   const app = express();
   app.use(express.json());
 

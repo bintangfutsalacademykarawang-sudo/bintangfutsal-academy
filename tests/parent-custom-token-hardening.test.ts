@@ -8,6 +8,7 @@ import {
   InMemoryBackendStore 
 } from '../src/server/trustedBackendService';
 import { signOutBfaAdapter, getBfaAdapterCurrentUser } from '../src/firebase/authAdapter';
+import { initFirebaseAdmin } from '../src/server/firebaseAdminInit';
 import admin from 'firebase-admin';
 
 async function runHardeningTestSuite() {
@@ -133,6 +134,13 @@ async function runHardeningTestSuite() {
     assert(!capturedUid.includes('6281299990001'), '3.3 UID tidak memuat format internasional mentah');
     assert(capturedClaims.role === 'parent', '3.4 Klaim role adalah "parent"');
     assert(capturedClaims.studentId === child1.student.id, '3.5 Klaim studentId sesuai dengan anak aktif');
+    assert(capturedClaims.parentPhone === undefined, '3.6 PII parentPhone TIDAK ADA dalam Custom Claims');
+    assert(capturedClaims.studentName === undefined, '3.7 PII studentName TIDAK ADA dalam Custom Claims');
+    assert(capturedClaims.classGroupId === undefined, '3.8 PII classGroupId TIDAK ADA dalam Custom Claims');
+    assert(
+      Object.keys(capturedClaims).sort().join(',') === 'role,studentId,studentIds',
+      '3.9 Custom Claims HANYA memuat role, studentId, dan studentIds'
+    );
   }
 
   // ------------------------------------------------------------------
@@ -181,6 +189,14 @@ async function runHardeningTestSuite() {
   console.log('\n--- 5. Pengujian Pembersihan Sesi Saat Logout ---');
   await signOutBfaAdapter();
   assert(getBfaAdapterCurrentUser() === null, '5.1 signOutBfaAdapter memastikan currentUser adalah null');
+
+  // ------------------------------------------------------------------
+  // 6. Pengujian Inisialisasi Firebase Admin & Signer Resolution Vercel
+  // ------------------------------------------------------------------
+  console.log('\n--- 6. Pengujian Inisialisasi Firebase Admin & Signer Resolution ---');
+  const app = initFirebaseAdmin();
+  assert(Boolean(app && app.name), '6.1 initFirebaseAdmin berhasil menginisialisasi atau mengambil app Firebase Admin aktif');
+  assert(app.options.projectId === 'future-wonder-jwh4c' || Boolean(app.options.projectId), '6.2 Target projectId terkonfigurasi ke project Firebase');
 
   console.log('\n======================================================================');
   console.log(`HASIL AKHIR: ${passed} Lulus, ${failed} Gagal`);

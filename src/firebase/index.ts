@@ -1980,6 +1980,51 @@ export function subscribeToSchedules(
 }
 
 // --- PAYMENT VERIFICATION REQUEST OPERATIONS ---
+export async function getPaymentVerificationRequest(
+  requestId: string
+): Promise<PaymentVerificationRequest | null> {
+  if (!requestId || typeof requestId !== 'string' || !requestId.trim()) return null;
+  try {
+    const reqRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, requestId.trim());
+    const snap = await getDoc(reqRef);
+    if (!snap.exists()) return null;
+    return {
+      ...(snap.data() as PaymentVerificationRequest),
+      id: snap.id,
+    };
+  } catch (err) {
+    console.warn('[Firestore] Gagal membaca permintaan verifikasi pembayaran:', err);
+    return null;
+  }
+}
+
+/**
+ * Memformat error Firestore menjadi pesan informatif yang spesifik dan akurat.
+ * Membedakan permission-denied, unauthenticated, resource-exhausted, unavailable, dan network error.
+ */
+export function formatFirestoreErrorMessage(error: any): string {
+  if (!error) return 'Terjadi kesalahan sistem yang tidak diketahui.';
+  const code = (error?.code || '').toLowerCase();
+  const msg = (error?.message || String(error)).toLowerCase();
+
+  if (code.includes('permission-denied') || msg.includes('permission-denied') || msg.includes('missing or insufficient permissions')) {
+    return 'Akses ditolak oleh aturan keamanan database (permission-denied). Pastikan akun Anda telah terverifikasi sebagai Orang Tua dari siswa ini.';
+  }
+  if (code.includes('unauthenticated') || msg.includes('unauthenticated')) {
+    return 'Sesi autentikasi Firebase Auth tidak aktif (unauthenticated). Silakan login kembali dengan WhatsApp & NIS.';
+  }
+  if (code.includes('resource-exhausted') || msg.includes('resource-exhausted') || msg.includes('quota') || msg.includes('429')) {
+    return 'Kapasitas database server sedang mencapai batas maksimal (resource-exhausted). Mohon tunggu beberapa saat sebelum mencoba lagi.';
+  }
+  if (code.includes('unavailable') || msg.includes('unavailable')) {
+    return 'Layanan database server sedang sibuk atau tidak tersedia sementara (unavailable). Silakan coba beberapa saat lagi.';
+  }
+  if (msg.includes('offline') || msg.includes('network') || msg.includes('failed to fetch')) {
+    return 'Gagal terhubung ke server database. Periksa koneksi internet Anda, lalu coba lagi.';
+  }
+  return `Gagal memproses data ke server: ${error?.message || error}.`;
+}
+
 export async function savePaymentVerificationRequest(
   request: PaymentVerificationRequest
 ): Promise<void> {
@@ -1989,15 +2034,29 @@ export async function savePaymentVerificationRequest(
     }
     const cleanId = request.id.trim();
     const reqRef = doc(db, PAYMENT_VERIFICATIONS_COLLECTION, cleanId);
+    
+    // Pemeriksaan idempotency: jika dokumen konfirmasi ini sudah pernah tersimpan,
+    // jangan overwrite atau trigger 'allow update' yang dibatasi untuk Admin saja.
+    try {
+      const existingSnap = await getDoc(reqRef);
+      if (existingSnap.exists()) {
+        console.info(`[PaymentVerification] Dokumen ${cleanId} sudah tersimpan di Firestore (Idempotent).`);
+        return;
+      }
+    } catch (checkErr) {
+      // Abaikan jika error pembacaan awal karena izin baca sebelum dokumen dibuat
+      console.warn('[PaymentVerification] Pengecekan idempotensi awal dilewati:', checkErr);
+    }
+
     const nowIso = new Date().toISOString();
+    // Gunakan setDoc murni tanpa { merge: true } agar dievaluasi sebagai 'create' pada firestore.rules
     await setDoc(
       reqRef,
       cleanForFirestore({
         ...request,
         createdAt: request.createdAt || nowIso,
         updatedAt: nowIso,
-      }),
-      { merge: true }
+      })
     );
   } catch (error) {
     console.error('Failed to save payment verification request to Firestore:', error);

@@ -179,8 +179,7 @@ export async function ensureSyntheticAccountProvisioned(
     claims = {
       role: 'parent',
       studentId: metadata?.studentId || 'BFA-001',
-      studentName: metadata?.studentName || 'Siswa BFA',
-      ...(metadata?.phone ? { phone: metadata.phone } : {}),
+      studentIds: [metadata?.studentId || 'BFA-001'],
     };
   }
 
@@ -393,27 +392,49 @@ export function subscribeToBfaAuthState(
 
       // 3. Verifikasi otorisasi Admin yang sah
       const isAdmin = isBfaAdminUser(claims, user);
-      if (!isAdmin) {
-        // PERLINDUNGAN KEAMANAN: Pengguna Firebase Auth yang bukan Admin TIDAK BOLEH
-        // secara diam-diam dijadikan 'parent' (akan memicu Data Siswa Tidak Ditemukan).
-        // Sesi ditolak fail-closed dan diarahkan kembali ke login.
-        console.warn('[Auth Adapter State] Pengguna Firebase Auth tidak memiliki izin Admin yang sah:', user.email);
-        onState(null);
+      if (isAdmin) {
+        const authUser: AuthUser = {
+          role: 'admin',
+          name: resolveAdminDisplayName(user),
+          emailOrPhone: user.email || 'admin@bfahub.internal',
+        };
+
+        onState({
+          user,
+          authUser,
+          claims,
+          token: tokenRes.token,
+        });
         return;
       }
 
-      const authUser: AuthUser = {
-        role: 'admin',
-        name: resolveAdminDisplayName(user),
-        emailOrPhone: user.email || 'admin@bfahub.internal',
-      };
+      // 4. Verifikasi otorisasi Parent yang sah (Custom Token dengan role: 'parent' dan studentId aktif)
+      const isParent = claims.role === 'parent' && typeof claims.studentId === 'string' && (claims.studentId as string).trim().length > 0;
+      if (isParent) {
+        const studentId = (claims.studentId as string).trim();
+        const studentName = typeof claims.studentName === 'string' ? (claims.studentName as string) : undefined;
+        const parentPhone = typeof claims.parentPhone === 'string' ? (claims.parentPhone as string) : (user.phoneNumber || user.email || '');
 
-      onState({
-        user,
-        authUser,
-        claims,
-        token: tokenRes.token,
-      });
+        const authUser: AuthUser = {
+          role: 'parent',
+          name: studentName ? `Wali ${studentName}` : 'Orang Tua Siswa',
+          emailOrPhone: parentPhone,
+          studentId,
+          studentName,
+        };
+
+        onState({
+          user,
+          authUser,
+          claims,
+          token: tokenRes.token,
+        });
+        return;
+      }
+
+      // PERLINDUNGAN KEAMANAN: Pengguna Firebase Auth yang bukan Admin maupun Parent yang sah ditolak fail-closed
+      console.warn('[Auth Adapter State] Pengguna Firebase Auth tidak memiliki izin Admin atau Parent yang sah:', user.uid);
+      onState(null);
     } catch (err) {
       console.warn('[Auth Adapter State] Gagal memulihkan sesi autentikasi:', err);
       onState(null);
