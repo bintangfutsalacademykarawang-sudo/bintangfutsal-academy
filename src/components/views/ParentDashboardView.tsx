@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { RouteId, Invoice, Student, Attendance, TrainingSchedule, PaymentVerificationRequest } from '../../types';
+import { getScheduleStatus } from '../../utils/scheduleStatusHelper';
 import { 
   CalendarDays, 
   CheckCircle2, 
@@ -467,12 +468,15 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
         ) : (
           <div className="space-y-2.5">
             {displaySchedules.map((sch) => {
+              const liveStatus = getScheduleStatus(sch);
               const statusColor = 
-                sch.status === 'Sedang Berjalan' 
+                liveStatus === 'Sedang Berjalan' 
                   ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
-                  : sch.status === 'Akan Datang'
-                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                  : 'bg-slate-100 text-slate-600 border border-slate-200';
+                  : liveStatus === 'Selesai'
+                  ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                  : liveStatus === 'Dibatalkan'
+                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                  : 'bg-blue-100 text-blue-800 border border-blue-300';
 
               return (
                 <div
@@ -486,7 +490,7 @@ export const ParentDashboardView: React.FC<ParentDashboardViewProps> = ({
                         Kelas {sch.classGroupId}
                       </span>
                       <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${statusColor}`}>
-                        {sch.status}
+                        {liveStatus}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-600 text-[11px]">

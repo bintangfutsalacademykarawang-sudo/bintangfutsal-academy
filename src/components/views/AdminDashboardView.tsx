@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { RouteId, Student, CashMutation, Invoice, Attendance, TrainingSchedule } from '../../types';
+import { getScheduleStatus } from '../../utils/scheduleStatusHelper';
 import { 
   Users, 
   UserCheck, 
@@ -407,15 +408,22 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 border border-blue-200 rounded-lg text-xs font-black">
                       Kelas {sch.classGroupId}
                     </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        sch.status === 'Sedang Berjalan'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                          : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                      }`}
-                    >
-                      {sch.status}
-                    </span>
+                    {(() => {
+                      const liveStatus = getScheduleStatus(sch);
+                      const badgeClass = 
+                        liveStatus === 'Sedang Berjalan' 
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                          : liveStatus === 'Selesai'
+                          ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                          : liveStatus === 'Dibatalkan'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                          : 'bg-indigo-100 text-indigo-800 border border-indigo-200';
+                      return (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeClass}`}>
+                          {liveStatus}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <div>

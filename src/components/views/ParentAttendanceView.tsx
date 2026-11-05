@@ -1,6 +1,7 @@
 import React from 'react';
 import { RouteId, Student, Invoice, Attendance, TrainingSchedule } from '../../types';
 import { CheckCircle2, AlertCircle, CalendarDays, ArrowRight, Clock, MapPin, Sparkles } from 'lucide-react';
+import { getScheduleStatus } from '../../utils/scheduleStatusHelper';
 
 interface ParentAttendanceViewProps {
   student?: Student;
@@ -133,11 +134,28 @@ export const ParentAttendanceView: React.FC<ParentAttendanceViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 self-start sm:self-auto">
-                    {!isRecorded ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                        AKAN DATANG
-                      </span>
-                    ) : isHadir ? (
+                    {!isRecorded ? (() => {
+                      const liveStatus = getScheduleStatus(sch);
+                      if (liveStatus === 'Selesai') {
+                        return (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            SELESAI (TIDAK HADIR)
+                          </span>
+                        );
+                      } else if (liveStatus === 'Sedang Berjalan') {
+                        return (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                            SEDANG BERJALAN
+                          </span>
+                        );
+                      } else {
+                        return (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            AKAN DATANG
+                          </span>
+                        );
+                      }
+                    })() : isHadir ? (
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
                           isPaid

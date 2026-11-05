@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Attendance, TrainingSchedule, Student, Invoice } from '../../types';
 import { ALL_KU_CATEGORIES } from '../../data/initialData';
+import { getScheduleStatus } from '../../utils/scheduleStatusHelper';
 import { 
   Fingerprint, 
   CheckCircle2, 
@@ -278,15 +279,22 @@ export const AdminAttendanceView: React.FC<AdminAttendanceViewProps> = ({
                           </div>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              sch.status === 'Sedang Berjalan'
-                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                : 'bg-blue-100 text-blue-800 border border-blue-200'
-                            }`}
-                          >
-                            {sch.status}
-                          </span>
+                          {(() => {
+                            const liveStatus = getScheduleStatus(sch);
+                            const badgeClass = 
+                              liveStatus === 'Sedang Berjalan' 
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                                : liveStatus === 'Selesai'
+                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                : liveStatus === 'Dibatalkan'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : 'bg-blue-100 text-blue-800 border border-blue-200';
+                            return (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}`}>
+                                {liveStatus}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5">

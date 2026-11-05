@@ -206,7 +206,49 @@ export async function ensureSyntheticAccountProvisioned(
 }
 
 /**
- * Melakukan sign-in melalui Firebase Auth Emulator menggunakan kredensial BFA HUB.
+ * Memeriksa apakah pengguna Firebase Auth memiliki otorisasi Admin yang sah.
+ * 
+ * ATURAN KEAMANAN PRODUKSI:
+ * HAK ADMIN WAJIB berdasarkan custom claims Firebase yang sah:
+ * - claims.admin === true
+ * - atau claims.role === 'admin'
+ * 
+ * DILARANG KERAS memberikan hak Admin hanya berdasarkan:
+ * - alamat email (misal admin@bfa.my.id atau edysun@bfahub.internal tanpa claims);
+ * - username;
+ * - nama tampilan;
+ * - localStorage;
+ * - identifier sintetis.
+ */
+export function isBfaAdminUser(
+  claims: Record<string, any> | undefined | null,
+  _user?: User | null
+): boolean {
+  if (!claims || typeof claims !== 'object') {
+    return false;
+  }
+  return claims.admin === true || (claims.admin as any) === 'true' || claims.role === 'admin';
+}
+
+/**
+ * Menentukan nama tampilan resmi Admin berdasarkan data user atau email.
+ */
+export function resolveAdminDisplayName(user: User, fallbackName?: string): string {
+  if (user.displayName && user.displayName.trim()) {
+    return user.displayName.trim();
+  }
+  if (fallbackName && fallbackName.trim()) {
+    return fallbackName.trim();
+  }
+  const email = (user.email || '').trim().toLowerCase();
+  if (email.includes('edysun')) {
+    return 'Coach Edysun';
+  }
+  return 'Admin BFA';
+}
+
+/**
+ * Melakukan sign-in melalui Firebase Auth Emulator atau Production menggunakan kredensial BFA HUB.
  * Menghasilkan sesi Auth resmi Firebase dengan custom claims yang terbaca oleh Firestore Security Rules.
  */
 export async function signInWithBfaAdapter(
@@ -238,11 +280,17 @@ export async function signInWithBfaAdapter(
     const claims = tokenResult.claims;
     const token = await cred.user.getIdToken(true);
 
-    const mappedRole: Role = claims.role === 'admin' || role === 'admin' ? 'admin' : 'parent';
+    const isAdmin = isBfaAdminUser(claims, cred.user);
+    if (role === 'admin' && !isAdmin) {
+      throw new Error('Akses ditolak: Akun tidak memiliki otorisasi custom claims Admin yang sah (admin: true atau role: admin).');
+    }
+    const mappedRole: Role = isAdmin ? 'admin' : 'parent';
     const authUser: AuthUser = {
       role: mappedRole,
-      name: cred.user.displayName || credentials.staffName || credentials.studentName || (mappedRole === 'admin' ? 'Admin BFA' : 'Wali Siswa'),
-      emailOrPhone: credentials.identifier,
+      name: mappedRole === 'admin'
+        ? resolveAdminDisplayName(cred.user, credentials.staffName)
+        : (credentials.studentName || cred.user.displayName || 'Wali Siswa'),
+      emailOrPhone: cred.user.email || credentials.identifier,
       ...(credentials.studentId ? { studentId: credentials.studentId } : {}),
       ...(credentials.studentName ? { studentName: credentials.studentName } : {}),
     };
@@ -264,7 +312,7 @@ export async function signInWithBfaAdapter(
       return {
         user: { uid: 'test-uid', email } as any,
         authUser,
-        claims: { role },
+        claims: role === 'admin' ? { role: 'admin', admin: true } : { role: 'parent' },
         token: role === 'admin' ? 'bfa_admin_token_test' : 'bfa_parent_token_test',
       };
     }
@@ -273,11 +321,14 @@ export async function signInWithBfaAdapter(
 }
 
 /**
- * Logout sesi aktif dari Firebase Auth.
+ * Logout sesi aktif dari Firebase Auth dan bersihkan seluruh kunci sesi Admin lokal.
+ * Tidak menghapus 'bfa_parent_session' agar akun Parent yang sedang tidak aktif tetap aman.
  */
 export async function signOutBfaAdapter(): Promise<void> {
   try {
     localStorage.removeItem('bfa_auth_user');
+    localStorage.removeItem('bfa_active_role');
+    localStorage.removeItem('bfa_current_route');
   } catch {}
   if (auth.currentUser) {
     await signOut(auth);
@@ -301,7 +352,8 @@ export async function getBfaAdapterCurrentClaims(): Promise<Record<string, any> 
 }
 
 /**
- * Menyimak perubahan status autentikasi Firebase Auth dan mengekstrak klaim peran secara otomatis.
+ * Menyimak perubahan status autentikasi Firebase Auth dan memulihkan sesi Admin dengan verifikasi klaim yang ketat.
+ * Mencegah pengguna Admin salah dipetakan menjadi 'parent' saat me-refresh browser.
  */
 export function subscribeToBfaAuthState(
   onState: (session: BfaAuthAdapterSession | null) => void
@@ -313,17 +365,35 @@ export function subscribeToBfaAuthState(
     }
 
     try {
-      const tokenRes = await getIdTokenResult(user, false);
-      const claims = tokenRes.claims;
-      const roleClaim = claims.role as string;
-      const mappedRole: Role = roleClaim === 'admin' ? 'admin' : 'parent';
+      // 1. Ambil claims dari token lokal
+      let tokenRes = await getIdTokenResult(user, false);
+      let claims = tokenRes.claims;
+
+      // 2. Jika klaim admin belum terbaca, force refresh ID token dari server Firebase
+      if (!isBfaAdminUser(claims, user)) {
+        try {
+          tokenRes = await getIdTokenResult(user, true);
+          claims = tokenRes.claims;
+        } catch (refreshErr) {
+          console.warn('[Auth Adapter State] Gagal refresh token claims:', refreshErr);
+        }
+      }
+
+      // 3. Verifikasi otorisasi Admin yang sah
+      const isAdmin = isBfaAdminUser(claims, user);
+      if (!isAdmin) {
+        // PERLINDUNGAN KEAMANAN: Pengguna Firebase Auth yang bukan Admin TIDAK BOLEH
+        // secara diam-diam dijadikan 'parent' (akan memicu Data Siswa Tidak Ditemukan).
+        // Sesi ditolak fail-closed dan diarahkan kembali ke login.
+        console.warn('[Auth Adapter State] Pengguna Firebase Auth tidak memiliki izin Admin yang sah:', user.email);
+        onState(null);
+        return;
+      }
 
       const authUser: AuthUser = {
-        role: mappedRole,
-        name: user.displayName || (roleClaim === 'admin' ? 'Admin BFA' : 'Pengguna BFA'),
-        emailOrPhone: user.email || '',
-        ...(claims.studentId ? { studentId: String(claims.studentId) } : {}),
-        ...(claims.studentName ? { studentName: String(claims.studentName) } : {}),
+        role: 'admin',
+        name: resolveAdminDisplayName(user),
+        emailOrPhone: user.email || 'admin@bfahub.internal',
       };
 
       onState({
@@ -333,7 +403,7 @@ export function subscribeToBfaAuthState(
         token: tokenRes.token,
       });
     } catch (err) {
-      console.warn('[Auth Adapter State] Gagal mengekstrak token claims:', err);
+      console.warn('[Auth Adapter State] Gagal memulihkan sesi autentikasi:', err);
       onState(null);
     }
   });

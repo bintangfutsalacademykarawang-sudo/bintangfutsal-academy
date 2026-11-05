@@ -162,7 +162,20 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
-  const [role, setRole] = useState<Role>('parent');
+  // Default role is derived safely from saved user session or defaults to 'admin'
+  // NEVER defaults to 'parent' blindly to prevent unintended redirect to Parent Portal during load
+  const [role, setRole] = useState<Role>(() => {
+    try {
+      const savedUser = localStorage.getItem('bfa_auth_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed.role === 'admin') return 'admin';
+        if (parsed.role === 'parent') return 'parent';
+      }
+    } catch {}
+    return 'admin';
+  });
+
   const [currentRoute, setCurrentRoute] = useState<RouteId>(() => {
     try {
       const savedRoute = localStorage.getItem('bfa_current_route');
@@ -179,18 +192,59 @@ export default function App() {
       if (!isMounted) return;
 
       if (session && session.authUser) {
+        // 1. Firebase Auth has a verified Admin session
         setCurrentUser(session.authUser);
-        setRole(session.authUser.role);
+        setRole('admin');
         setAuthState('authenticated');
         try {
           localStorage.setItem('bfa_auth_user', JSON.stringify(session.authUser));
+          localStorage.setItem('bfa_active_role', 'admin');
         } catch {}
+
+        // Ensure currentRoute is restored to an admin route, never stuck in a parent- route
+        setCurrentRoute((prev) => {
+          if (!prev || prev.startsWith('parent-')) {
+            try {
+              const savedRoute = localStorage.getItem('bfa_current_route');
+              if (savedRoute && !savedRoute.startsWith('parent-')) {
+                return savedRoute as RouteId;
+              }
+            } catch {}
+            return 'dashboard';
+          }
+          return prev;
+        });
       } else {
-        setCurrentUser(null);
-        setAuthState('unauthenticated');
+        // 2. Firebase Auth has NO admin session.
+        // Check if there is an active verified Parent/Siswa session in localStorage.
+        let recoveredParent: AuthUser | null = null;
         try {
-          localStorage.removeItem('bfa_auth_user');
+          const rawParent = localStorage.getItem('bfa_parent_session') || localStorage.getItem('bfa_auth_user');
+          if (rawParent) {
+            const parsed = JSON.parse(rawParent);
+            if (parsed && parsed.role === 'parent' && (parsed.studentId || parsed.emailOrPhone)) {
+              recoveredParent = parsed;
+            }
+          }
         } catch {}
+
+        if (recoveredParent) {
+          // Recover verified Parent session
+          setCurrentUser(recoveredParent);
+          setRole('parent');
+          setAuthState('authenticated');
+          setCurrentRoute((prev) => (prev && prev.startsWith('parent-') ? prev : 'parent-dashboard'));
+        } else {
+          // No valid session for either role: return to login cleanly
+          setCurrentUser(null);
+          setRole('admin');
+          setAuthState('unauthenticated');
+          try {
+            localStorage.removeItem('bfa_auth_user');
+            localStorage.removeItem('bfa_parent_session');
+            localStorage.removeItem('bfa_active_role');
+          } catch {}
+        }
       }
     });
 
@@ -299,6 +353,13 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('bfa_training_schedules', JSON.stringify(schedules)); } catch (e) { console.error(e); }
   }, [schedules]);
+
+  // Auto-refresh tick every 60 seconds to update live schedule statuses without page reload
+  const [, setStatusTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setStatusTick(t => t + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     try {
@@ -990,6 +1051,10 @@ export default function App() {
     setAuthState('authenticated');
     try {
       localStorage.setItem('bfa_auth_user', JSON.stringify(user));
+      localStorage.setItem('bfa_active_role', user.role);
+      if (user.role === 'parent') {
+        localStorage.setItem('bfa_parent_session', JSON.stringify(user));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1009,11 +1074,17 @@ export default function App() {
       if (st) {
         if (st.registrationStatus === 'MENUNGGU_VERIFIKASI') {
           setCurrentUser(null);
-          try { localStorage.removeItem('bfa_auth_user'); } catch {}
+          try {
+            localStorage.removeItem('bfa_auth_user');
+            localStorage.removeItem('bfa_parent_session');
+          } catch {}
           showToast('Pendaftaran Anda sedang menunggu verifikasi Admin BFA.', 'warning');
         } else if (st.registrationStatus === 'DITOLAK') {
           setCurrentUser(null);
-          try { localStorage.removeItem('bfa_auth_user'); } catch {}
+          try {
+            localStorage.removeItem('bfa_auth_user');
+            localStorage.removeItem('bfa_parent_session');
+          } catch {}
           showToast('Pendaftaran Anda belum disetujui. Silakan hubungi Admin BFA.', 'error');
         }
       }
@@ -1022,12 +1093,11 @@ export default function App() {
 
   // Logout is the only official way to switch account / role as requested
   const handleLogout = async () => {
-    if (resolvedEnv.isEmulator) {
-      try {
-        await signOutBfaAdapter();
-      } catch (e) {
-        console.warn('[Auth Adapter] Sign out notice:', e);
-      }
+    const isParentLogout = currentUser?.role === 'parent';
+    try {
+      await signOutBfaAdapter();
+    } catch (e) {
+      console.warn('[Auth Adapter] Sign out notice:', e);
     }
     setCurrentUser(null);
     setAuthState('unauthenticated');
@@ -1040,7 +1110,11 @@ export default function App() {
     setCapturedCameraData(null);
     try {
       localStorage.removeItem('bfa_auth_user');
+      localStorage.removeItem('bfa_active_role');
       localStorage.removeItem('bfa_current_route');
+      if (isParentLogout) {
+        localStorage.removeItem('bfa_parent_session');
+      }
       sessionStorage.clear();
     } catch (e) {
       console.error(e);
@@ -1053,6 +1127,11 @@ export default function App() {
     if (currentUser?.role === 'parent' && !route.startsWith('parent-')) {
       setCurrentRoute('parent-dashboard');
       showToast('Akses ditolak: Portal Orang Tua tidak memiliki izin membuka modul manajemen admin.', 'warning');
+      return;
+    }
+    // Route guard: akun admin tidak diarahkan ke rute parent kecuali melalui simulasi eksplisit
+    if (currentUser?.role === 'admin' && route.startsWith('parent-')) {
+      setCurrentRoute('dashboard');
       return;
     }
     setCurrentRoute(route);
@@ -2178,6 +2257,7 @@ export default function App() {
           setCurrentUser(updatedAuthUser);
           try {
             localStorage.setItem('bfa_auth_user', JSON.stringify(updatedAuthUser));
+            localStorage.setItem('bfa_parent_session', JSON.stringify(updatedAuthUser));
           } catch {}
         }
 
@@ -2800,6 +2880,7 @@ Official Performance Report • BFA Karawang
     setCurrentUser(updatedUser);
     try {
       localStorage.setItem('bfa_auth_user', JSON.stringify(updatedUser));
+      localStorage.setItem('bfa_parent_session', JSON.stringify(updatedUser));
     } catch {}
     showToast(`✓ Berhasil beralih ke portal ananda ${targetStudent.name} (${targetStudent.id}).`, 'success');
   };
