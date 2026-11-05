@@ -2419,14 +2419,14 @@ export default function App() {
       const adminName = currentUser?.name || 'Admin BFA';
       await approveStudentRegistration(studentId, adminName);
 
-      // Update state in memory
+      // Update state in memory (pure callback; cache is persisted reactively via useEffect([students]))
       setStudents((prev) =>
         prev.map((s) =>
           s.id === studentId
             ? {
                 ...s,
-                registrationStatus: 'DISETUJUI',
-                status: 'Aktif',
+                registrationStatus: 'DISETUJUI' as const,
+                status: 'Aktif' as const,
                 verifiedAt: new Date().toISOString(),
                 verifiedBy: adminName,
               }
@@ -2456,14 +2456,14 @@ export default function App() {
       const adminName = currentUser?.name || 'Admin BFA';
       await rejectStudentRegistration(studentId, adminName, reason);
 
-      // Update state in memory
+      // Update state in memory (pure callback; cache is persisted reactively via useEffect([students]))
       setStudents((prev) =>
         prev.map((s) =>
           s.id === studentId
             ? {
                 ...s,
-                registrationStatus: 'DITOLAK',
-                status: 'Non-Aktif',
+                registrationStatus: 'DITOLAK' as const,
+                status: 'Non-Aktif' as const,
                 rejectionReason: reason,
                 verifiedAt: new Date().toISOString(),
                 verifiedBy: adminName,

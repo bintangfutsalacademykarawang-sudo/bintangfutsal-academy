@@ -35,7 +35,7 @@ export async function callBackendApi<T = any>(
   token?: string
 ): Promise<T> {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-  
+
   try {
     const response = await fetch(url, {
       method,
@@ -43,13 +43,35 @@ export async function callBackendApi<T = any>(
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    const rawText = await response.text();
+    let data: any = null;
 
-    if (!response.ok) {
-      throw new Error(data.error?.message || data.message || `API Error: ${response.status} ${response.statusText}`);
+    if (rawText && rawText.trim().length > 0) {
+      if (contentType.includes('application/json') || rawText.trim().startsWith('{') || rawText.trim().startsWith('[')) {
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseErr) {
+          console.warn(`[BackendApiAdapter] Tanggapan bukan format JSON valid dari ${endpoint}:`, parseErr);
+        }
+      }
     }
 
-    return data;
+    if (!response.ok) {
+      const serverMsg =
+        data?.error?.message ||
+        data?.message ||
+        (typeof data?.error === 'string' ? data.error : null) ||
+        (rawText && rawText.length < 200 && !rawText.includes('<html') ? rawText.trim() : null) ||
+        `Layanan backend memberikan status HTTP ${response.status} (${response.statusText || 'Error'}).`;
+      throw new Error(serverMsg);
+    }
+
+    if (!data) {
+      throw new Error(`Tanggapan dari backend tidak berupa format JSON yang valid (HTTP ${response.status}).`);
+    }
+
+    return data as T;
   } catch (err: any) {
     console.error(`[BackendApiAdapter] Error calling ${endpoint}:`, err);
     throw new Error(err.message || 'Koneksi ke backend staging gagal. Transaksi dibatalkan (Fail-Closed).');

@@ -13085,6 +13085,25 @@ function createBackendRouter(options = {}) {
       });
     }
   });
+  router.use((_req, res) => {
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: "NOT_FOUND",
+        message: "Endpoint API tidak ditemukan."
+      }
+    });
+  });
+  router.use((err, _req, res, _next) => {
+    const statusCode = err?.statusCode || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: {
+        code: err?.code || "INTERNAL_ERROR",
+        message: err?.message || "Terjadi kesalahan internal pada server."
+      }
+    });
+  });
   return router;
 }
 

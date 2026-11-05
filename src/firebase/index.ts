@@ -502,6 +502,12 @@ export async function approveStudentRegistration(
       throw new Error(`Data calon siswa dengan ID ${cleanId} tidak ditemukan di database.`);
     }
 
+    const data = snap.data();
+    if (data?.registrationStatus === 'DISETUJUI' && data?.status === 'Aktif') {
+      // Idempotent: Record is already approved and active in Firestore
+      return;
+    }
+
     transaction.set(
       studentRef,
       {
@@ -535,6 +541,12 @@ export async function rejectStudentRegistration(
     const snap = await transaction.get(studentRef);
     if (!snap.exists()) {
       throw new Error(`Data calon siswa dengan ID ${cleanId} tidak ditemukan di database.`);
+    }
+
+    const data = snap.data();
+    if (data?.registrationStatus === 'DITOLAK' && data?.status === 'Non-Aktif') {
+      // Idempotent: Record is already rejected in Firestore
+      return;
     }
 
     transaction.set(

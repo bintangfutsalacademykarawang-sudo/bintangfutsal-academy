@@ -334,5 +334,32 @@ export function createBackendRouter(options: RouterOptions = {}): Router {
     }
   });
 
+  /**
+   * Express Catch-All 404 Handler for undefined API endpoints
+   */
+  router.use((_req: Request, res: Response) => {
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Endpoint API tidak ditemukan.',
+      },
+    });
+  });
+
+  /**
+   * Express Error Middleware for uncaught router errors
+   */
+  router.use((err: any, _req: Request, res: Response, _next: any) => {
+    const statusCode = err?.statusCode || 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: {
+        code: err?.code || 'INTERNAL_ERROR',
+        message: err?.message || 'Terjadi kesalahan internal pada server.',
+      },
+    });
+  });
+
   return router;
 }
