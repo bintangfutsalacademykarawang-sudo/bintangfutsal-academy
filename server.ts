@@ -21,22 +21,22 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Inisialisasi FirestoreBackendStore nyata untuk Staging (bfa-hub-staging)
-  // Gagal secara tertutup (Fail-Closed) jika kredensial / konfigurasi tidak tersedia.
+  const isProd = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const targetProject = isProd ? 'future-wonder-jwh4c' : (process.env.VITE_FIREBASE_PROJECT_ID || 'bfa-hub-staging');
+
   let store: FirestoreBackendStore;
   try {
-    store = new FirestoreBackendStore('bfa-hub-staging');
-    console.log('[BFA HUB Server] Berhasil menginisialisasi FirestoreBackendStore untuk bfa-hub-staging.');
+    store = new FirestoreBackendStore(targetProject);
+    console.log(`[BFA HUB Server] Berhasil menginisialisasi FirestoreBackendStore untuk ${targetProject}.`);
   } catch (err: any) {
-    console.error('[BFA HUB Server] FATAL: Gagal menghubungkan ke Firestore Staging Repository:', err.message);
+    console.error('[BFA HUB Server] FATAL: Gagal menghubungkan ke Firestore Repository:', err.message);
     process.exit(1);
   }
 
   // Mount Trusted Backend API Router dengan FirestoreBackendStore
-  const apiRouter = createBackendRouter({ store, env: 'staging' });
+  const apiRouter = createBackendRouter({ store, env: isProd ? 'production' : 'staging' });
   app.use('/api', apiRouter);
 
-  const isProd = process.env.NODE_ENV === 'production';
   const port = Number(process.env.PORT) || 3000;
 
   const distPath = path.resolve(__dirname, 'dist');

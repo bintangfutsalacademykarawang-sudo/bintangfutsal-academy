@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "NODE_ENV=test tsx tests/env-guard.test.ts && NODE_ENV=test tsx tests/attendance_and_login.test.ts && NODE_ENV=test tsx tests/session-recovery-refresh.test.ts",
+    "test": "NODE_ENV=test tsx tests/env-guard.test.ts && NODE_ENV=test tsx tests/attendance_and_login.test.ts && NODE_ENV=test tsx tests/session-recovery-refresh.test.ts && NODE_ENV=test tsx tests/counter-reconciliation.test.ts && NODE_ENV=test tsx tests/counter-emulator-integration.test.ts && NODE_ENV=test tsx tests/database-target-health.test.ts && NODE_ENV=test tsx tests/keyless-wif-signer.test.ts && NODE_ENV=test tsx tests/vercel-wif-service.test.ts",
     "test:staging": "npx tsx tests/staging-backend.test.ts && npx tsx tests/frontend-backend-integration.test.ts",
     "test:emulator": "tsx tests/emulator-synthetic.test.ts",
     "emulators:start": "firebase emulators:start --only auth,firestore",

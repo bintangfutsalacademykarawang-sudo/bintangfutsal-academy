@@ -41,6 +41,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
+import { AuthDiagnosticOverlay } from './components/modals/AuthDiagnosticOverlay';
 
 import { AdminDashboardView } from './components/views/AdminDashboardView';
 import { AdminRegistrationsView } from './components/views/AdminRegistrationsView';
@@ -2379,26 +2380,53 @@ export default function App() {
 
       showToast('Memproses alokasi nomor ID resmi & menyimpan berkas ke cloud...', 'info');
 
-      // 3. Strictly enforce MENUNGGU_VERIFIKASI and Non-Aktif
-      const payload: Omit<Student, 'id' | 'joinedDate'> & { id?: string } = {
-        ...data,
-        status: 'Non-Aktif', // Not active until approved by admin
-        registrationStatus: 'MENUNGGU_VERIFIKASI',
-        registrationDate: new Date().toISOString(),
-      };
-
-      const newStudent = await saveNewStudentWithAtomicCounter(
-        payload,
-        new Date().toISOString().split('T')[0]
-      );
-
-      // Only update local state AFTER Firestore transaction succeeds
-      setStudents((prev) => [newStudent, ...prev]);
+      // 3. Send registration to trusted server endpoint POST /api/students/register
+      let newStudent: Student;
       try {
-        localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students]));
+        const response = await fetch('/api/students/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: data.name,
+            nickname: data.nickname,
+            birthPlace: data.birthPlace,
+            birthDate: data.birthDate,
+            gender: data.gender,
+            parentName: data.parentName,
+            phone: data.phone,
+            classGroupId: data.classGroupId,
+            jerseyNumber: data.jerseyNumber,
+            position: data.position,
+            documents: data.documents,
+            customPassword: data.customPassword,
+          }),
+        });
+
+        const resData = await response.json();
+        if (!response.ok || !resData.success || !resData.student) {
+          throw new Error(resData.error?.message || 'Gagal mengirim pendaftaran ke server BFA.');
+        }
+
+        newStudent = resData.student;
+      } catch (serverErr: any) {
+        console.warn('[Public Registration API Notice]', serverErr?.message || serverErr);
+        // Fallback to client-side atomic allocation if server API is unreachable or running in static client mode
+        const payload: Omit<Student, 'id' | 'joinedDate'> & { id?: string } = {
+          ...data,
+          status: 'Non-Aktif',
+          registrationStatus: 'MENUNGGU_VERIFIKASI',
+          registrationDate: new Date().toISOString(),
+        };
+        newStudent = await saveNewStudentWithAtomicCounter(payload, new Date().toISOString().split('T')[0]);
+      }
+
+      // Only update local state AFTER Firestore transaction / API succeeds
+      setStudents((prev) => [newStudent, ...prev.filter((s) => s.id !== newStudent.id)]);
+      try {
+        localStorage.setItem('bfa_students', JSON.stringify([newStudent, ...students.filter((s) => s.id !== newStudent.id)]));
       } catch {}
 
-      peekNextStudentId().then((id) => setCandidateNextId(id));
+      peekNextStudentId().then((id) => setCandidateNextId(id)).catch(() => {});
 
       setIsStudentFormOpen(false);
 
@@ -3383,6 +3411,9 @@ Official Performance Report • BFA Karawang
           setNewlyRegisteredStudent(null);
         }}
       />
+
+      {/* Auth Diagnostic Overlay (Authenticated Admin Only) */}
+      <AuthDiagnosticOverlay currentUserRole={currentUser?.role} />
 
       {/* Toast Notification Container */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />

@@ -112,12 +112,16 @@ export function createBackendRouter(options: RouterOptions = {}): Router {
       firestoreAccessible = false;
     }
 
+    const activeProjectId = (store as any)?.projectId || (env === 'production' ? 'future-wonder-jwh4c' : 'bfa-hub-staging');
+    const activeDatabaseId = (store as any)?.databaseId || (env === 'production' ? 'ai-studio-bfahubbintangfut-e02f4d35-ecd3-486e-9ee5-9fa8b9a78283' : '(default)');
+
     const statusCode = firestoreAccessible ? 200 : 503;
     res.status(statusCode).json({
       status: firestoreAccessible ? 'READY' : 'DEGRADED',
       service: 'bfa-hub-trusted-backend',
       environment: env,
-      projectId: 'bfa-hub-staging',
+      projectId: activeProjectId,
+      databaseId: activeDatabaseId,
       firebaseAdminInitialized: true,
       firestoreAccessible,
       timestamp: new Date().toISOString(),

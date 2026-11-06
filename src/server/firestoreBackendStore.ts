@@ -8,83 +8,89 @@
 
 import { initializeApp, getApps, App, cert, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Firestore, Transaction } from 'firebase-admin/firestore';
+import { initFirebaseAdmin } from './firebaseAdminInit';
 import { BackendDataStore } from './trustedBackendService';
-import { Student, Invoice, Attendance, CashMutation, PaymentVerificationRequest } from '../types';
+import { Student, Invoice, Attendance, CashMutation, PaymentVerificationRequest, RegistrationStatus } from '../types';
 import { InvoicePayment } from '../types/finance';
 
+export const PRODUCTION_PROJECT_ID = 'future-wonder-jwh4c';
 export const STAGING_PROJECT_ID = 'bfa-hub-staging';
+export const PRODUCTION_DATABASE_ID = 'ai-studio-bfahubbintangfut-e02f4d35-ecd3-486e-9ee5-9fa8b9a78283';
+export const STAGING_DATABASE_ID = '(default)';
 
-export function assertStagingIsolationGuard(): void {
+export function assertStagingIsolationGuard(targetProject: string): void {
   const env = process.env;
-  const project = env.GCLOUD_PROJECT || env.FIREBASE_PROJECT || env.VITE_FIREBASE_PROJECT_ID;
-  if (project === 'future-wonder-jwh4c') {
-    throw new Error('[Firestore Store Guard] FATAL: Proyek produksi "future-wonder-jwh4c" terdeteksi! Akses dilarang keras.');
+  const configuredProject = env.GCLOUD_PROJECT || env.FIREBASE_PROJECT || env.VITE_FIREBASE_PROJECT_ID;
+  const isProd = env.NODE_ENV === 'production' || targetProject === PRODUCTION_PROJECT_ID;
+
+  if (!isProd && configuredProject === PRODUCTION_PROJECT_ID) {
+    throw new Error('[Firestore Store Guard] FATAL: Proyek produksi "future-wonder-jwh4c" terdeteksi pada mode staging! Akses dilarang keras.');
   }
 }
 
 export class FirestoreBackendStore implements BackendDataStore {
+  public readonly projectId: string;
+  public readonly databaseId: string;
   private db: Firestore;
 
-  constructor(projectId: string = STAGING_PROJECT_ID) {
-    assertStagingIsolationGuard();
-    if (projectId !== STAGING_PROJECT_ID && projectId !== 'demo-bfa-hub') {
-      throw new Error(`[Firestore Store] FATAL: Project ID "${projectId}" tidak valid untuk staging.`);
+  constructor(projectId: string = PRODUCTION_PROJECT_ID) {
+    assertStagingIsolationGuard(projectId);
+
+    if (projectId !== PRODUCTION_PROJECT_ID && projectId !== STAGING_PROJECT_ID && projectId !== 'demo-bfa-hub') {
+      throw new Error(`[Firestore Store] FATAL: Project ID "${projectId}" tidak valid.`);
     }
 
-    const apps = getApps();
-    const existing = apps.find(a => a.name === 'bfa-staging-admin-app');
-    let app: App;
-    if (existing) {
-      app = existing;
-    } else {
-      try {
-        if (projectId === STAGING_PROJECT_ID) {
-          const rawJsonEnv = process.env.FIREBASE_STAGING_SERVICE_ACCOUNT_JSON;
-          const isProd = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+    this.projectId = projectId;
 
-          if (!rawJsonEnv || !rawJsonEnv.trim().startsWith('{')) {
-            if (isProd) {
-              throw new Error('FATAL: Variabel lingkungan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON wajib diisi dengan Service Account JSON staging yang valid untuk bfa-hub-staging di production/cloud staging. Fallback ke applicationDefault() dilarang keras.');
+    if (projectId === PRODUCTION_PROJECT_ID) {
+      this.databaseId = PRODUCTION_DATABASE_ID;
+      const adminApp = initFirebaseAdmin();
+      this.db = getFirestore(adminApp, PRODUCTION_DATABASE_ID);
+    } else {
+      this.databaseId = STAGING_DATABASE_ID;
+      const apps = getApps();
+      const existing = apps.find(a => a.name === 'bfa-staging-admin-app');
+      let app: App;
+      if (existing) {
+        app = existing;
+      } else {
+        try {
+          if (projectId === STAGING_PROJECT_ID) {
+            const rawJsonEnv = process.env.FIREBASE_STAGING_SERVICE_ACCOUNT_JSON;
+            const isProd = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+
+            if (!rawJsonEnv || !rawJsonEnv.trim().startsWith('{')) {
+              if (isProd) {
+                throw new Error('FATAL: FIREBASE_STAGING_SERVICE_ACCOUNT_JSON wajib diisi untuk staging.');
+              } else {
+                console.warn('[FirestoreBackendStore] WARNING: Fallback applicationDefault() untuk preview lokal staging.');
+                app = initializeApp({
+                  credential: applicationDefault(),
+                  projectId: STAGING_PROJECT_ID,
+                }, 'bfa-staging-admin-app');
+              }
             } else {
-              console.warn('[FirestoreBackendStore] WARNING: FIREBASE_STAGING_SERVICE_ACCOUNT_JSON tidak ditemukan di development. Menggunakan applicationDefault() untuk preview lokal.');
+              const trimmed = rawJsonEnv.trim();
+              const parsed = JSON.parse(trimmed);
+              if (parsed.project_id === PRODUCTION_PROJECT_ID) {
+                throw new Error('FATAL: Kredensial produksi terdeteksi pada konfigurasi staging! Akses ditolak.');
+              }
               app = initializeApp({
-                credential: applicationDefault(),
+                credential: cert(parsed),
                 projectId: STAGING_PROJECT_ID,
               }, 'bfa-staging-admin-app');
             }
           } else {
-            const trimmed = rawJsonEnv.trim();
-            const parsed = JSON.parse(trimmed);
-            if (parsed.project_id === 'future-wonder-jwh4c' || parsed.project_id === 'production') {
-              throw new Error('FATAL: Kredensial produksi terdeteksi pada konfigurasi staging! Akses ditolak secara mutlak.');
-            }
-            if (parsed.project_id && parsed.project_id !== STAGING_PROJECT_ID) {
-              throw new Error(`FATAL: Project ID "${parsed.project_id}" tidak cocok dengan project staging resmi ("${STAGING_PROJECT_ID}").`);
-            }
-
             app = initializeApp({
-              credential: cert(parsed),
-              projectId: STAGING_PROJECT_ID,
+              projectId: 'demo-bfa-hub',
             }, 'bfa-staging-admin-app');
           }
-        } else {
-          app = initializeApp({
-            projectId: 'demo-bfa-hub',
-          }, 'bfa-staging-admin-app');
+        } catch (err: any) {
+          throw new Error(`[FirestoreBackendStore] FATAL: Gagal menginisialisasi Admin SDK: ${err.message}`);
         }
-
-        const activeProjId = app.options.projectId;
-        if (activeProjId === 'future-wonder-jwh4c') {
-          throw new Error('FATAL: Firebase Admin terinisialisasi ke project produksi future-wonder-jwh4c!');
-        }
-      } catch (err: any) {
-        throw new Error(
-          `[FirestoreBackendStore] FATAL: Gagal menginisialisasi Firebase Admin SDK untuk project "${projectId}". ` +
-          `Pastikan FIREBASE_STAGING_SERVICE_ACCOUNT_JSON disetel dengan benar. Detail: ${err.message}`
-        );
       }
+      this.db = getFirestore(app);
     }
-    this.db = getFirestore(app);
   }
 
   async getStudentCounter(): Promise<number> {
@@ -180,4 +186,99 @@ export class FirestoreBackendStore implements BackendDataStore {
   async runTransactionInFirestore<T>(updateFunction: (transaction: Transaction) => Promise<T>): Promise<T> {
     return await this.db.runTransaction(updateFunction);
   }
+
+  /**
+   * ATOMIC STUDENT REGISTRATION & COUNTER INCREMENT (FIREBASE ADMIN SDK TRANSACTION)
+   * Menjamin keterbacaan counter dan dokumen siswa secara atomik dalam 1 transaksi db.runTransaction().
+   * Invariansi Read-Before-Write dipatuhi secara ketat: seluruh transaction.get dilakukan sebelum transaction.set.
+   */
+  async registerStudentAtomic(
+    payload: Partial<Student>,
+    registeredByRole: 'admin' | 'public' = 'public'
+  ): Promise<{ student: Student; generatedId: string }> {
+    return await this.db.runTransaction(async (transaction: Transaction) => {
+      const counterRef = this.db.collection('system').doc('student_counter');
+      const studentsCollRef = this.db.collection('students');
+
+      // 1. READ PHASE: Read system counter doc inside transaction
+      const counterSnap = await transaction.get(counterRef);
+
+      // 2. READ PHASE: Scan existing students inside transaction to establish high-water mark sequence
+      let maxDocSeq = 0;
+      try {
+        const studentsSnap = await transaction.get(studentsCollRef);
+        studentsSnap.forEach((docSnap) => {
+          const rawId = docSnap.id || docSnap.data()?.id || '';
+          const match = String(rawId).match(/^BFA-(\d+)$/i);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxDocSeq) {
+              maxDocSeq = num;
+            }
+          }
+        });
+      } catch (err: any) {
+        throw new Error(
+          `[Atomic Transaction] Gagal membaca koleksi siswa dari Firestore Admin SDK: ${err?.message || err}. Registrasi dibatalkan untuk mencegah duplikasi.`
+        );
+      }
+
+      let currentSequence = Math.max(38, maxDocSeq);
+
+      if (counterSnap.exists) {
+        const data = counterSnap.data();
+        const dataSeq = typeof data?.lastSequence === 'number' ? data.lastSequence : (typeof data?.value === 'number' ? data.value : 0);
+        if (dataSeq > currentSequence) {
+          currentSequence = dataSeq;
+        }
+      }
+
+      let nextSequence = currentSequence + 1;
+      let candidateId = `BFA-${String(nextSequence).padStart(3, '0')}`;
+      let candidateRef = studentsCollRef.doc(candidateId);
+
+      // 3. READ PHASE: Check candidate document ID uniqueness inside transaction
+      let candidateSnap = await transaction.get(candidateRef);
+      let attempts = 0;
+      while (candidateSnap.exists && attempts < 100) {
+        attempts++;
+        nextSequence++;
+        candidateId = `BFA-${String(nextSequence).padStart(3, '0')}`;
+        candidateRef = studentsCollRef.doc(candidateId);
+        candidateSnap = await transaction.get(candidateRef);
+      }
+
+      if (candidateSnap.exists) {
+        throw new Error(`[Atomic Transaction] Konflik keunikan ID: Gagal menemukan ID siswa unik setelah ${attempts} percobaan.`);
+      }
+
+      const nowIso = new Date().toISOString();
+      const initialRegStatus: RegistrationStatus = registeredByRole === 'admin' ? 'DISETUJUI' : 'MENUNGGU_VERIFIKASI';
+
+      const finalStudent: Student = {
+        ...payload,
+        id: candidateId,
+        joinedDate: payload.joinedDate || nowIso.split('T')[0],
+        registrationStatus: initialRegStatus,
+        status: (payload.status as any) || 'Aktif',
+      } as Student;
+
+      // 4. WRITE PHASE: Execute all atomic commits (transaction.set) after all reads finish
+      transaction.set(
+        counterRef,
+        {
+          value: nextSequence,
+          lastSequence: nextSequence,
+          lastAllocatedId: candidateId,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+
+      transaction.set(candidateRef, finalStudent, { merge: true });
+
+      return { student: finalStudent, generatedId: candidateId };
+    });
+  }
 }
+
